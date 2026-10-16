@@ -1,5 +1,5 @@
 import { Notice, Platform } from 'obsidian'
-import type { RecipeProgressEntry, TaskInstance } from '../../../types'
+import type { RecipeProgressEntry, TaskInstance } from '@/types'
 import {
   Recipe,
   RecipeQualityCheck,
@@ -7,7 +7,8 @@ import {
   RecipeStep,
   createRecipeProgressKeyForInstance,
 } from '../services/RecipeService'
-import { t } from '../../../i18n'
+import { t } from '@/i18n'
+import RecipeReorderPointerDrag, { appendRecipeDragHandleIcon } from './RecipeReorderPointerDrag'
 
 let recipeRunPopoverId = 0
 
@@ -24,17 +25,21 @@ export class RecipeRunPopover {
   private popover: HTMLElement | null = null
   private outsideHandler: ((event: MouseEvent | TouchEvent) => void) | null = null
   private outsideHandlerDocument: Document | null = null
-  private draggedItem: { kind: 'steps' | 'quality'; index: number } | null = null
   private showToken = 0
   private escapeKeyHandler: ((event: KeyboardEvent) => void) | null = null
   private escapeKeyDocument: Document | null = null
   private anchor: HTMLElement | null = null
   private popoverId: string | null = null
+  private pointerDrag: RecipeReorderPointerDrag | null = null
 
   constructor(private readonly host: RecipeRunPopoverHost) {}
 
   close(restoreAnchorFocus = false): void {
     this.showToken += 1
+    // Escape can land mid-drag. The ghost lives on `body`, so removing the
+    // popover alone would leave it behind with no pointer events coming.
+    this.pointerDrag?.cancel()
+    this.pointerDrag = null
     this.popover?.remove()
     this.popover = null
     if (this.outsideHandler) {
@@ -80,7 +85,7 @@ export class RecipeRunPopover {
     } catch (error) {
       if (token !== this.showToken) return
       console.error('[RecipeRunPopover] Failed to load recipe', error)
-      new Notice(t('recipes.run.notices.loadFailed', 'レシピを読み込めませんでした'))
+      new Notice(t('recipes.run.notices.loadFailed', 'Failed to load recipe'))
       return
     }
     if (token !== this.showToken) return
@@ -115,8 +120,22 @@ export class RecipeRunPopover {
     this.anchor = anchor
     this.popoverId = popoverId
 
+    // Rewritten on every render so a drop always reorders the rows the user can
+    // actually see, not the ones that were on screen when the popover opened.
+    const reorderByKind = new Map<string, (fromIndex: number, toIndex: number) => void>()
+    const pointerDrag = new RecipeReorderPointerDrag({
+      rowSelector: '.recipe-run-step',
+      draggingClass: 'recipe-run-step--dragging',
+      dropBeforeClass: 'recipe-run-step--drop-before',
+      dropAfterClass: 'recipe-run-step--drop-after',
+      ghostClass: 'recipe-reorder-drag-ghost',
+      onReorder: (kind, fromIndex, toIndex) => reorderByKind.get(kind)?.(fromIndex, toIndex),
+    })
+    this.pointerDrag = pointerDrag
+
     const renderBody = () => {
       popover.empty()
+      reorderByKind.clear()
       const header = popover.createDiv( { cls: 'recipe-run-header' })
       const titleRow = header.createDiv( { cls: 'recipe-run-title-row' })
       titleRow.createDiv( {
@@ -128,8 +147,8 @@ export class RecipeRunPopover {
         cls: 'recipe-run-edit-button',
         attr: {
           type: 'button',
-          title: t('recipes.run.editRecipe', 'レシピを編集'),
-          'aria-label': t('recipes.run.editRecipe', 'レシピを編集'),
+          title: t('recipes.run.editRecipe', 'Edit recipe'),
+          'aria-label': t('recipes.run.editRecipe', 'Edit recipe'),
         },
       })
       this.appendEditIcon(editButton)
@@ -144,7 +163,7 @@ export class RecipeRunPopover {
         const goalSection = popover.createDiv({ cls: 'recipe-run-context recipe-run-goal' })
         goalSection.createDiv({
           cls: 'recipe-run-context-title',
-          text: t('recipes.run.goalLabel', '完了基準'),
+          text: t('recipes.run.goalLabel', 'Definition of done'),
         })
         goalSection.createDiv({ cls: 'recipe-run-context-text', text: recipe.goal.trim() })
       }
@@ -161,8 +180,8 @@ export class RecipeRunPopover {
         sectionHeader.createDiv({
           cls: 'recipe-run-section-title',
           text: kind === 'steps'
-            ? t('recipes.run.stepsLabel', '手順')
-            : t('recipes.run.qualityChecksLabel', '品質基準'),
+            ? t('recipes.run.stepsLabel', 'Steps')
+            : t('recipes.run.qualityChecksLabel', 'Quality checks'),
         })
         sectionHeader.createSpan({
           cls: 'recipe-run-section-summary',
@@ -176,12 +195,40 @@ export class RecipeRunPopover {
           cls: kind === 'steps' ? 'recipe-run-steps' : 'recipe-run-quality-checks',
         })
         const displayItems = this.applyStepOrder(items, order)
+        const commitReorder = (fromIndex: number, toIndex: number): void => {
+          const nextOrder = this.reorderStepOrder(displayItems, fromIndex, toIndex)
+          const now = Date.now()
+          if (kind === 'steps') {
+            stepOrder = nextOrder
+            stepsUpdatedAt = now
+          } else {
+            qualityCheckOrder = nextOrder
+            qualityChecksUpdatedAt = now
+          }
+          this.saveProgress(
+            recipe,
+            progressKey,
+            dateKey,
+            checked,
+            stepOrder,
+            completedAtByStepId,
+            checkedQuality,
+            qualityCheckOrder,
+            completedAtByQualityCheckId,
+            stepsUpdatedAt,
+            qualityChecksUpdatedAt,
+            now,
+          )
+          this.host.onProgressChanged()
+          renderBody()
+        }
+        reorderByKind.set(kind, commitReorder)
         if (displayItems.length === 0) {
           list.createDiv({
             cls: 'recipe-empty-state',
             text: kind === 'steps'
-              ? t('recipes.run.emptySteps', '手順がありません')
-              : t('recipes.run.emptyQualityChecks', '品質基準がありません'),
+              ? t('recipes.run.emptySteps', 'No steps')
+              : t('recipes.run.emptyQualityChecks', 'No quality checks'),
           })
         }
         displayItems.forEach((item, index) => {
@@ -189,147 +236,70 @@ export class RecipeRunPopover {
             cls: kind === 'steps' ? 'recipe-run-step' : 'recipe-run-step recipe-run-quality-check',
             attr: { 'data-step-index': String(index), 'data-recipe-list-kind': kind },
           })
-        row.addEventListener('dragover', (event) => {
-          if (!this.draggedItem || this.draggedItem.kind !== kind || this.draggedItem.index === index) return
-          event.preventDefault()
-          row.classList.add('recipe-run-step--drop-target')
-        })
-        row.addEventListener('dragleave', () => {
-          row.classList.remove('recipe-run-step--drop-target')
-        })
-        row.addEventListener('drop', (event) => {
-          event.preventDefault()
-          row.classList.remove('recipe-run-step--drop-target')
-          if (!this.draggedItem || this.draggedItem.kind !== kind) return
-          const fromIndex = this.draggedItem.index
-          this.draggedItem = null
-          const nextOrder = this.reorderStepOrder(displayItems, fromIndex, index)
-          const now = Date.now()
-          if (kind === 'steps') {
-            stepOrder = nextOrder
-            stepsUpdatedAt = now
-          } else {
-            qualityCheckOrder = nextOrder
-            qualityChecksUpdatedAt = now
-          }
-          this.saveProgress(
-            recipe,
-            progressKey,
-            dateKey,
-            checked,
-            stepOrder,
-            completedAtByStepId,
-            checkedQuality,
-            qualityCheckOrder,
-            completedAtByQualityCheckId,
-            stepsUpdatedAt,
-            qualityChecksUpdatedAt,
-            now,
-          )
-          this.host.onProgressChanged()
-          renderBody()
-        })
-        const handle = row.createEl('button', {
-          cls: 'recipe-step-drag-handle',
-          attr: {
-            type: 'button',
-            draggable: 'true',
-            title: t('recipes.run.reorderStep', 'ドラッグして並び替え'),
-            'aria-label': t('recipes.run.reorderStep', 'ドラッグして並び替え'),
-            'aria-keyshortcuts': 'Alt+ArrowUp Alt+ArrowDown',
-          },
-        })
-        this.appendDragHandleIcon(handle)
-        handle.addEventListener('click', (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-        })
-        handle.addEventListener('keydown', (event) => {
-          if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
-          event.preventDefault()
-          const targetIndex = event.key === 'ArrowUp' ? index - 1 : index + 1
-          if (targetIndex < 0 || targetIndex >= displayItems.length) return
-          const nextOrder = this.reorderStepOrder(displayItems, index, targetIndex)
-          const now = Date.now()
-          if (kind === 'steps') {
-            stepOrder = nextOrder
-            stepsUpdatedAt = now
-          } else {
-            qualityCheckOrder = nextOrder
-            qualityChecksUpdatedAt = now
-          }
-          this.saveProgress(
-            recipe,
-            progressKey,
-            dateKey,
-            checked,
-            stepOrder,
-            completedAtByStepId,
-            checkedQuality,
-            qualityCheckOrder,
-            completedAtByQualityCheckId,
-            stepsUpdatedAt,
-            qualityChecksUpdatedAt,
-            now,
-          )
-          this.host.onProgressChanged()
-          renderBody()
-          popover.querySelectorAll<HTMLButtonElement>(
-            `.recipe-run-section--${kind} .recipe-step-drag-handle`,
-          )[targetIndex]?.focus()
-        })
-        handle.addEventListener('dragstart', (event) => {
-          this.draggedItem = { kind, index }
-          row.classList.add('recipe-run-step--dragging')
-          event.dataTransfer?.setData('text/plain', String(index))
-          if (event.dataTransfer) {
-            event.dataTransfer.effectAllowed = 'move'
-          }
-        })
-        handle.addEventListener('dragend', () => {
-          this.draggedItem = null
-          row.classList.remove('recipe-run-step--dragging')
-          list.querySelectorAll('.recipe-run-step--drop-target')
-            .forEach((element) => element.classList.remove('recipe-run-step--drop-target'))
-        })
-        const label = row.createEl('label', { cls: 'recipe-run-step-check' })
-        const checkbox = label.createEl('input', { attr: { type: 'checkbox' } })
-        checkbox.checked = checkedIds.has(item.id)
-        label.createSpan({ cls: 'recipe-run-step-text', text: item.text })
-        checkbox.addEventListener('change', () => {
-          const now = Date.now()
-          if (kind === 'steps') {
-            stepsUpdatedAt = now
-          } else {
-            qualityChecksUpdatedAt = now
-          }
-          if (checkbox.checked) {
-            checkedIds.add(item.id)
-            if (!completedAt[item.id]) {
-              completedAt[item.id] = new Date(now).toISOString()
+          pointerDrag.registerRow(row, kind, index)
+          const handle = row.createEl('button', {
+            cls: 'recipe-step-drag-handle',
+            attr: {
+              type: 'button',
+              title: t('recipes.run.reorderStep', 'Drag to reorder'),
+              'aria-label': t('recipes.run.reorderStep', 'Drag to reorder'),
+              'aria-keyshortcuts': 'Alt+ArrowUp Alt+ArrowDown',
+            },
+          })
+          appendRecipeDragHandleIcon(handle)
+          pointerDrag.attachHandle(handle, row)
+          handle.addEventListener('click', (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+          })
+          handle.addEventListener('keydown', (event) => {
+            if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
+            event.preventDefault()
+            const targetIndex = event.key === 'ArrowUp' ? index - 1 : index + 1
+            if (targetIndex < 0 || targetIndex >= displayItems.length) return
+            commitReorder(index, targetIndex)
+            popover.querySelectorAll<HTMLButtonElement>(
+              `.recipe-run-section--${kind} .recipe-step-drag-handle`,
+            )[targetIndex]?.focus()
+          })
+          const label = row.createEl('label', { cls: 'recipe-run-step-check' })
+          const checkbox = label.createEl('input', { attr: { type: 'checkbox' } })
+          checkbox.checked = checkedIds.has(item.id)
+          label.createSpan({ cls: 'recipe-run-step-text', text: item.text })
+          checkbox.addEventListener('change', () => {
+            const now = Date.now()
+            if (kind === 'steps') {
+              stepsUpdatedAt = now
+            } else {
+              qualityChecksUpdatedAt = now
             }
-          } else {
-            checkedIds.delete(item.id)
-            delete completedAt[item.id]
-          }
-          this.saveProgress(
-            recipe,
-            progressKey,
-            dateKey,
-            checked,
-            stepOrder,
-            completedAtByStepId,
-            checkedQuality,
-            qualityCheckOrder,
-            completedAtByQualityCheckId,
-            stepsUpdatedAt,
-            qualityChecksUpdatedAt,
-            now,
-          )
-          this.host.onProgressChanged()
-          renderBody()
+            if (checkbox.checked) {
+              checkedIds.add(item.id)
+              if (!completedAt[item.id]) {
+                completedAt[item.id] = new Date(now).toISOString()
+              }
+            } else {
+              checkedIds.delete(item.id)
+              delete completedAt[item.id]
+            }
+            this.saveProgress(
+              recipe,
+              progressKey,
+              dateKey,
+              checked,
+              stepOrder,
+              completedAtByStepId,
+              checkedQuality,
+              qualityCheckOrder,
+              completedAtByQualityCheckId,
+              stepsUpdatedAt,
+              qualityChecksUpdatedAt,
+              now,
+            )
+            this.host.onProgressChanged()
+            renderBody()
+          })
         })
-      })
       }
 
       if (recipe.steps.length > 0) {
@@ -347,7 +317,7 @@ export class RecipeRunPopover {
       if (recipe.steps.length === 0 && (recipe.qualityChecks?.length ?? 0) === 0) {
         popover.createDiv({
           cls: 'recipe-empty-state',
-          text: t('recipes.run.emptyChecklists', 'チェックリストがありません'),
+          text: t('recipes.run.emptyChecklists', 'No checklists'),
         })
       }
 
@@ -355,7 +325,7 @@ export class RecipeRunPopover {
         const constraintsSection = popover.createDiv({ cls: 'recipe-run-context recipe-run-constraints' })
         constraintsSection.createDiv({
           cls: 'recipe-run-context-title',
-          text: t('recipes.run.constraintsLabel', '制約・ルール'),
+          text: t('recipes.run.constraintsLabel', 'Constraints and rules'),
         })
         const constraintsList = constraintsSection.createEl('ul', { cls: 'recipe-run-constraints-list' })
         recipe.constraints.forEach((constraint) => {
@@ -388,31 +358,6 @@ export class RecipeRunPopover {
     }
     this.escapeKeyDocument = ownerDocument
     ownerDocument.addEventListener('keydown', this.escapeKeyHandler)
-  }
-
-  private appendDragHandleIcon(container: HTMLElement): void {
-    const svg = createSvg('svg')
-    svg.setAttribute('viewBox', '0 0 12 16')
-    svg.setAttribute('width', '12')
-    svg.setAttribute('height', '16')
-    svg.setAttribute('aria-hidden', 'true')
-    svg.classList.add('recipe-step-drag-handle-icon')
-    const dots = [
-      { cx: '2', cy: '2' },
-      { cx: '8', cy: '2' },
-      { cx: '2', cy: '8' },
-      { cx: '8', cy: '8' },
-      { cx: '2', cy: '14' },
-      { cx: '8', cy: '14' },
-    ]
-    dots.forEach(({ cx, cy }) => {
-      const circle = createSvg('circle')
-      circle.setAttribute('cx', cx)
-      circle.setAttribute('cy', cy)
-      circle.setAttribute('r', '1.5')
-      svg.appendChild(circle)
-    })
-    container.appendChild(svg)
   }
 
   private appendEditIcon(container: HTMLElement): void {

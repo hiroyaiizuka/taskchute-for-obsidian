@@ -1,9 +1,9 @@
 import { TFile } from 'obsidian'
 
-import { createAiTaskAmbientScheduler } from '../../../src/features/ai-task/AiTaskAmbientRuntime'
-import { AI_TASK_AMBIENT_SCHEDULE_STATE_STORAGE_KEY } from '../../../src/features/ai-task/services/AiTaskAmbientScheduleStateStore'
-import type { TaskChuteViewController } from '../../../src/app/taskchute/TaskChuteViewController'
-import type { TaskChutePluginLike } from '../../../src/types'
+import { createAiTaskAmbientScheduler } from '@/features/ai-task/AiTaskAmbientRuntime'
+import { AI_TASK_AMBIENT_SCHEDULE_STATE_STORAGE_KEY } from '@/features/ai-task/services/AiTaskAmbientScheduleStateStore'
+import type { TaskChuteViewController } from '@/app/taskchute/TaskChuteViewController'
+import type { TaskChutePluginLike } from '@/types'
 import { createFakeLicenseManager } from '../license/fakeLicenseManager'
 
 const TASK_PATH = 'TaskChute/Task/Ambient review.md'

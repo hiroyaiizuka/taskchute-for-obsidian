@@ -7,9 +7,9 @@
  */
 import type { SettingDefinitionItem, SettingDefinitionRender } from 'obsidian'
 import { Notice, Platform, Setting, mockApp } from 'obsidian'
-import { DEFAULT_SETTINGS } from '../../../src/settings'
-import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
-import { createAiTaskManager } from '../../../src/features/ai-task'
+import { DEFAULT_SETTINGS } from '@/settings'
+import { TaskChuteSettingTab } from '@/settings/SettingsTab'
+import { createAiTaskManager } from '@/features/ai-task'
 import { createFakeLicenseManager } from '../license/fakeLicenseManager'
 import {
   findByKey,
@@ -17,15 +17,15 @@ import {
   flatten,
   headings,
   pageNamed,
-} from '../../settings/definitionHelpers'
+} from '@tests/settings/definitionHelpers'
 
-jest.mock('../../../src/features/ai-task', () => ({
+jest.mock('@/features/ai-task', () => ({
   createAiTaskManager: jest.fn(),
 }))
 
 const selectFileMock = jest.fn<Promise<string | null>, [unknown?]>()
 jest.mock(
-  '../../../src/features/ai-task/services/ElectronDirectoryPicker',
+  '@/features/ai-task/services/ElectronDirectoryPicker',
   () => ({
     ElectronDirectoryPicker: jest.fn(() => ({ selectFile: selectFileMock })),
   }),
@@ -146,9 +146,20 @@ const CODEX_PATH_NAME = 'Codex CLI path (advanced fallback)'
 describe('TaskChute AI task settings section', () => {
   const createAiTaskManagerMock = createAiTaskManager as jest.Mock
 
+  // The run-mode row only offers a choice where a pseudoterminal exists, so
+  // every test that is not about that branch runs as macOS.
+  beforeEach(() => {
+    Platform.isMacOS = true
+    Platform.isLinux = false
+    Platform.isWin = false
+  })
+
   afterEach(() => {
     jest.clearAllMocks()
     mockApp.workspace.getLeavesOfType.mockReturnValue([])
+    delete (Platform as Partial<typeof Platform>).isMacOS
+    delete (Platform as Partial<typeof Platform>).isLinux
+    delete (Platform as Partial<typeof Platform>).isWin
   })
 
   test('is disabled by default with a 30-day retention', () => {
@@ -161,10 +172,24 @@ describe('TaskChute AI task settings section', () => {
 
     const items = tab.getSettingDefinitions()
     expect(findByKey(items, 'aiTaskEnabled')?.name).toBe('Enable AI tasks')
-    expect(findByKey(items, 'aiTaskRunMode')?.control.type).toBe('dropdown')
     expect(findByKey(items, 'aiTaskLogRetentionDays')?.control.type).toBe(
       'number',
     )
+  })
+
+  // LEV-320: runs use the terminal where it can run and fall back to
+  // conversation mode elsewhere, so there is nothing to choose.
+  test.each([
+    ['macOS', { isMacOS: true, isLinux: false, isWin: false }],
+    ['Windows', { isMacOS: false, isLinux: false, isWin: true }],
+    ['an OS without a pseudoterminal', { isMacOS: false, isLinux: false, isWin: false }],
+  ])('offers no run mode setting on %s', (_os, flags) => {
+    Object.assign(Platform, flags)
+    const { tab } = createTab()
+
+    const items = tab.getSettingDefinitions()
+    expect(findByKey(items, 'aiTaskRunMode')).toBeUndefined()
+    expect(findByName(items, 'Run mode')).toBeUndefined()
   })
 
   /**
@@ -384,38 +409,6 @@ describe('TaskChute AI task settings section', () => {
       expect(plugin.settings.aiTaskEnabled).toBe(false)
       expect(createAiTaskManagerMock).not.toHaveBeenCalled()
       expect(plugin.aiTaskManager).toBeUndefined()
-    })
-  })
-
-  describe('run mode', () => {
-    test('offers terminal and headless, defaulting to terminal', () => {
-      const { tab } = createTab()
-
-      const control = findByKey(tab.getSettingDefinitions(), 'aiTaskRunMode')
-        ?.control as { options: Record<string, string> } | undefined
-      expect(Object.keys(control?.options ?? {})).toEqual([
-        'terminal',
-        'headless',
-      ])
-      expect(tab.getControlValue('aiTaskRunMode')).toBe('terminal')
-    })
-
-    test('reflects a stored headless preference', () => {
-      const { tab, plugin } = createTab()
-      plugin.settings.aiTaskRunMode = 'headless'
-
-      expect(tab.getControlValue('aiTaskRunMode')).toBe('headless')
-    })
-
-    test('persists a change and normalizes anything unknown', async () => {
-      const { tab, plugin } = createTab()
-
-      await tab.setControlValue('aiTaskRunMode', 'headless')
-      expect(plugin.settings.aiTaskRunMode).toBe('headless')
-      expect(plugin.saveSettings).toHaveBeenCalledTimes(1)
-
-      await tab.setControlValue('aiTaskRunMode', 'bogus')
-      expect(plugin.settings.aiTaskRunMode).toBe('terminal')
     })
   })
 

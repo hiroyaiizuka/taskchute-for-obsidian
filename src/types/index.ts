@@ -34,7 +34,6 @@ export interface TaskChuteSettings {
   // General
   useOrderBasedSort: boolean
   slotKeys: Record<string, string>
-  languageOverride?: "auto" | "en" | "ja"
 
   // UI/Features
   aiRobotButtonEnabled?: boolean // default false; show robot button if true
@@ -63,11 +62,20 @@ export interface TaskChuteSettings {
   // Collapsible time slots (click header to collapse/expand)
   collapsibleTimeSlots?: boolean
 
+  // The box of the day's comments above the task list (#181); default false
+  dayCommentsEnabled?: boolean
+
   // AI Task (manual CLI runs; desktop only)
   aiTaskEnabled?: boolean // default false; enables the AI Task feature
-  aiTaskRunMode?: 'terminal' | 'headless' // default terminal; win32 uses conversation/headless
+  /**
+   * Not a setting (removed from the settings tab, and dropped when settings
+   * load): runs use the terminal where it can run, else conversation mode.
+   * Only the E2E suite sets 'headless' at runtime, for deterministic runs.
+   */
+  aiTaskRunMode?: 'terminal' | 'headless'
   aiTaskClaudePath?: string // advanced fallback only (empty = cross-platform auto detect)
   aiTaskCodexPath?: string // advanced fallback only (empty = cross-platform auto detect)
+  aiTaskCursorPath?: string // advanced fallback only (empty = cross-platform auto detect)
   aiTaskLogRetentionDays?: number // default 30; run log notes older than this are pruned
 
   // License. The activation code lives here so a synced vault carries the
@@ -83,6 +91,16 @@ export interface GoogleCalendarSettings {
 
 export const VIEW_TYPE_TASKCHUTE = "taskchute-view" as const
 export const VIEW_TYPE_PROJECT_BOARD = "taskchute-project-board" as const
+
+/**
+ * Calling convention for `plugin._log?.(...)`.
+ *
+ * Every host interface that accepts the plugin needs this member, and hand
+ * copying it is what let the declarations drift apart: under strictFunctionTypes
+ * a host whose parameter is wider than the implementation's makes the plugin
+ * itself unassignable to that host. One alias keeps them in step.
+ */
+export type PluginLogFn = (level?: string, ...args: unknown[]) => void
 
 /**
  * Obsidian 1.13 added `settings?: unknown` to Plugin and tells subclasses to
@@ -116,7 +134,7 @@ type TaskChutePluginAugment = {
     callback: () => void | Promise<void>,
   ): HTMLElement
   addCommand(command: Command): Command
-  _log?(level?: string, ...args: unknown[]): void
+  _log?: PluginLogFn
   _notify?(message: string, timeout?: number): void
 }
 
@@ -266,6 +284,24 @@ export interface RecipeProgressEntry {
   updatedAt: number
 }
 
+/**
+ * A comment written while working: on the day itself, or on a running task
+ * instance. Kept one per entry with its time, any number per day.
+ */
+export interface DayComment {
+  /** Unique across devices. */
+  id: string
+  /** When it was written (epoch ms); the time shown beside it. */
+  at: number
+  text: string
+  /** Set for a comment on a task instance; absent for a comment on the day. */
+  instanceId?: string
+  /** Last add, rewrite, delete or restore (epoch ms). The newer one wins on merge. */
+  updatedAt: number
+  /** Set while deleted. Kept as a tombstone so the deletion reaches other devices. */
+  deletedAt?: number
+}
+
 export interface DayState {
   hiddenRoutines: HiddenRoutine[]
   deletedInstances: DeletedInstance[]
@@ -283,6 +319,8 @@ export interface DayState {
   ordersMeta?: Record<string, { order: number; updatedAt: number }>
   /** Per-day recipe execution progress, keyed by instanceId::recipePath */
   recipeProgress?: Record<string, RecipeProgressEntry>
+  /** Comments on the day and on its task instances. Absent in older files. */
+  comments?: DayComment[]
 }
 
 export interface MonthlyDayStateFile {
@@ -326,6 +364,8 @@ export interface DayStateServiceAPI {
   consumeLocalStateWrite?(path: string, content?: string, maxRecordedAt?: number): boolean
   /** Merge local DayState changes with on-disk data and save atomically per month */
   mergeAndSaveMonth?(monthKey: string, localDayStates: Map<string, DayState>): Promise<void>
+  /** Replace a month's day state with a backup's contents (restoring a backup set) */
+  restoreMonth?(monthKey: string, raw: string): Promise<void>
 }
 
 export interface RoutineAliasServiceLike {

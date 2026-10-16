@@ -3,8 +3,8 @@
  */
 
 import type { App } from 'obsidian'
-import ProjectSettingsModal from '../../../src/ui/modals/ProjectSettingsModal'
-import type { TaskChutePluginLike } from '../../../src/types'
+import ProjectSettingsModal from '@/ui/modals/ProjectSettingsModal'
+import type { TaskChutePluginLike } from '@/types'
 
 const plugin = {
   settings: {

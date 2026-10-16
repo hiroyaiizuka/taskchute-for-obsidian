@@ -1,5 +1,5 @@
-import { createCommandRegistrar } from '../../src/commands/registerTaskCommands'
-import type { CommandHost, ViewActions } from '../../src/types/Commands'
+import { createCommandRegistrar } from '@/commands/registerTaskCommands'
+import type { CommandHost, ViewActions } from '@/types/Commands'
 import type { Command } from 'obsidian'
 
 const setActiveDocument = (doc: Document): void => {
@@ -11,16 +11,10 @@ describe('registerTaskCommands checkCallback', () => {
     const registeredCommands: Record<string, Command> = {}
 
     const host: CommandHost = {
-      manifest: { id: 'taskchute-plus' },
       addCommand: jest.fn((cmd: Command) => {
         registeredCommands[cmd.id] = cmd
         return cmd
       }),
-      app: {
-        commands: {
-          removeCommand: jest.fn(),
-        },
-      } as unknown as CommandHost['app'],
       showSettingsModal: jest.fn(),
     }
 
@@ -32,6 +26,8 @@ describe('registerTaskCommands checkCallback', () => {
       triggerResetSelectedTask: jest.fn().mockResolvedValue(undefined),
       triggerShowTodayTasks: jest.fn().mockResolvedValue(undefined),
       reorganizeIdleTasks: jest.fn(),
+      triggerLeaveComment: jest.fn().mockResolvedValue(undefined),
+      triggerOpenSessionHistory: jest.fn().mockResolvedValue(undefined),
     }
 
     return { host, view, registeredCommands }
@@ -260,5 +256,28 @@ describe('registerTaskCommands checkCallback', () => {
       expect(cmd.callback).toBeDefined()
       expect(cmd.checkCallback).toBeUndefined()
     }
+  })
+
+  test('leave-comment works without the view being active and has no default hotkey', () => {
+    const { host, view, registeredCommands } = createMocks()
+    ;(view.isViewActive as jest.Mock).mockReturnValue(false)
+    createCommandRegistrar(host, view).initialize()
+    const cmd = registeredCommands['leave-comment']
+    expect(cmd).toBeDefined()
+    expect(cmd.hotkeys).toBeUndefined()
+    expect(cmd.checkCallback).toBeUndefined()
+    cmd.callback!()
+    expect(view.triggerLeaveComment).toHaveBeenCalledTimes(1)
+  })
+
+  test('open-session-history works without the view being active and has no default hotkey', () => {
+    const { host, view, registeredCommands } = createMocks()
+    ;(view.isViewActive as jest.Mock).mockReturnValue(false)
+    createCommandRegistrar(host, view).initialize()
+    const cmd = registeredCommands['open-session-history']
+    expect(cmd).toBeDefined()
+    expect(cmd.hotkeys).toBeUndefined()
+    cmd.callback!()
+    expect(view.triggerOpenSessionHistory).toHaveBeenCalledTimes(1)
   })
 })

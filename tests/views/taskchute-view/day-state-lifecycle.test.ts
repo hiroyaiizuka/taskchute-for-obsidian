@@ -1,22 +1,23 @@
-import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView';
+import { TaskChuteView } from '@/features/core/views/TaskChuteView';
+import { baseInstanceId } from '@/features/core/services/TaskLoaderService';
 import {
   DayState,
   HiddenRoutine,
   TaskChutePluginLike,
   TaskData,
   TaskInstance,
-} from '../../../src/types';
+} from '@/types';
 import { WorkspaceLeaf, TFile } from 'obsidian';
-import DayStateStoreService from '../../../src/services/DayStateStoreService';
-import RoutineManagerModal from '../../../src/features/routine/modals/RoutineManagerModal';
-import { ReviewService } from '../../../src/features/review/services/ReviewService';
-import { LogView } from '../../../src/features/log/views/LogView';
+import DayStateStoreService from '@/services/DayStateStoreService';
+import RoutineManagerModal from '@/features/routine/modals/RoutineManagerModal';
+import { ReviewService } from '@/features/review/services/ReviewService';
+import { LogView } from '@/features/log/views/LogView';
 import {
   createExecutionLogContext,
   createNonRoutineLoadContext,
   createRoutineLoadContext,
-} from '../../utils/taskViewTestUtils';
-import { HeatmapService } from '../../../src/features/log/services/HeatmapService';
+} from '@tests/utils/taskViewTestUtils';
+import { HeatmapService } from '@/features/log/services/HeatmapService';
 // This suite automocks obsidian, but `Modal` has to keep its real behaviour:
 // the log dialog is a Modal now, and an automocked `open()` would never run
 // `onOpen`, so nothing would render. Everything else stays automocked.
@@ -24,7 +25,7 @@ jest.mock('obsidian', () => ({
   ...jest.createMockFromModule<Record<string, unknown>>('obsidian'),
   Modal: jest.requireActual('obsidian').Modal,
 }));
-jest.mock('../../../src/features/log/services/HeatmapService', () => {
+jest.mock('@/features/log/services/HeatmapService', () => {
   const updateDailyStats = jest.fn().mockResolvedValue(undefined);
   return {
     HeatmapService: jest.fn().mockImplementation(() => ({
@@ -32,8 +33,8 @@ jest.mock('../../../src/features/log/services/HeatmapService', () => {
     })),
   };
 });
-jest.mock('../../../src/features/routine/modals/RoutineManagerModal');
-jest.mock('../../../src/features/review/services/ReviewService', () => {
+jest.mock('@/features/routine/modals/RoutineManagerModal');
+jest.mock('@/features/review/services/ReviewService', () => {
   const ensureReviewFile = jest.fn().mockResolvedValue({ path: 'REVIEWS/2025-10-09.md' })
   const openInSplit = jest.fn().mockResolvedValue(undefined)
   return {
@@ -43,7 +44,7 @@ jest.mock('../../../src/features/review/services/ReviewService', () => {
     })),
   }
 })
-jest.mock('../../../src/features/log/views/LogView', () => {
+jest.mock('@/features/log/views/LogView', () => {
   return {
     LogView: jest.fn().mockImplementation(() => ({
       render: jest.fn(),
@@ -254,13 +255,8 @@ function attachRecursiveCreateEl(target: HTMLElement): void {
     this.appendChild(svg as unknown as HTMLElement);
     return svg;
   }) as unknown as HTMLElement['createSvg'];
-  if (typeof (typed as { empty?: () => void }).empty !== 'function') {
-    (typed as { empty: () => void }).empty = function () {
-      while (this.firstChild) {
-        this.removeChild(this.firstChild);
-      }
-    };
-  }
+  // `empty` comes from tests/setup/obsidian-dom-globals.ts, which installs it
+  // on Node.prototype before any test body runs.
 }
 
 describe('TaskChuteView day-state lifecycle', () => {
@@ -1812,7 +1808,7 @@ describe('TaskChuteView moveNonRoutineSlotOverrideToDate', () => {
 describe('TaskChuteView loadTasksRefactored routines', () => {
   test('skips routines hidden via dayState hiddenRoutines', async () => {
     const { context, dayState, routinePath, load } = createRoutineLoadContext();
-    context.isInstanceHidden = jest.fn((instanceId: string, path: string) =>
+    context.isInstanceHidden = jest.fn<boolean, [string?, string?, string?]>((instanceId, path) =>
       dayState.hiddenRoutines.some((hidden: HiddenRoutine | string) => {
         if (typeof hidden === 'string') return hidden === path;
         if (!hidden) return false;
@@ -1832,7 +1828,7 @@ describe('TaskChuteView loadTasksRefactored routines', () => {
 
   test('renders routine when hidden entry is instance-scoped and differs', async () => {
     const { context, dayState, routinePath, load } = createRoutineLoadContext();
-    context.isInstanceHidden = jest.fn((instanceId: string, path: string) =>
+    context.isInstanceHidden = jest.fn<boolean, [string?, string?, string?]>((instanceId, path) =>
       dayState.hiddenRoutines.some((hidden: HiddenRoutine | string) => {
         if (typeof hidden === 'string') return hidden === path;
         if (!hidden) return false;
@@ -1859,12 +1855,12 @@ describe('TaskChuteView loadTasksRefactored routines', () => {
     const { context, load } = createRoutineLoadContext({
       duplicatedInstances: [duplicatedRecord],
     });
-    context.generateInstanceId.mockImplementationOnce(() => 'routine-base');
 
     await load();
 
     const instanceIds = context.taskInstances.map((inst) => inst.instanceId);
-    expect(instanceIds).toEqual(expect.arrayContaining(['routine-base', 'dup-visible']));
+    // The routine's own instance for the day has a stable id; the duplicate keeps its stored one.
+    expect(instanceIds).toEqual(expect.arrayContaining([baseInstanceId('TASKS/routine.md', context.getCurrentDateString()), 'dup-visible']));
     const duplicate = context.taskInstances.find((inst) => inst.instanceId === 'dup-visible');
     expect(duplicate?.slotKey).toBe('12:00-16:00');
     expect(duplicate?.task.path).toBe('TASKS/routine.md');
@@ -1935,12 +1931,11 @@ describe('TaskChuteView loadTasksRefactored routines', () => {
       duplicatedInstances: [duplicatedRecord],
       hiddenRoutines: [{ path: 'TASKS/routine.md', instanceId: 'dup-hidden' }],
     });
-    context.generateInstanceId.mockImplementationOnce(() => 'routine-base');
 
     await load();
 
     const instanceIds = context.taskInstances.map((inst) => inst.instanceId);
-    expect(instanceIds).toContain('routine-base');
+    expect(instanceIds).toContain(baseInstanceId('TASKS/routine.md', context.getCurrentDateString()));
     expect(instanceIds).not.toContain('dup-hidden');
     expect(dayState.hiddenRoutines).toEqual(
       expect.arrayContaining([
@@ -2805,7 +2800,18 @@ describe('TaskChuteView registerDomEvent harness', () => {
 
     expect(registerDomEvent).toHaveBeenCalled();
     const events = registerDomEvent.mock.calls.map(([, event]) => event);
-    expect(events).toEqual(expect.arrayContaining(['contextmenu', 'click', 'dragover', 'dragleave', 'drop']));
+    // Reordering runs on Pointer Events, so the row's drag wiring is the grip's
+    // pointer listeners; rows themselves are hit-tested rather than listened to.
+    expect(events).toEqual(
+      expect.arrayContaining([
+        'contextmenu',
+        'click',
+        'pointerdown',
+        'pointermove',
+        'pointerup',
+        'pointercancel',
+      ]),
+    );
   });
 });
 

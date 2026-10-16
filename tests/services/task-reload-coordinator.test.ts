@@ -1,11 +1,11 @@
 import TaskReloadCoordinator, {
   TaskReloadCoordinatorHost,
-} from '../../src/features/core/services/TaskReloadCoordinator';
-import type { TaskInstance } from '../../src/types';
-import { SectionConfigService } from '../../src/services/SectionConfigService';
+} from '@/features/core/services/TaskReloadCoordinator';
+import type { TaskInstance } from '@/types';
+import { SectionConfigService } from '@/services/SectionConfigService';
 
-jest.mock('../../src/utils/time', () => {
-  const actual = jest.requireActual('../../src/utils/time');
+jest.mock('@/utils/time', () => {
+  const actual = jest.requireActual('@/utils/time');
   return {
     ...actual,
     calculateNextBoundary: jest.fn(() => new Date('2025-10-10T00:00:00.000Z')),

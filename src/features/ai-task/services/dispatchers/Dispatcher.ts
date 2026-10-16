@@ -8,8 +8,8 @@
  * provide the argv shape and the per-host line parser.
  */
 
-import type { AiStreamEvent } from '../../types'
-import { stableTimeoutSource } from '../../../../utils/stableTimer'
+import type { AiStreamEvent } from '@/features/ai-task/types'
+import { stableTimeoutSource } from '@/utils/stableTimer'
 import type { ProcessGateway } from '../NodeProcessGateway'
 import type { ProcessLaunchError } from '../NodeProcessGateway'
 import { LineSplitter } from '../streams/LineSplitter'

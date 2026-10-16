@@ -1,7 +1,7 @@
 import { TFile } from 'obsidian'
 ;
-import type { TaskChutePluginLike } from '../../../types';
-import type { SectionConfigService } from '../../../services/SectionConfigService';
+import type { TaskChutePluginLike } from '@/types';
+import type { SectionConfigService } from '@/services/SectionConfigService';
 
 interface RawExecutionEntry {
   taskTitle?: string;

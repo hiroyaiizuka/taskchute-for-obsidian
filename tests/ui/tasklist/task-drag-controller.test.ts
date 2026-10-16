@@ -12,8 +12,8 @@ jest.mock('obsidian', () => {
   }
 })
 
-import TaskDragController from '../../../src/ui/tasklist/TaskDragController'
-import { TaskInstance } from '../../../src/types'
+import TaskDragController from '@/ui/tasklist/TaskDragController'
+import { TaskInstance } from '@/types'
 
 describe('TaskDragController', () => {
   function createTask(overrides: Partial<TaskInstance> = {}): TaskInstance {

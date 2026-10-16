@@ -7,7 +7,7 @@
  * adapter degrades to `null` outside that capability boundary.
  */
 
-import { t } from '../../../i18n'
+import { t } from '@/i18n'
 
 // Electron is a runtime external in the Obsidian renderer. Keeping the loader
 // injectable makes Jest and future capability fallbacks deterministic.
@@ -55,7 +55,7 @@ export class ElectronDirectoryPicker {
   async selectDirectory(defaultPath?: string): Promise<string | null> {
     return this.open(
       ['openDirectory', 'createDirectory'],
-      t('taskChuteView.aiTask.picker.selectDirectory', 'ワーキングディレクトリを選択'),
+      t('taskChuteView.aiTask.picker.selectDirectory', 'Select working directory'),
       defaultPath,
     )
   }
@@ -66,7 +66,7 @@ export class ElectronDirectoryPicker {
   }): Promise<string | null> {
     return this.open(
       ['openFile'],
-      options?.title ?? t('taskChuteView.aiTask.picker.selectFile', 'ファイルを選択'),
+      options?.title ?? t('taskChuteView.aiTask.picker.selectFile', 'Select file'),
       options?.defaultPath,
     )
   }

@@ -1,7 +1,7 @@
 import { TFile } from 'obsidian'
-import { LogSnapshotWriter } from '../../src/features/log/services/LogSnapshotWriter'
-import type { TaskChutePluginLike } from '../../src/types'
-import { createEmptyTaskLogSnapshot } from '../../src/utils/executionLogUtils'
+import { LogSnapshotWriter } from '@/features/log/services/LogSnapshotWriter'
+import type { TaskChutePluginLike } from '@/types'
+import { createEmptyTaskLogSnapshot } from '@/utils/executionLogUtils'
 
 interface WriterTestContext {
   plugin: TaskChutePluginLike

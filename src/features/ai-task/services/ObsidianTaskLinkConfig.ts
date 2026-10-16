@@ -6,7 +6,7 @@
  * including case-sensitive exact matching and one-way contains semantics.
  */
 
-import type { ObsidianTaskLinkConfig } from '../../../types/TaskFields'
+import type { ObsidianTaskLinkConfig } from '@/types/TaskFields'
 
 const VALID_MATCH_TYPES = new Set(['exact', 'contains'])
 

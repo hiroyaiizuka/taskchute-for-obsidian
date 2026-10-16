@@ -1,7 +1,7 @@
 import { TFile, TFolder } from 'obsidian'
-import { LogReconciler } from '../../src/features/log/services/LogReconciler'
-import { MonthSyncCoordinator } from '../../src/features/log/services/MonthSyncCoordinator'
-import { SnapshotConflictError } from '../../src/types/ExecutionLog'
+import { LogReconciler } from '@/features/log/services/LogReconciler'
+import { MonthSyncCoordinator } from '@/features/log/services/MonthSyncCoordinator'
+import { SnapshotConflictError } from '@/types/ExecutionLog'
 import { createPluginStub, seedDeltaFile, seedSnapshot } from './logTestUtils'
 
 /** Loosely-typed view of the snapshot returned by the private createMergedSnapshot. */

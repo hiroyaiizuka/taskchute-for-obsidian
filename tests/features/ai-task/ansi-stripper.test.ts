@@ -1,4 +1,4 @@
-import { stripAnsiSequences } from '../../../src/features/ai-task/services/streams/AnsiStripper'
+import { stripAnsiSequences } from '@/features/ai-task/services/streams/AnsiStripper'
 
 describe('stripAnsiSequences', () => {
   test('removes CSI color sequences', () => {

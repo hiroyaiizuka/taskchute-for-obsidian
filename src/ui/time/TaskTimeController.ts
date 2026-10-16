@@ -1,13 +1,14 @@
 import { Notice } from 'obsidian'
 import type { App } from 'obsidian'
-import type { TaskInstance } from '../../types'
-import type { SectionConfigService } from '../../services/SectionConfigService'
+import type { TaskInstance } from '@/types'
+import type { SectionConfigService } from '@/services/SectionConfigService'
 import ScheduledTimeModal from '../modals/ScheduledTimeModal'
 import { createTimePicker } from './TimePickerFactory'
-import { resolveStopTimeDate } from '../../utils/resolveStopTimeDate'
+import { resolveStopTimeDate } from '@/utils/resolveStopTimeDate'
+import type { ScopedTranslator } from '@/i18n'
 
 export interface TaskTimeControllerHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   app: Pick<App, 'vault' | 'fileManager'>
   renderTaskList: () => void
   reloadTasksAndRestore: (options?: { runBoundaryCheck?: boolean }) => Promise<void>
@@ -43,7 +44,7 @@ export interface TaskTimeControllerHost {
    */
   onInstanceResetToIdle?: (
     inst: TaskInstance,
-    context: { wasRunning: boolean },
+    context: { wasRunning: boolean; previousState: TaskInstance['state'] },
   ) => void | Promise<void>
   /** Called when manual time editing transitions running -> done. */
   onInstanceStopped?: (inst: TaskInstance) => void | Promise<void>
@@ -278,13 +279,14 @@ export default class TaskTimeController {
   }
 
   async resetTaskToIdle(inst: TaskInstance): Promise<void> {
-    const wasRunning = inst.state === 'running'
+    const previousState = inst.state
+    const wasRunning = previousState === 'running'
     try {
       const displayTitle = this.host.getInstanceDisplayTitle(inst)
       inst.state = 'idle'
       inst.startTime = undefined
       inst.stopTime = undefined
-      await this.host.onInstanceResetToIdle?.(inst, { wasRunning })
+      await this.host.onInstanceResetToIdle?.(inst, { wasRunning, previousState })
 
       if (inst.instanceId) {
         await this.host.removeTaskLogForInstanceOnCurrentDate(inst.instanceId, inst.task?.taskId)

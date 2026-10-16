@@ -1,4 +1,4 @@
-import { SectionConfigService } from '../../src/services/SectionConfigService'
+import { SectionConfigService } from '@/services/SectionConfigService'
 
 describe('SectionConfigService', () => {
   describe('constructor / defaults', () => {

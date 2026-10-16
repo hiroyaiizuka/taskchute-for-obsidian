@@ -11,15 +11,15 @@ import {
   AI_RUN_EVENT_TAIL_LIMIT,
   DISPOSE_FORCE_KILL_MS,
   type AiTaskManagerDeps,
-} from '../../../src/features/ai-task/services/AiTaskManager'
+} from '@/features/ai-task/services/AiTaskManager'
 import type {
   AiDispatcher,
   AiRunCallbacks,
   AiRunExitOutcome,
   AiRunRequest,
-} from '../../../src/features/ai-task/services/dispatchers/Dispatcher'
-import type { AiRunRecord, AiStreamEvent } from '../../../src/features/ai-task/types'
-import type { AiBinaryResolution } from '../../../src/features/ai-task/services/BinaryLocator'
+} from '@/features/ai-task/services/dispatchers/Dispatcher'
+import type { AiRunRecord, AiStreamEvent } from '@/features/ai-task/types'
+import type { AiBinaryResolution } from '@/features/ai-task/services/BinaryLocator'
 
 function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
@@ -119,6 +119,7 @@ interface HarnessOptions {
 function createHarness(options: HarnessOptions = {}) {
   const claude = new FakeDispatcher()
   const codex = new FakeDispatcher()
+  const cursor = new FakeDispatcher()
   const timer = createFiringTimer()
   const writeRunLog = jest.fn(async () => 'log-path.md')
   const upsertRunLog = jest.fn<Promise<string>, [AiRunRecord, AiStreamEvent[]?]>(
@@ -149,7 +150,7 @@ function createHarness(options: HarnessOptions = {}) {
         getFileCache: jest.fn(() => (frontmatter ? { frontmatter } : null)),
       },
     },
-    dispatchers: { claude, codex },
+    dispatchers: { claude, codex, cursor },
     binaryLocator: { resolve, invalidateCache },
     logWriter: options.withUpsert
       ? { writeRunLog, upsertRunLog, pruneOldLogs }
@@ -161,6 +162,7 @@ function createHarness(options: HarnessOptions = {}) {
     manager: new AiTaskManager(deps),
     claude,
     codex,
+    cursor,
     timer,
     writeRunLog,
     upsertRunLog,

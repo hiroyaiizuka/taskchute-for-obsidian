@@ -1,9 +1,9 @@
-import type { ObsidianTaskLinkConfig } from '../../../src/types/TaskFields'
+import type { ObsidianTaskLinkConfig } from '@/types/TaskFields'
 import {
   isObsidianTaskLinkConfig,
   matchesObsidianTaskTitle,
   readObsidianTaskLinkConfig,
-} from '../../../src/features/ai-task/services/ObsidianTaskLinkConfig'
+} from '@/features/ai-task/services/ObsidianTaskLinkConfig'
 
 describe('ObsidianTaskLinkConfig', () => {
   describe('isObsidianTaskLinkConfig', () => {

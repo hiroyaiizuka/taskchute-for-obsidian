@@ -1,9 +1,7 @@
-import type { App, Command } from "obsidian";
+import type { Command } from "obsidian";
 
 export interface CommandHost {
-  manifest: { id: string };
   addCommand(command: Command): Command;
-  app: App;
   showSettingsModal(): void;
 }
 
@@ -15,9 +13,10 @@ export interface ViewActions {
   triggerResetSelectedTask(): Promise<void>;
   triggerShowTodayTasks(): Promise<void>;
   reorganizeIdleTasks(): void;
+  triggerLeaveComment(): Promise<void>;
+  triggerOpenSessionHistory(): Promise<void>;
 }
 
 export interface CommandRegistrar {
   initialize(): void;
-  relocalize(): void;
 }

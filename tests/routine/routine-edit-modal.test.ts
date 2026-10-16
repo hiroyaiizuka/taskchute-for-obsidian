@@ -1,7 +1,7 @@
-import { applyRoutineFrontmatterMerge } from '../../src/features/routine/utils/RoutineFrontmatterUtils';
-import { TaskValidator } from '../../src/features/core/services/TaskValidator';
-import { getToday } from '../../src/utils/date';
-import type { RoutineFrontmatter } from '../../src/types';
+import { applyRoutineFrontmatterMerge } from '@/features/routine/utils/RoutineFrontmatterUtils';
+import { TaskValidator } from '@/features/core/services/TaskValidator';
+import { getToday } from '@/utils/date';
+import type { RoutineFrontmatter } from '@/types';
 
 describe('applyRoutineFrontmatterMerge', () => {
   test('removes stale move metadata when routine settings change', () => {

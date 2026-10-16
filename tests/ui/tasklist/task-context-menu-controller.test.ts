@@ -1,7 +1,7 @@
 import TaskContextMenuController, {
   type TaskContextMenuHost,
-} from '../../../src/ui/tasklist/TaskContextMenuController'
-import type { TaskData, TaskInstance } from '../../../src/types'
+} from '@/ui/tasklist/TaskContextMenuController'
+import type { TaskData, TaskInstance } from '@/types'
 import { Menu } from 'obsidian'
 
 /** Test overrides may supply a partial task; the runtime shape stays as written. */

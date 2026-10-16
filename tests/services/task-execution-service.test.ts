@@ -1,9 +1,9 @@
 import { TFile } from 'obsidian'
-import TaskExecutionService from '../../src/features/core/services/TaskExecutionService'
-import { HeatmapService } from '../../src/features/log/services/HeatmapService'
-import type { TaskExecutionHost } from '../../src/features/core/services/TaskExecutionService'
-import type { TaskInstance, TaskChutePluginLike } from '../../src/types'
-import { SectionConfigService } from '../../src/services/SectionConfigService'
+import TaskExecutionService from '@/features/core/services/TaskExecutionService'
+import { HeatmapService } from '@/features/log/services/HeatmapService'
+import type { TaskExecutionHost } from '@/features/core/services/TaskExecutionService'
+import type { TaskInstance, TaskChutePluginLike } from '@/types'
+import { SectionConfigService } from '@/services/SectionConfigService'
 
 describe('TaskExecutionService', () => {
   beforeEach(() => {

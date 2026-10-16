@@ -29,9 +29,12 @@
  */
 
 import type { TFile } from 'obsidian'
-import { stableTimeoutSource } from '../../../utils/stableTimer'
+import { stableTimeoutSource } from '@/utils/stableTimer'
 import type { AiRunMode, AiRunRecord, AiStreamEvent, AiTaskHost } from '../types'
 import { readAiTaskConfig } from './AiTaskFrontmatterReader'
+import { getAiAgent } from '../agents'
+import type { AgentSessionHistory } from '../sessions/AgentSessionHistory'
+import type { AiModelCatalog } from '../models/AiModelCatalog'
 import { extractPromptSection, type PromptHeadingInfo } from './PromptExtractor'
 import { stripAnsiSequences } from './streams/AnsiStripper'
 import { capEventText } from './streams/StreamJsonParser'
@@ -49,8 +52,8 @@ import type {
   WorkspaceFileVersion,
 } from './WorkspaceFileService'
 import type { AiBinaryResolution } from './BinaryLocator'
-import type { RecipeContextSnapshot } from '../../recipe/services/RecipeDelegationContextBuilder'
-import { buildRecipeDelegationPrompt } from '../../recipe/services/RecipeDelegationContextBuilder'
+import type { RecipeContextSnapshot } from '@/features/recipe/services/RecipeDelegationContextBuilder'
+import { buildRecipeDelegationPrompt } from '@/features/recipe/services/RecipeDelegationContextBuilder'
 import { assertAiRunLaunchSize } from './AiRunLaunchSizeGuard'
 import {
   AI_RUN_SESSION_SAVE_IDLE_DELAY_MS,
@@ -190,8 +193,8 @@ export class AiTerminalFollowUpError extends Error {
 
 /**
  * Thrown by startShellSession when plain shell sessions cannot run here:
- * terminal capabilities are absent, the platform has no PTY wrapper
- * (win32), or the deps expose no shell path.
+ * terminal capabilities are absent, the terminal hosts AI runs only
+ * (Windows ConPTY), or the deps expose no shell path.
  */
 export class AiShellUnavailableError extends Error {
   constructor() {
@@ -206,6 +209,10 @@ interface AiTaskFileCacheLike {
 }
 
 export interface AiTaskManagerDeps {
+  /** Past agent sessions on this device, for the session history (desktop only). */
+  sessionHistory?: AgentSessionHistory
+  /** The models each agent's CLI offers, for the model picker (desktop only). */
+  modelCatalog?: AiModelCatalog
   app: {
     vault: {
       cachedRead(file: TFile): Promise<string>
@@ -247,11 +254,17 @@ export interface AiTaskManagerDeps {
   }
   /**
    * Terminal-mode capabilities. When absent (or isSupported() is false,
-   * e.g. win32) every run is forced to headless mode.
+   * e.g. Windows without a working ConPTY) every run is forced to headless.
    */
   terminal?: {
     dispatcher: AiTerminalDispatcher
     isSupported(): boolean
+    /** Settles isSupported() (the Windows ConPTY probe). Never rejects. */
+    ensureSupported?(): Promise<void>
+    getUnavailableReason?(): string | undefined
+    /** False on Windows, where ConPTY hosts AI runs only. Absent = true. */
+    shellSessionsSupported?: boolean
+    windowsPty?: { backend: 'conpty'; buildNumber?: number }
     /** Gateway helper: unique transcript path in the OS temp directory */
     makeTempFilePath(prefix: string): string
     /** Gateway helper: consume the transcript file at run end */
@@ -355,6 +368,18 @@ export interface PreparedAiRun {
 export interface AiTaskStartReservation {
   readonly taskPath: string
   readonly reservationId: symbol
+}
+
+/** A past agent session to resume (see resumeAgentSession). */
+export interface AiSessionResumeOptions {
+  host: AiTaskHost
+  sessionId: string
+  /** The folder the session ran in; it resumes there. */
+  cwd: string
+  /** The tab's name. */
+  name: string
+  cols?: number
+  rows?: number
 }
 
 export interface AiShellSessionOptions {
@@ -491,7 +516,7 @@ function joinCwd(basePath: string, relative: string): string {
   return `${base}/${rest}`
 }
 
-function normalizeBinaryResolution(resolution: AiBinaryResolution): {
+export function normalizeBinaryResolution(resolution: AiBinaryResolution): {
   binaryPath: string
   binaryArgsPrefix?: string[]
   binaryEnvPatch?: Readonly<Record<string, string | undefined>>
@@ -653,7 +678,8 @@ export class AiTaskManager {
    * `options.mode` (or the settings accessor) picks between an interactive
    * terminal (PTY) session and the headless stream-json pipeline; terminal
    * mode degrades to the conversation/headless pipeline where no PTY wrapper
-   * exists (currently win32); follow-up input remains available there.
+   * can run (e.g. a failed Windows ConPTY probe); follow-up input remains
+   * available there.
    * A missing or empty '## Prompt' section only rejects for headless runs —
    * a terminal session simply opens the CLI as a plain REPL (the user types
    * the prompt into the terminal).
@@ -774,6 +800,8 @@ export class AiTaskManager {
     if (!config) throw new AiTaskNotConfiguredError(taskPath)
 
     const content = await this.deps.app.vault.cachedRead(file)
+    this.throwIfDisposed()
+    await this.ensureTerminalSupportSettled(requestedMode)
     this.throwIfDisposed()
     const mode = this.resolveRunMode(requestedMode)
     const extractedPrompt = extractPromptSection(content, cache?.headings)
@@ -904,9 +932,9 @@ export class AiTaskManager {
               ? {}
               : { envPatch: binaryEnvPatch }),
             ...(terminalCommand === host
-              ? { terminalCommand }
+              ? { terminalCommand: getAiAgent(host).command }
               : {}),
-            terminalFallbackCommand: host,
+            terminalFallbackCommand: getAiAgent(host).command,
             prompt,
             cwd,
             extraArgs,
@@ -1126,6 +1154,27 @@ export class AiTaskManager {
     }
   }
 
+  /** Whether startShellSession can run here (drives the pane's split and +). */
+  supportsShellSessions(): boolean {
+    const terminal = this.deps.terminal
+    return (
+      terminal !== undefined &&
+      terminal.shellSessionsSupported !== false &&
+      terminal.isSupported() &&
+      typeof terminal.getShellPath === 'function'
+    )
+  }
+
+  getTerminalWindowsPty(): { backend: 'conpty'; buildNumber?: number } | undefined {
+    return this.deps.terminal?.windowsPty
+  }
+
+  getTerminalUnavailableReason(): string | undefined {
+    const terminal = this.deps.terminal
+    if (!terminal || terminal.isSupported()) return undefined
+    return terminal.getUnavailableReason?.()
+  }
+
   /**
    * Start a plain login-shell terminal session (host 'shell'). Synchronous
    * by design — no note read and no binary resolution happen — so the split
@@ -1138,8 +1187,8 @@ export class AiTaskManager {
     this.throwIfDisposed()
     const terminal = this.deps.terminal
     if (
+      !this.supportsShellSessions() ||
       !terminal ||
-      !terminal.isSupported() ||
       typeof terminal.getShellPath !== 'function'
     ) {
       throw new AiShellUnavailableError()
@@ -1224,6 +1273,133 @@ export class AiTaskManager {
       this.notifyChange(record)
       // The lifecycle contract still ends with 'persisted' (transcript
       // cleanup only — shell sessions never write a note).
+      this.queueExitPersist(internal)
+      throw error
+    }
+
+    if (!internal.exited && record.status === 'starting') {
+      record.pid = internal.handle.pid
+      record.status = 'running'
+      this.notifyChange(record)
+    }
+    return record
+  }
+
+  /** The session history, and the folder whose sessions it lists (the vault's). */
+  getModelCatalog(): AiModelCatalog | undefined {
+    return this.deps.modelCatalog
+  }
+
+  getSessionHistory(): { history: AgentSessionHistory; folder: string } | undefined {
+    const folder = this.getVaultBasePath()
+    if (!this.deps.sessionHistory || folder === undefined) return undefined
+    return { history: this.deps.sessionHistory, folder }
+  }
+
+  /** Whether a past agent session can be resumed here: it always opens in a terminal. */
+  supportsSessionResume(): boolean {
+    return this.deps.terminal !== undefined && this.deps.terminal.isSupported()
+  }
+
+  /** Waits for the Windows ConPTY probe, so supportsSessionResume() gives its real answer. */
+  async settleSessionResumeSupport(): Promise<void> {
+    await this.ensureTerminalSupportSettled('terminal')
+  }
+
+  /**
+   * Resume a past agent session (from the session history) in a new terminal
+   * tab, in the folder it ran in. Like a shell session, the run belongs to no
+   * task: no log note, no task state. The CLI is run with its own resume
+   * arguments (`claude --resume <id>` and the like), so the conversation
+   * continues where it left off. The caller checks the session still exists
+   * first: a CLI asked for a missing id may not fail (see AgentSessionHistory).
+   */
+  async resumeAgentSession(options: AiSessionResumeOptions): Promise<AiRunRecord> {
+    this.throwIfDisposed()
+    const terminal = this.deps.terminal
+    const resumeArgs = getAiAgent(options.host).sessions?.resumeArgs(options.sessionId)
+    await this.ensureTerminalSupportSettled('terminal')
+    if (!terminal || !this.supportsSessionResume() || !resumeArgs) {
+      throw new AiShellUnavailableError()
+    }
+    const resolution = await this.deps.binaryLocator.resolve(options.host)
+    const { binaryPath, binaryArgsPrefix, binaryEnvPatch, terminalCommand } =
+      normalizeBinaryResolution(resolution)
+    this.throwIfDisposed()
+
+    this.runSequence += 1
+    const record: AiRunRecord = {
+      id: `ai-run-${Date.now()}-${this.runSequence}`,
+      taskPath: '',
+      taskName: options.name,
+      cwd: options.cwd,
+      host: 'shell',
+      status: 'starting',
+      mode: 'terminal',
+      startedAt: Date.now(),
+      events: [],
+    }
+    record.transcriptPath = terminal.makeTempFilePath(`taskchute-${record.id}`)
+    record.rows = options.rows ?? DEFAULT_TERMINAL_ROWS
+    record.cols = options.cols ?? DEFAULT_TERMINAL_COLS
+
+    const internal: InternalRun = {
+      record,
+      handle: null,
+      terminalHandle: null,
+      exited: false,
+      terminalData: { chunks: [], totalLength: 0 },
+      terminalListeners: new Set(),
+      cwd: record.cwd,
+      extraArgs: [...resumeArgs],
+      continuation: null,
+      persistQueue: Promise.resolve(),
+      consumedTranscriptPaths: new Set(),
+      exitPersisted: false,
+      needsTaskStateReconciliation: false,
+      taskStateReconciliationClaimed: false,
+      taskStateReconciliationOperation: null,
+    }
+    this.runs.set(record.id, internal)
+    this.persistSessionStateNow()
+    this.notifyChange(record)
+
+    try {
+      const command = getAiAgent(options.host).command
+      const terminalHandle = terminal.dispatcher.start(
+        {
+          sessionId: record.id,
+          binaryPath,
+          binaryArgsPrefix: binaryArgsPrefix ? [...binaryArgsPrefix] : undefined,
+          ...(binaryEnvPatch === undefined ? {} : { envPatch: binaryEnvPatch }),
+          ...(terminalCommand === options.host ? { terminalCommand: command } : {}),
+          terminalFallbackCommand: command,
+          prompt: '',
+          cwd: options.cwd,
+          extraArgs: [...resumeArgs],
+          launchInShell: true,
+          rows: record.rows,
+          cols: record.cols,
+          transcriptPath: record.transcriptPath,
+        },
+        {
+          onData: (chunk) => this.handleTerminalData(internal, chunk),
+          onExit: (outcome) => this.handleExit(internal, outcome),
+          onAttached: (pid, transcriptPath) =>
+            this.handleTerminalAttached(internal, pid, transcriptPath),
+          onUnavailable: (transcriptPath) =>
+            this.markTerminalUnavailable(internal, undefined, transcriptPath),
+        },
+      )
+      record.terminalSessionId = terminalHandle.sessionId
+      internal.terminalHandle = terminalHandle
+      internal.handle = terminalHandle
+    } catch (error) {
+      internal.exited = true
+      record.status = 'failed'
+      record.endedAt = Date.now()
+      record.errorMessage = error instanceof Error ? error.message : String(error)
+      this.notifyChange(record)
       this.queueExitPersist(internal)
       throw error
     }
@@ -2897,10 +3073,22 @@ export class AiTaskManager {
     }
   }
 
+  /** Waits for the Windows ConPTY probe before resolveRunMode; headless skips it. */
+  private async ensureTerminalSupportSettled(requested?: AiRunMode): Promise<void> {
+    const mode = requested ?? this.deps.getRunMode?.() ?? 'headless'
+    const terminal = this.deps.terminal
+    if (mode !== 'terminal' || !terminal?.ensureSupported) return
+    try {
+      await terminal.ensureSupported()
+    } catch (error) {
+      this.deps.log?.('warn', '[AiTaskManager] Terminal capability check failed', error)
+    }
+  }
+
   /**
    * Effective run mode: an explicit request wins over the settings accessor;
    * terminal degrades to the conversation/headless pipeline when the
-   * capability is missing or the platform lacks a PTY wrapper (win32).
+   * capability is missing or unproven (Windows without a working ConPTY).
    */
   private resolveRunMode(requested?: AiRunMode): AiRunMode {
     const mode = requested ?? this.deps.getRunMode?.() ?? 'headless'

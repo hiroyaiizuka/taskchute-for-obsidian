@@ -1,5 +1,5 @@
-import { RoutineRule } from '../../../types';
-import type { RoutineMonthday } from '../../../types/TaskFields';
+import { RoutineRule } from '@/types';
+import type { RoutineMonthday } from '@/types/TaskFields';
 
 /**
  * RoutineService

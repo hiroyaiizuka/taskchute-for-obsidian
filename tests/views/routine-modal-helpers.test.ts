@@ -1,9 +1,9 @@
-import type { TaskData } from '../../src/types';
+import type { TaskData } from '@/types';
 import {
   deriveRoutineModalTitle,
   deriveWeeklySelection,
   deriveMonthlySelection,
-} from '../../src/features/routine/modals/RoutineModal';
+} from '@/features/routine/modals/RoutineModal';
 
 describe('routine modal helpers', () => {
   const baseTask = (): TaskData => ({

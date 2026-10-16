@@ -5,7 +5,7 @@ import {
   getReminderTimeFromFrontmatter,
   setReminderTimeToFrontmatter,
   clearReminderFromFrontmatter,
-} from '../../src/features/reminder/services/ReminderFrontmatterService';
+} from '@/features/reminder/services/ReminderFrontmatterService';
 
 describe('ReminderFrontmatterService', () => {
   describe('getReminderTimeFromFrontmatter', () => {

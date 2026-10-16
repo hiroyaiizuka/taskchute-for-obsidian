@@ -1,7 +1,7 @@
 import type {
   AiTaskManager,
   AiTaskManagerDeps,
-} from '../../../src/features/ai-task/services/AiTaskManager'
+} from '@/features/ai-task/services/AiTaskManager'
 import {
   acquireRetainedAiTaskManager,
   AI_TASK_TERMINAL_RENDERER_LEASE_OWNER_ID,
@@ -12,7 +12,7 @@ import {
   retainAiTaskManager,
   scheduleAiTaskManagerHotReloadHandoff,
   type AiTaskRuntimeWindow,
-} from '../../../src/features/ai-task/services/AiTaskRuntimeLease'
+} from '@/features/ai-task/services/AiTaskRuntimeLease'
 
 type FakeManager = Pick<
   AiTaskManager,

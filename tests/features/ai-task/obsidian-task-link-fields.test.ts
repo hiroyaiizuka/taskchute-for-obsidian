@@ -4,7 +4,7 @@
 
 import { TFile } from 'obsidian'
 import type { App } from 'obsidian'
-import { createObsidianTaskLinkFields } from '../../../src/features/ai-task/ui/ObsidianTaskLinkFields'
+import { createObsidianTaskLinkFields } from '@/features/ai-task/ui/ObsidianTaskLinkFields'
 
 jest.mock('obsidian')
 
@@ -47,7 +47,6 @@ describe('ObsidianTaskLinkFields', () => {
       taskFolderPath: 'TASKS',
       excludePath: currentAi.path,
       initialValue: { enabled: true, taskTitle: '', matchType: 'exact' },
-      translate: (_key, fallback) => fallback,
     })
 
     const input = document.querySelector<HTMLInputElement>(

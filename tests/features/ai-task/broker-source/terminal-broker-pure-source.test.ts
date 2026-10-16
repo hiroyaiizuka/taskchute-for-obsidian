@@ -1,9 +1,9 @@
 import { createContext, runInContext } from 'vm'
 
-import { TERMINAL_BROKER_PURE_SOURCE } from '../../../../src/features/ai-task/services/broker-source/TerminalBrokerPureSource'
-import { buildTerminalBrokerSource } from '../../../../src/features/ai-task/services/TerminalSessionBrokerSource'
-import { buildTerminalShellLaunch } from '../../../../src/features/ai-task/services/dispatchers/TerminalShellBootstrap'
-import { NodeProcessGateway } from '../../../../src/features/ai-task/services/NodeProcessGateway'
+import { TERMINAL_BROKER_PURE_SOURCE } from '@/features/ai-task/services/broker-source/TerminalBrokerPureSource'
+import { buildTerminalBrokerSource } from '@/features/ai-task/services/TerminalSessionBrokerSource'
+import { buildTerminalShellLaunch } from '@/features/ai-task/services/dispatchers/TerminalShellBootstrap'
+import { NodeProcessGateway } from '@/features/ai-task/services/NodeProcessGateway'
 
 /**
  * The broker ships as `node -e <one string>`, so these functions cannot be

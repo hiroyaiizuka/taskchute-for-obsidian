@@ -15,6 +15,14 @@ import {
   isDeleted as isDeletedEntry,
   isLegacyDeletionEntry,
 } from './dayState/conflictResolver';
+import { mergeDayComments, normalizeDayComments } from './dayState/comments';
+import {
+  type BackupClaim,
+  claimBackup,
+  readIfExists,
+  tasksLogPath,
+  writeMonthBackupSet,
+} from '@/features/log/services/MonthBackupSet';
 
 const DAY_STATE_VERSION = '1.0';
 const LOCAL_WRITE_TTL_MS = 5000;
@@ -346,6 +354,10 @@ export class DayStatePersistenceService {
         );
       }
     }
+    const comments = normalizeDayComments(record.comments);
+    if (comments) {
+      day.comments = comments;
+    }
 
     return day;
   }
@@ -382,6 +394,9 @@ export class DayStatePersistenceService {
     const path = this.getStatePath(monthKey);
     const file = this.plugin.app.vault.getAbstractFileByPath(path);
     const payload = JSON.stringify(month, null, 2);
+    if (file && file instanceof TFile) {
+      await this.backUpBeforeWrite(monthKey, file);
+    }
 
     this.recordLocalWrite(path, payload);
     try {
@@ -403,6 +418,44 @@ export class DayStatePersistenceService {
     this.cache.set(monthKey, month);
   }
 
+  /**
+   * Backs up the month as a set (this day state as it was before the write,
+   * and the execution log as it is now) once per backup interval, so comments
+   * written on a day nobody stops a task are backed up too. The interval is
+   * shared with the execution log's backups (`claimBackup`). A failed backup
+   * never stops the write.
+   */
+  private async backUpBeforeWrite(monthKey: string, file: TFile): Promise<void> {
+    const now = Date.now();
+    let claim: BackupClaim | null = null;
+    try {
+      claim = claimBackup(this.plugin, monthKey, { now });
+      if (!claim) return;
+      const previous = await this.plugin.app.vault.read(file);
+      if (!previous) {
+        claim.release();
+        return;
+      }
+      const tasks = await readIfExists(this.plugin, tasksLogPath(this.plugin, monthKey));
+      await writeMonthBackupSet(this.plugin, monthKey, { tasks, state: previous }, new Date(now));
+    } catch (error) {
+      claim?.release();
+      console.warn('[DayStatePersistenceService] Failed to back up day state', monthKey, error);
+    }
+  }
+
+  /**
+   * Puts a month's day state back from a backup (the restore of a backup set).
+   * Replaces the month as a whole; the cache then holds the restored file.
+   */
+  async restoreMonth(monthKey: string, raw: string): Promise<void> {
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    const month = this.normalizeMonthlyState(parsed);
+    this.ensureMetadata(month);
+    month.metadata.lastUpdated = new Date().toISOString();
+    await this.writeMonth(monthKey, month);
+  }
+
   private toComparableDayState(state: DayState): DayState {
     const comparable: DayState = {
       hiddenRoutines: state.hiddenRoutines ?? [],
@@ -413,6 +466,9 @@ export class DayStatePersistenceService {
     };
     if (state.recipeProgress && Object.keys(state.recipeProgress).length > 0) {
       comparable.recipeProgress = state.recipeProgress;
+    }
+    if (state.comments && state.comments.length > 0) {
+      comparable.comments = state.comments;
     }
     if (state.slotOverridesMeta && Object.keys(state.slotOverridesMeta).length > 0) {
       comparable.slotOverridesMeta = state.slotOverridesMeta;
@@ -732,6 +788,7 @@ export class DayStatePersistenceService {
         localDay.recipeProgress ?? {},
         remoteDay.recipeProgress ?? {},
       );
+      const commentsResult = mergeDayComments(localDay.comments, remoteDay.comments);
 
       const mergedDay: DayState = {
         hiddenRoutines: hiddenResult.merged,
@@ -745,6 +802,9 @@ export class DayStatePersistenceService {
       if (Object.keys(recipeProgressResult.merged).length > 0) {
         mergedDay.recipeProgress = recipeProgressResult.merged;
       }
+      if (commentsResult.merged.length > 0) {
+        mergedDay.comments = commentsResult.merged;
+      }
 
       const mergedDiffersFromLocal = !this.areDayStatesEqual(mergedDay, localDay);
 
@@ -755,6 +815,7 @@ export class DayStatePersistenceService {
         slotResult.hasConflicts ||
         ordersResult.hasConflicts ||
         recipeProgressResult.hasConflicts ||
+        commentsResult.hasConflicts ||
         mergedDiffersFromLocal
       ) {
         hasChanges = true;
@@ -888,6 +949,7 @@ export class DayStatePersistenceService {
         localDay.recipeProgress ?? {},
         diskDay.recipeProgress ?? {},
       );
+      const commentsResult = mergeDayComments(localDay.comments, diskDay.comments);
 
       const mergedDay: DayState = {
         hiddenRoutines: hiddenResult.merged,
@@ -900,6 +962,9 @@ export class DayStatePersistenceService {
       };
       if (Object.keys(recipeProgressResult.merged).length > 0) {
         mergedDay.recipeProgress = recipeProgressResult.merged;
+      }
+      if (commentsResult.merged.length > 0) {
+        mergedDay.comments = commentsResult.merged;
       }
       mergedMonthly.days[dateKey] = mergedDay;
     }

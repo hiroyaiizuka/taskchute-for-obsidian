@@ -6,15 +6,15 @@ import type {
   PtyCommandRequest,
   SpawnProcessRequest,
   SpawnedProcessHandle,
-} from '../../../../src/features/ai-task/services/NodeProcessGateway'
+} from '@/features/ai-task/services/NodeProcessGateway'
 import type {
   AiDispatcher,
   AiGraceTimer,
   AiRunExitOutcome,
   AiRunProcessHandle,
   AiRunRequest,
-} from '../../../../src/features/ai-task/services/dispatchers/Dispatcher'
-import type { AiStreamEvent } from '../../../../src/features/ai-task/types'
+} from '@/features/ai-task/services/dispatchers/Dispatcher'
+import type { AiStreamEvent } from '@/features/ai-task/types'
 
 export const FIXTURES_DIR = path.join(__dirname, '../fixtures')
 

@@ -4,7 +4,7 @@ import { TFile } from 'obsidian'
 import {
   AiTaskAmbientCandidateFinder,
   findAiTaskAmbientCandidates,
-} from '../../../src/features/ai-task/services/AiTaskAmbientCandidateFinder'
+} from '@/features/ai-task/services/AiTaskAmbientCandidateFinder'
 
 function file(path: string): TFile {
   const candidate = new TFile()

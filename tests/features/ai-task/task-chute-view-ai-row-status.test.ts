@@ -5,10 +5,10 @@
  * attach failure needs timer reconciliation.
  */
 import { WorkspaceLeaf } from 'obsidian'
-import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView'
-import type { AiRunChangeType } from '../../../src/features/ai-task/services/AiTaskManager'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
-import type { TaskChutePluginLike } from '../../../src/types'
+import { TaskChuteView } from '@/features/core/views/TaskChuteView'
+import type { AiRunChangeType } from '@/features/ai-task/services/AiTaskManager'
+import type { AiRunRecord } from '@/features/ai-task/types'
+import type { TaskChutePluginLike } from '@/types'
 
 type ChangeListener = (record: AiRunRecord, changeType?: AiRunChangeType) => void
 

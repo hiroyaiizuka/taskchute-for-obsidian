@@ -1,7 +1,7 @@
-import type { ProcessGateway } from '../../../src/features/ai-task/services/NodeProcessGateway'
-import { BrokerTerminalDispatcher } from '../../../src/features/ai-task/services/dispatchers/BrokerTerminalDispatcher'
-import type { TerminalSessionBrokerClient } from '../../../src/features/ai-task/services/TerminalSessionBroker'
-import { POSIX_TERMINAL_BOOTSTRAP } from '../../../src/features/ai-task/services/dispatchers/TerminalShellBootstrap'
+import type { ProcessGateway } from '@/features/ai-task/services/NodeProcessGateway'
+import { BrokerTerminalDispatcher } from '@/features/ai-task/services/dispatchers/BrokerTerminalDispatcher'
+import type { TerminalSessionBrokerClient } from '@/features/ai-task/services/TerminalSessionBroker'
+import { POSIX_TERMINAL_BOOTSTRAP } from '@/features/ai-task/services/dispatchers/TerminalShellBootstrap'
 
 function makeGateway(): ProcessGateway {
   return {

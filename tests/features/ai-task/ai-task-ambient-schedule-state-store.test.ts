@@ -3,7 +3,7 @@ import {
   AiTaskAmbientScheduleStateStore,
   formatAiTaskAmbientDateKey,
   resolveAiTaskAmbientIdentity,
-} from '../../../src/features/ai-task/services/AiTaskAmbientScheduleStateStore'
+} from '@/features/ai-task/services/AiTaskAmbientScheduleStateStore'
 
 describe('AiTaskAmbientScheduleStateStore', () => {
   test('uses taskId across path changes and falls back to path for legacy tasks', () => {

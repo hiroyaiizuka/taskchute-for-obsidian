@@ -15,12 +15,12 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { createHash } from 'crypto'
-import { NodeProcessGateway } from '../../../../src/features/ai-task/services/NodeProcessGateway'
-import { TerminalDispatcher } from '../../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
+import { NodeProcessGateway } from '@/features/ai-task/services/NodeProcessGateway'
+import { TerminalDispatcher } from '@/features/ai-task/services/dispatchers/TerminalDispatcher'
 import type {
   TerminalRunHandle,
-} from '../../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
-import type { AiRunExitOutcome } from '../../../../src/features/ai-task/services/dispatchers/Dispatcher'
+} from '@/features/ai-task/services/dispatchers/TerminalDispatcher'
+import type { AiRunExitOutcome } from '@/features/ai-task/services/dispatchers/Dispatcher'
 import { FIXTURES_DIR, prepareFixture, resizeOf } from './dispatcherTestUtils'
 
 const FAKE_INTERACTIVE = path.join(FIXTURES_DIR, 'fake-interactive.js')

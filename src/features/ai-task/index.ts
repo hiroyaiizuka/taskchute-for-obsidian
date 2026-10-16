@@ -9,7 +9,7 @@
  */
 
 import type { App } from 'obsidian'
-import type { PathManagerLike, TaskChutePluginLike, TaskChuteSettings } from '../../types'
+import type { PathManagerLike, PluginLogFn, TaskChutePluginLike, TaskChuteSettings } from '@/types'
 import { evaluateAiTaskAvailability } from './availability'
 import type { AiRunMode, AiTaskHost } from './types'
 import { AiTaskLogWriter } from './services/AiTaskLogWriter'
@@ -20,8 +20,12 @@ import {
 import { BinaryLocator } from './services/BinaryLocator'
 import { NodeProcessGateway } from './services/NodeProcessGateway'
 import type { AiDispatcher } from './services/dispatchers/Dispatcher'
-import { ClaudeCodeDispatcher } from './services/dispatchers/ClaudeCodeDispatcher'
-import { CodexDispatcher } from './services/dispatchers/CodexDispatcher'
+import { listAiAgents, mapAiAgents } from './agents'
+import { AiModelCatalog } from './models/AiModelCatalog'
+import { createDefaultModelReader, createModelListFetcher } from './models/modelListSources'
+import { AgentSessionHistory } from './sessions/AgentSessionHistory'
+import { SessionArchiveStore } from './sessions/SessionArchiveStore'
+import { IndexedDbSessionTextStore } from './sessions/SessionTextStore'
 import {
   TerminalDispatcher,
   type AiTerminalDispatcher,
@@ -51,7 +55,7 @@ export interface AiTaskPluginLike {
    * ask whether the license is active, and tests fake it with a single method.
    */
   licenseManager?: { isActive: () => boolean }
-  _log?: (level?: string, ...args: unknown[]) => void
+  _log?: PluginLogFn
 }
 
 const DEFAULT_LOG_RETENTION_DAYS = 30
@@ -97,14 +101,14 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
   }
 
   const gateway = new NodeProcessGateway()
-  const binaryLocator = new BinaryLocator(gateway, () => ({
-    aiTaskClaudePath: plugin.settings.aiTaskClaudePath,
-    aiTaskCodexPath: plugin.settings.aiTaskCodexPath,
-  }))
-  const dispatchers: Record<AiTaskHost, AiDispatcher> = {
-    claude: new ClaudeCodeDispatcher(gateway),
-    codex: new CodexDispatcher(gateway),
-  }
+  const binaryLocator = new BinaryLocator(gateway, () =>
+    Object.fromEntries(
+      listAiAgents().map(({ pathSetting }) => [pathSetting.key, plugin.settings[pathSetting.key]]),
+    ),
+  )
+  const dispatchers: Record<AiTaskHost, AiDispatcher> = mapAiAgents((agent) =>
+    agent.createDispatcher(gateway),
+  )
   const logWriter = new AiTaskLogWriter({
     app: plugin.app,
     pathManager: {
@@ -164,8 +168,12 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     createAiTaskTerminalRendererLeaseIdentity(
       rendererLeaseGenerationStore,
     )
+  // The broker relies on POSIX process groups; ConPTY sessions stay renderer-owned.
+  const conpty = gateway.getPtyTransport() === 'conpty'
+  const windowsBuildNumber = gateway.getWindowsBuildNumber()
+  let loggedTerminalUnavailable = false
   const terminalDispatcher: AiTerminalDispatcher =
-    gateway.isPtySupported() && brokerIdentity !== undefined
+    !conpty && gateway.isPtySupported() && brokerIdentity !== undefined
       ? new BrokerTerminalDispatcher(
           gateway,
           new TerminalSessionBrokerClient({
@@ -179,14 +187,63 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
         )
       : new TerminalDispatcher(gateway)
 
+  const sessionHistory = new AgentSessionHistory(
+    {
+      homeDirectory: () => gateway.getHomeDirectory(),
+      listEntries: (path) => gateway.listEntries(path),
+      stat: (path) => gateway.statPath(path),
+      readRange: (path, position, length) => gateway.readFileRange(path, position, length),
+      readSqliteTable: (path, table, keys) => gateway.readSqliteTable(path, table, keys),
+    },
+    new Map(
+      listAiAgents().flatMap((agent) => (agent.sessions ? [[agent.id, agent.sessions] as const] : [])),
+    ),
+    new SessionArchiveStore({
+      loadLocalStorage: (key) => localStorageApp.loadLocalStorage?.(key),
+      saveLocalStorage: (key, value) => localStorageApp.saveLocalStorage?.(key, value),
+    }),
+    // Conversations extracted for search stay on this device, out of the vault.
+    new IndexedDbSessionTextStore(window.indexedDB),
+  )
+
+  // Model lists come from the CLIs installed here, so they stay on this device.
+  const modelCatalog = new AiModelCatalog(
+    {
+      loadLocalStorage: (key) => localStorageApp.loadLocalStorage?.(key),
+      saveLocalStorage: (key, value) => localStorageApp.saveLocalStorage?.(key, value),
+    },
+    createModelListFetcher(gateway, binaryLocator),
+    createDefaultModelReader(gateway),
+  )
+
   const deps: AiTaskManagerDeps = {
     app: plugin.app,
+    sessionHistory,
+    modelCatalog,
     dispatchers,
     binaryLocator,
     logWriter,
     terminal: {
       dispatcher: terminalDispatcher,
       isSupported: () => gateway.isPtySupported(),
+      ensureSupported: async () => {
+        await gateway.ensurePtyCapability()
+        const reason = gateway.getPtyUnavailableReason()
+        if (reason !== undefined && !loggedTerminalUnavailable) {
+          loggedTerminalUnavailable = true
+          log('warn', '[AiTask] Terminal mode unavailable; using conversation mode', reason)
+        }
+      },
+      getUnavailableReason: () => gateway.getPtyUnavailableReason(),
+      shellSessionsSupported: !conpty,
+      ...(conpty
+        ? {
+            windowsPty: {
+              backend: 'conpty' as const,
+              ...(windowsBuildNumber === null ? {} : { buildNumber: windowsBuildNumber }),
+            },
+          }
+        : {}),
       makeTempFilePath: (prefix: string) => gateway.makeTempFilePath(prefix),
       readAndDeleteFile: (path: string) => gateway.readAndDeleteFile(path),
       // Plain shell sessions (U2 split panels) spawn the user's login shell.
@@ -198,8 +255,7 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
       getRecipeFolderPath: () => recipeService.getRecipeFolderPath(),
       loadRecipe: (path) => recipeService.loadRecipe(path),
     }),
-    // Terminal is the default experience. Without a bundled Windows ConPTY
-    // native runtime, win32 uses the cross-platform conversation pipeline.
+    // Terminal is the default everywhere; resolveRunMode falls back where it cannot run.
     getRunMode: (): AiRunMode =>
       plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal',
     sessionState,

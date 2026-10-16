@@ -1,6 +1,6 @@
-import { TaskChutePluginLike, DayState } from '../../src/types';
+import { TaskChutePluginLike, DayState } from '@/types';
 import { Notice, WorkspaceLeaf } from 'obsidian';
-import { TaskChuteView } from '../../src/features/core/views/TaskChuteView';
+import { TaskChuteView } from '@/features/core/views/TaskChuteView';
 
 // モック設定
 jest.mock('obsidian');

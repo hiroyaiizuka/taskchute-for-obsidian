@@ -25,6 +25,10 @@ class Terminal {
     this.bufferLines = []
     /** Test helper: wrapped/wide-cell metadata keyed by buffer line. */
     this.bufferLineMetadata = []
+    this.customKeyEventHandler = null
+    /** Test helper: text reported by getSelection() / hasSelection(). */
+    this.selectionText = ''
+    this.clearSelectionCount = 0
     const self = this
     this.buffer = {
       active: {
@@ -121,6 +125,23 @@ class Terminal {
 
   focus() {
     this.focusCount += 1
+  }
+
+  attachCustomKeyEventHandler(handler) {
+    this.customKeyEventHandler = handler
+  }
+
+  hasSelection() {
+    return this.selectionText.length > 0
+  }
+
+  getSelection() {
+    return this.selectionText
+  }
+
+  clearSelection() {
+    this.selectionText = ''
+    this.clearSelectionCount += 1
   }
 
   dispose() {

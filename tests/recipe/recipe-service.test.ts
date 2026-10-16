@@ -1,5 +1,5 @@
 import { TFile } from 'obsidian'
-import { RecipeService, createRecipeProgressKey, createRecipeProgressKeyForInstance, createRecipeStepId, normalizeRecipeReference } from '../../src/features/recipe/services/RecipeService'
+import { RecipeService, createRecipeProgressKey, createRecipeProgressKeyForInstance, createRecipeStepId, normalizeRecipeReference } from '@/features/recipe/services/RecipeService'
 
 function createFile(path: string): TFile {
   const file = new TFile()

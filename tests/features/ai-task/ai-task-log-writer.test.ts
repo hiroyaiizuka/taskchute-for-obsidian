@@ -4,8 +4,8 @@ import {
   STDERR_TAIL_LIMIT,
   TERMINAL_LOG_BODY_LIMIT,
   type AiTaskLogWriterDeps,
-} from '../../../src/features/ai-task/services/AiTaskLogWriter'
-import type { AiRunRecord, AiStreamEvent } from '../../../src/features/ai-task/types'
+} from '@/features/ai-task/services/AiTaskLogWriter'
+import type { AiRunRecord, AiStreamEvent } from '@/features/ai-task/types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 

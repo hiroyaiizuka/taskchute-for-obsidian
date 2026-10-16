@@ -14,10 +14,10 @@
  *   - computeTerminalSize falls back to 120x30 when the pane has no
  *     measurable pixel size (always true in jsdom)
  */
-import { AiRunPaneController } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunPaneControllerHost } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { TerminalViewAdapterLike } from '../../../src/features/ai-task/ui/TerminalViewAdapter'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
+import { AiRunPaneController } from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunPaneControllerHost } from '@/features/ai-task/ui/AiRunPaneController'
+import type { TerminalViewAdapterLike } from '@/features/ai-task/ui/TerminalViewAdapter'
+import type { AiRunRecord } from '@/features/ai-task/types'
 
 type ChangeListener = (record: AiRunRecord) => void
 type TerminalDataListener = (chunk: string) => void
@@ -429,7 +429,7 @@ describe('AiRunPaneController terminal mode', () => {
     })
 
     const size = controller.computeTerminalSize()
-    // 40% of the parent height minus the pane chrome, divided by the cell
+    // Half of the parent height minus the pane chrome, divided by the cell
     // height; the exact cell constants live in the controller — assert sane
     // bounds (strictly below the 120x30 fallback, so a fallback return
     // cannot masquerade as a measurement) instead of duplicating them here.

@@ -1,7 +1,7 @@
 import {
   findTerminalFileLinks,
   type TerminalFileLinkMatch,
-} from '../../../src/features/ai-task/ui/TerminalLinkMatcher'
+} from '@/features/ai-task/ui/TerminalLinkMatcher'
 
 function targets(text: string): Array<
   Pick<TerminalFileLinkMatch, 'path' | 'line' | 'column'>

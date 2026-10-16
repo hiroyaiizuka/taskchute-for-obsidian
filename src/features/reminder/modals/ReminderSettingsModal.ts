@@ -6,8 +6,8 @@
  */
 
 import { App, Modal } from 'obsidian';
-import { t } from '../../../i18n';
-import { createModalFooter } from '../../../ui/components/modalFooter';
+import { t } from '@/i18n';
+import { createModalFooter } from '@/ui/components/modalFooter';
 
 export interface ReminderSettingsModalOptions {
   /** Current reminder time in HH:mm format, or undefined if not set */

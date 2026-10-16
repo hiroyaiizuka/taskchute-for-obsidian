@@ -4,12 +4,12 @@ import TaskMoveCalendar, {
   TaskMoveCalendarFactory,
   TaskMoveCalendarHandle,
 } from '../components/TaskMoveCalendar'
-import { getCurrentLocale } from '../../i18n'
-import type { TaskChutePluginLike } from '../../types'
-import type { AiTaskBoardView } from '../../features/ai-task/types'
+import { getCurrentLocale, type ScopedKey, type ScopedTranslator } from '@/i18n'
+import type { TaskChutePluginLike } from '@/types'
+import type { AiTaskBoardView } from '@/features/ai-task/types'
 
 export interface TaskHeaderControllerHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   getCurrentDate: () => Date
   setCurrentDate: (next: Date) => void
   adjustCurrentDate: (days: number) => void
@@ -39,9 +39,9 @@ const TERMINAL_COMMAND_ID = 'terminal:open-terminal.integrated.root'
 const BOARD_VIEW_SEGMENTS: ReadonlyArray<{
   view: AiTaskBoardView
   icon: string
-  labelKey: string
+  labelKey: ScopedKey<'taskChuteView'>
   labelFallback: string
-  ariaKey: string
+  ariaKey: ScopedKey<'taskChuteView'>
   ariaFallback: string
 }> = [
   {
@@ -155,8 +155,8 @@ export default class TaskHeaderController {
     })
     // The label opens the same calendar the glyph beside it does. It is the
     // largest thing in the header and reads as the current date, so it is what
-    // a finger goes for; on a phone it is also the only one of the two left,
-    // since the narrow layout drops the glyph to fit the row.
+    // a finger goes for, on a phone as much as on a desktop -- the header is
+    // one row at every width, so both controls survive the narrow layout.
     const dateLabel = navContainer.createSpan({
       cls: 'date-nav-label',
       attr: {

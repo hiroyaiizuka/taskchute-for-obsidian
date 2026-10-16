@@ -1,5 +1,17 @@
 import { Notice } from 'obsidian'
-import { TaskInstance } from '../../types'
+import { TaskInstance } from '@/types'
+import type { DragPointer } from './TaskListPointerDrag'
+import type { ScopedTranslator } from '@/i18n'
+
+/**
+ * What the placement math reads off the event. The list drags on Pointer
+ * Events now, so the controller takes coordinates plus an explicit payload;
+ * a `DragEvent` still satisfies the shape, which is what keeps the project
+ * board's native drag path on the same code.
+ */
+type DragSource = DragPointer & {
+  dataTransfer?: { getData: (format: string) => string } | null
+}
 
 export interface TaskDragControllerHost {
   getTaskInstances: () => TaskInstance[]
@@ -7,7 +19,7 @@ export interface TaskDragControllerHost {
   getStatePriority: (state: TaskInstance['state']) => number
   normalizeState: (state: TaskInstance['state']) => string
   moveTaskToSlot: (inst: TaskInstance, slot: string, stateInsertIndex?: number) => Promise<void> | void
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
 }
 
 /**
@@ -25,8 +37,7 @@ interface DragPayload {
 export default class TaskDragController {
   constructor(private readonly host: TaskDragControllerHost) {}
 
-  handleDragOver(e: DragEvent, taskItem: HTMLElement, inst: TaskInstance): void {
-    e.preventDefault()
+  handleDragOver(e: DragSource, taskItem: HTMLElement, inst: TaskInstance): void {
     this.clearDragoverClasses(taskItem)
 
     if (inst.state === 'done') {
@@ -44,8 +55,13 @@ export default class TaskDragController {
     taskItem.classList.add(isBottomHalf ? 'dragover-bottom' : 'dragover-top')
   }
 
-  handleDrop(e: DragEvent, taskItem: HTMLElement, targetInst: TaskInstance): void {
-    const data = e.dataTransfer?.getData('text/plain')
+  handleDrop(
+    e: DragSource,
+    taskItem: HTMLElement,
+    targetInst: TaskInstance,
+    payloadOverride?: string,
+  ): void {
+    const data = payloadOverride ?? e.dataTransfer?.getData('text/plain')
     if (!data) {
       this.clearDragoverClasses(taskItem)
       return
@@ -132,8 +148,8 @@ export default class TaskDragController {
     this.clearDragoverClasses(taskItem)
   }
 
-  handleSlotDrop(e: DragEvent, slot: string): void {
-    const data = e.dataTransfer?.getData('text/plain')
+  handleSlotDrop(e: DragSource, slot: string, payloadOverride?: string): void {
+    const data = payloadOverride ?? e.dataTransfer?.getData('text/plain')
     if (!data) return
 
     const payload = this.parseDragPayload(data)

@@ -1,4 +1,4 @@
-import TaskViewLayout from '../../../src/ui/layout/TaskViewLayout'
+import TaskViewLayout from '@/ui/layout/TaskViewLayout'
 
 function ensurePrototypeAugmentations(): void {
   const proto = HTMLElement.prototype as unknown as {

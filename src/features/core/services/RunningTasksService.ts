@@ -5,12 +5,12 @@ import type {
   TaskChutePluginLike,
   TaskData,
   TaskInstance,
-} from '../../../types'
-import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
-import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry } from '../../../services/dayState/conflictResolver'
-import { getCurrentTimeSlot } from '../../../utils/time'
-import type { SectionConfigService } from '../../../services/SectionConfigService'
-import { normalizeReminderTime } from '../../reminder/services/ReminderFrontmatterService'
+} from '@/types'
+import { extractTaskIdFromFrontmatter } from '@/services/TaskIdManager'
+import { isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry } from '@/services/dayState/conflictResolver'
+import { getCurrentTimeSlot } from '@/utils/time'
+import type { SectionConfigService } from '@/services/SectionConfigService'
+import { normalizeReminderTime } from '@/features/reminder/services/ReminderFrontmatterService'
 
 export interface RunningTaskRecord {
   date: string;

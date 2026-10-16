@@ -2,9 +2,9 @@
 
 [English](./README.md) | [日本語](./README.ja.md)
 
-**タスクを整理するだけでなく、実行するためのプラグイン。**
+📖 **公式ドキュメント:** https://obsidian.levers.co.jp/ja/
 
-**現在ベータ版で、公式ドキュメントを整備中です。近日中(2026年8月頃)に公開予定です。**
+**タスクを整理するだけでなく、実行するためのプラグイン。**
 
 TaskChute Plus は、実行重視のタスク管理を Obsidian 上で行うためのプラグインです。  
 「今やること」を決めて実行し、実績ログを蓄積して改善につなげます。
@@ -130,7 +130,7 @@ ai_task_args: --max-turns 5 # 任意: 追加のCLI引数（文字列またはリ
 
 - **ターミナル（対話型）** — 上記のデフォルト体験です。ターミナルモードでは `## Prompt` セクションは省略可能で、無い場合はCLIが素の対話セッションとして開きます。
 - **ヘッドレス（イベント表示）** — 従来の動作で、`TaskChute settings` → `AIタスク` → `実行モード` から選択できます。CLIを非対話で実行し、解析されたストリームイベントをペインにテキスト表示し、コンポーザーバーから resume ベースの追加プロンプトを送信できます。ヘッドレス実行には `## Prompt` セクションが必須です。
-- **Windows** は現時点でターミナル非対応のため、設定に関わらず常にヘッドレスで実行されます。
+- **Windows** では、標準搭載の Windows PowerShell が起動する Windows の疑似コンソール（ConPTY）の中でターミナルモードを実行します。追加でインストールするものはありません。Windows 10 バージョン 1809 以降が必要です。最初のターミナル実行時に疑似コンソールが使えるかを確認し、使えない環境（古いビルドや、管理ポリシーで PowerShell が制限されている場合）ではヘッドレスで実行し、理由を通知します。Windows ではペインから素のシェルセッションは開けず、ターミナルのセッションはCLIの終了とともに終わります。
 
 この機能にとってタスクノートの frontmatter は読み取り専用です。プラグインがタスクノートを書き換えることはありません。
 
@@ -153,7 +153,8 @@ npm install
 npm run dev       # esbuild watch
 npm run build     # production bundle
 npm run lint      # eslint for src/tests
-npm test          # jest
+npm run test:unit        # jest（ユニット）
+npm run test:integration # jest（*.integration.test.ts / 実プロセスを起動）
 ```
 
 ### リリース成果物

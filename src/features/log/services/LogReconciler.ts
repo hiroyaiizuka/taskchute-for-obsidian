@@ -1,21 +1,21 @@
 import { TFile, TFolder, normalizePath } from 'obsidian'
-import type { TaskChutePluginLike } from '../../../types'
-import type { TaskLogEntry, DailySummaryEntry, TaskLogSnapshot, TaskLogSnapshotMeta } from '../../../types/ExecutionLog'
-import { SnapshotConflictError, SnapshotCorruptedError, LegacySnapshotError } from '../../../types/ExecutionLog'
+import type { TaskChutePluginLike } from '@/types'
+import type { TaskLogEntry, DailySummaryEntry, TaskLogSnapshot, TaskLogSnapshotMeta } from '@/types/ExecutionLog'
+import { SnapshotConflictError, SnapshotCorruptedError, LegacySnapshotError } from '@/types/ExecutionLog'
 import { ExecutionLogDeltaRecord } from './ExecutionLogDeltaWriter'
 import {
   createEmptyTaskLogSnapshot,
   isExecutionLogEntryCompleted,
   minutesFromLogEntries,
   parseTaskLogSnapshot,
-} from '../../../utils/executionLogUtils'
-import { computeExecutionInstanceKey } from '../../../utils/logKeys'
+} from '@/utils/executionLogUtils'
+import { computeExecutionInstanceKey } from '@/utils/logKeys'
 import { RecordsWriter } from './RecordsWriter'
 import { LogSnapshotWriter } from './LogSnapshotWriter'
 import { LOG_INBOX_FOLDER, LOG_INBOX_LEGACY_FOLDER, LEGACY_REVISION } from '../constants'
 import { BackupPruner } from './BackupPruner'
 import { MonthSyncCoordinator } from './MonthSyncCoordinator'
-import { sleepWithStableTimer } from '../../../utils/stableTimer'
+import { sleepWithStableTimer } from '@/utils/stableTimer'
 
 interface DeltaSource {
   deviceId: string

@@ -7,7 +7,7 @@
  * nothing in the stream is ever lost, and the parsers never throw.
  */
 
-import type { AiStreamEvent } from '../../types'
+import type { AiStreamEvent } from '@/features/ai-task/types'
 
 /**
  * Maximum characters of text stored per event. Longer payloads keep the tail
@@ -160,6 +160,23 @@ function rawEvent(line: string): AiStreamEvent[] {
   return [{ kind: 'raw', text: capTextTail(line) }]
 }
 
+/**
+ * A line whose envelope parsed but whose `type` (and `subtype`) this parser
+ * does not render. Only the discriminators survive: dumping the whole line
+ * floods the pane and the log note with payloads that carry nothing readable
+ * (Claude's `system` subtypes such as `api_retry` are the common case), while
+ * the type name is enough to tell what was skipped.
+ */
+function unhandledLabel(label: string): AiStreamEvent[] {
+  return [{ kind: 'raw', text: `[unhandled] ${label}` }]
+}
+
+function unhandledEvent(payload: UnknownRecord): AiStreamEvent[] {
+  const type = capField(asString(payload['type'])) ?? 'unknown'
+  const subtype = capField(asString(payload['subtype']))
+  return unhandledLabel(subtype === undefined ? type : `${type}/${subtype}`)
+}
+
 function tryParseRecord(line: string): UnknownRecord | null {
   try {
     const parsed: unknown = JSON.parse(line)
@@ -173,11 +190,18 @@ function tryParseRecord(line: string): UnknownRecord | null {
 // Claude Code: `claude -p PROMPT --output-format stream-json --verbose`
 // ---------------------------------------------------------------------------
 
-function parseClaudeAssistant(payload: UnknownRecord): AiStreamEvent[] {
+/**
+ * `null` means the envelope is malformed (no `message.content` array), so the
+ * caller degrades to a full `raw` dump. An empty array means the message was
+ * well formed and simply held nothing this parser renders — Claude emits an
+ * assistant message carrying only a `thinking` block every turn, and dumping
+ * those raw buried the pane under signed base64.
+ */
+function parseClaudeAssistant(payload: UnknownRecord): AiStreamEvent[] | null {
   const message = payload['message']
-  if (!isRecord(message)) return []
+  if (!isRecord(message)) return null
   const content = message['content']
-  if (!Array.isArray(content)) return []
+  if (!Array.isArray(content)) return null
 
   const accumulator: LineEventAccumulator = { events: [], omittedCount: 0 }
   for (const block of content) {
@@ -216,11 +240,12 @@ function extractToolResultText(content: unknown): string | undefined {
   return parts.length > 0 ? parts.join('\n') : undefined
 }
 
-function parseClaudeUser(payload: UnknownRecord): AiStreamEvent[] {
+/** Same null-vs-empty contract as parseClaudeAssistant. */
+function parseClaudeUser(payload: UnknownRecord): AiStreamEvent[] | null {
   const message = payload['message']
-  if (!isRecord(message)) return []
+  if (!isRecord(message)) return null
   const content = message['content']
-  if (!Array.isArray(content)) return []
+  if (!Array.isArray(content)) return null
 
   const accumulator: LineEventAccumulator = { events: [], omittedCount: 0 }
   for (const block of content) {
@@ -236,7 +261,10 @@ function parseClaudeUser(payload: UnknownRecord): AiStreamEvent[] {
 
 /**
  * Parse one line of Claude Code stream-json output.
- * Returns [] for blank lines; falls back to a raw event otherwise.
+ * Returns [] for blank lines and for well-formed messages that carry nothing
+ * to render. A line that does not parse as JSON degrades to a full `raw`
+ * dump; a recognized envelope this parser does not handle degrades to the
+ * short `[unhandled] type/subtype` marker instead.
  */
 export function parseClaudeLine(line: string): AiStreamEvent[] {
   if (line.trim().length === 0) return []
@@ -254,12 +282,10 @@ export function parseClaudeLine(line: string): AiStreamEvent[] {
     ]
   }
   if (type === 'assistant') {
-    const events = parseClaudeAssistant(payload)
-    return events.length > 0 ? events : rawEvent(line)
+    return parseClaudeAssistant(payload) ?? rawEvent(line)
   }
   if (type === 'user') {
-    const events = parseClaudeUser(payload)
-    return events.length > 0 ? events : rawEvent(line)
+    return parseClaudeUser(payload) ?? rawEvent(line)
   }
   if (type === 'result') {
     return [
@@ -273,7 +299,7 @@ export function parseClaudeLine(line: string): AiStreamEvent[] {
       },
     ]
   }
-  return rawEvent(line)
+  return unhandledEvent(payload)
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +340,7 @@ function parseCodexCompletedItem(
     }
     return events
   }
-  return rawEvent(line)
+  return unhandledLabel(`item.completed/${capField(itemType) ?? 'unknown'}`)
 }
 
 /**
@@ -383,5 +409,100 @@ export function parseCodexLine(line: string): AiStreamEvent[] {
       },
     ]
   }
-  return rawEvent(line)
+  return unhandledEvent(payload)
+}
+
+// ---------------------------------------------------------------------------
+// Cursor: `cursor-agent -p --output-format stream-json --trust -- PROMPT`
+// ---------------------------------------------------------------------------
+
+const CURSOR_TOOL_SUFFIX = 'ToolCall'
+
+/**
+ * A Cursor tool call is `{ "<name>ToolCall": { args, result? } }` next to
+ * bookkeeping fields. Returns the tool's name (`shell`, `read`, …) and body.
+ */
+function cursorToolCall(payload: UnknownRecord): { name: string; body: UnknownRecord } | null {
+  const toolCall = payload['tool_call']
+  if (!isRecord(toolCall)) return null
+  for (const [key, value] of Object.entries(toolCall)) {
+    if (!key.endsWith(CURSOR_TOOL_SUFFIX) || !isRecord(value)) continue
+    return { name: key.slice(0, -CURSOR_TOOL_SUFFIX.length) || key, body: value }
+  }
+  return null
+}
+
+/** A finished tool's output: a shell's output, a read file's content; failed unless it reports success. */
+function cursorToolResult(body: UnknownRecord): AiStreamEvent {
+  const result = body['result']
+  const success = isRecord(result) ? result['success'] : undefined
+  if (!isRecord(success)) {
+    // In manual mode a headless run cannot ask, so Cursor refuses the command.
+    const rejected = isRecord(result) ? result['rejected'] : undefined
+    if (isRecord(rejected)) {
+      const reason = asString(rejected['reason'])
+      const command = asString(rejected['command']) ?? ''
+      return { kind: 'tool-result', text: capTextTail(`Rejected: ${command}${reason ? ` (${reason})` : ''}`), isError: true }
+    }
+    const failure = isRecord(result) ? (result['error'] ?? result['failure']) : undefined
+    const message = isRecord(failure) ? asString(failure['message']) ?? asString(failure['error']) : asString(failure)
+    return { kind: 'tool-result', text: capOptionalTextTail(message), isError: true }
+  }
+  const output =
+    asString(success['interleavedOutput']) ||
+    [asString(success['stdout']), asString(success['stderr'])].filter((part) => part).join('\n') ||
+    asString(success['content'])
+  const exitCode = asFiniteNumber(success['exitCode'])
+  return {
+    kind: 'tool-result',
+    text: capOptionalTextTail(output || undefined),
+    isError: exitCode !== undefined && exitCode !== 0,
+  }
+}
+
+/**
+ * Parse one line of Cursor stream-json output. Its envelopes follow Claude
+ * Code's (`system/init`, `assistant`, `result`), with tool calls as their own
+ * `tool_call` started/completed lines. Thinking deltas and the echo of the
+ * prompt (`user`) carry nothing to render.
+ */
+export function parseCursorLine(line: string): AiStreamEvent[] {
+  if (line.trim().length === 0) return []
+  const payload = tryParseRecord(line)
+  if (!payload) return rawEvent(line)
+
+  const type = payload['type']
+  if (type === 'system' && payload['subtype'] === 'init') {
+    return [
+      {
+        kind: 'init',
+        sessionId: capField(asString(payload['session_id'])),
+        model: capField(asString(payload['model'])),
+      },
+    ]
+  }
+  if (type === 'thinking' || type === 'user') return []
+  if (type === 'assistant') {
+    return parseClaudeAssistant(payload) ?? rawEvent(line)
+  }
+  if (type === 'tool_call') {
+    const call = cursorToolCall(payload)
+    if (!call) return unhandledEvent(payload)
+    if (payload['subtype'] === 'started') {
+      return [{ kind: 'tool-use', toolName: capField(call.name) ?? 'unknown', input: capToolUseInput(call.body['args']) }]
+    }
+    if (payload['subtype'] === 'completed') return [cursorToolResult(call.body)]
+    return unhandledEvent(payload)
+  }
+  if (type === 'result') {
+    return [
+      {
+        kind: 'result',
+        subtype: capField(asString(payload['subtype'])),
+        isError: payload['is_error'] === true,
+        text: capOptionalTextTail(asString(payload['result'])),
+      },
+    ]
+  }
+  return unhandledEvent(payload)
 }

@@ -1,10 +1,12 @@
 import { setIcon } from 'obsidian'
-import { AiCustomModelStore } from '../../../src/features/ai-task/models/AiCustomModelStore'
+import { AiModelCatalog } from '@/features/ai-task/models/AiModelCatalog'
+import type { AiListedModel } from '@/features/ai-task/agents/AiAgentDefinition'
 import {
   AiModelSelectController,
   type AiModelSelectLabels,
-} from '../../../src/features/ai-task/ui/AiModelSelectController'
-import type { AiTaskHost } from '../../../src/features/ai-task/types'
+  type AiModelSelectValue,
+} from '@/features/ai-task/ui/AiModelSelectController'
+import type { AiTaskHost } from '@/features/ai-task/types'
 
 function rect(top: number, bottom: number): DOMRect {
   return {
@@ -23,149 +25,205 @@ function rect(top: number, bottom: number): DOMRect {
 const labels: AiModelSelectLabels = {
   openMenu: 'AI モデルを選択',
   defaultModel: 'デフォルトモデル',
-  defaultDescription: 'CLI の設定を使用',
-  builtInModels: '利用可能なモデル',
-  customModels: 'カスタムモデル',
-  addCustomModel: 'カスタムモデルを追加',
-  editCustomModel: 'カスタムモデルを編集',
-  deleteCustomModel: 'カスタムモデルを削除',
+  defaultDecidedBy: (host) => (host === 'claude' ? 'Claude Code が契約のプランに合わせて決める' : `${host} が決める`),
+  refresh: '最新のモデルを取得',
+  refreshing: '取得中…',
+  fetchedAt: (time) => `${time} に取得`,
+  neverFetched: 'まだ取得していません',
+  fetching: '最新の一覧を取得中… このまま選べます',
+  fetchFailed: (hasPrevious) => (hasPrevious ? '前回の一覧を出しています。' : 'プラグインに入っている一覧を出しています。'),
+  newBadge: '新しい',
+  alwaysNewest: 'それぞれ常に最新の版で動きます。一覧を取り直す必要はありません。',
 }
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('AiModelSelectController', () => {
   let container: HTMLElement
-  let store: AiCustomModelStore
   let controller: AiModelSelectController | null
+  let lists: AiListedModel[][]
+  let pending: { resolve: (models: AiListedModel[]) => void; reject: (error: Error) => void } | null
+  let defaults: Partial<Record<AiTaskHost, string>>
+  let now: number
 
   beforeEach(() => {
     document.body.replaceChildren()
     ;(setIcon as jest.MockedFunction<typeof setIcon>).mockClear()
     container = document.body.createDiv()
-    store = new AiCustomModelStore()
-    store.add('claude', {
-      id: 'acme/claude-pro',
-      label: 'Acme Claude Pro',
-      description: '社内 Claude モデル',
-    })
-    store.add('codex', {
-      id: 'acme/codex-pro',
-      label: 'Acme Codex Pro',
-      description: '社内 Codex モデル',
-    })
     controller = null
+    lists = []
+    pending = null
+    defaults = {}
+    now = Date.UTC(2026, 9, 16, 3)
   })
 
   afterEach(() => controller?.destroy())
 
+  function catalog(): AiModelCatalog {
+    return new AiModelCatalog(
+      {},
+      () => {
+        const next = lists.shift()
+        if (next) return Promise.resolve(next)
+        return new Promise((resolve, reject) => {
+          pending = { resolve, reject }
+        })
+      },
+      async (host) => defaults[host] ?? null,
+      () => now,
+    )
+  }
+
   function create(
     host: AiTaskHost = 'claude',
     options: Partial<{
+      catalog: AiModelCatalog
       modelId: string | null
-      isCustom: boolean
-      onChange: (modelId: string | null, isCustom: boolean) => void
+      onChange: (value: AiModelSelectValue) => void
     }> = {},
   ): AiModelSelectController {
     controller = new AiModelSelectController(container, {
-      // Only forwarded to the custom-model dialog, which these tests never open.
-      app: {} as never,
       doc: document,
       host,
-      store,
+      catalog: options.catalog ?? catalog(),
       labels,
       modelId: options.modelId,
-      isCustom: options.isCustom,
       onChange: options.onChange,
+      formatTime: () => '10/16 12:00',
     })
     return controller
   }
 
   function openMenu(): HTMLElement {
-    ;(
-      container.querySelector('.ai-model-select__trigger') as HTMLButtonElement
-    ).click()
+    container.querySelector<HTMLButtonElement>('.ai-model-select__trigger')!.click()
     return container.querySelector<HTMLElement>('.ai-model-select__menu')!
   }
 
-  test('renders Default, host built-ins, host custom models, descriptions, and selection icons', () => {
+  const menu = () => container.querySelector<HTMLElement>('.ai-model-select__menu')!
+  const option = (id: string) =>
+    menu().querySelector<HTMLButtonElement>(`.ai-model-select__option[data-model-id="${id}"]`)
+
+  test('Claude Code: the default, then the aliases with their IDs, and no refresh', () => {
     create('claude')
-    const menu = openMenu()
+    const opened = openMenu()
 
-    expect(menu.getAttribute('role')).toBe('listbox')
-    expect(menu.querySelectorAll('.ai-model-select__option')).toHaveLength(6)
-    expect(menu.textContent).toContain('Claude Fable 5')
-    expect(menu.textContent).not.toContain('GPT-5.6 Sol')
-    expect(menu.textContent).toContain('Acme Claude Pro')
-    expect(menu.textContent).toContain('社内 Claude モデル')
-    expect(menu.textContent).not.toContain('Acme Codex Pro')
+    expect(opened.querySelector('[role="listbox"]')).not.toBeNull()
+    expect(Array.from(opened.querySelectorAll<HTMLElement>('.ai-model-select__option'), (row) => row.dataset.modelId))
+      .toEqual(['', 'fable', 'opus', 'sonnet', 'haiku'])
+    expect(option('')?.textContent).toContain('Claude Code が契約のプランに合わせて決める')
+    expect(option('opus')?.querySelector('.ai-model-select__option-title')?.textContent).toBe('Claude Opus')
+    expect(option('opus')?.querySelector('.ai-model-select__option-id')?.textContent).toBe('opus')
+    expect(opened.querySelector('.ai-model-select__refresh')).toBeNull()
+    expect(opened.querySelector('.ai-model-select__footer')?.textContent).toContain('常に最新の版')
 
-    const defaultRow = menu.querySelector<HTMLElement>('[data-model-id=""]')
-    expect(
-      defaultRow?.querySelector('.ai-model-select__option-description')?.textContent,
-    ).toBe('CLI の設定を使用')
-    const builtIn = menu.querySelector<HTMLElement>(
-      '[data-model-id="claude-fable-5"]',
-    )
-    expect(builtIn?.querySelector('.ai-model-select__option-description')).toBeNull()
-    expect(builtIn?.textContent).toContain('Claude Fable 5')
-    expect(builtIn?.textContent).not.toContain('claude-fable-5')
-
-    const selected = menu.querySelector<HTMLElement>(
-      '.ai-model-select__option[aria-selected="true"]',
-    )
-    expect(selected?.dataset.modelId).toBe('')
-    expect(selected?.querySelector('[data-icon="circle-check"]')).not.toBeNull()
-    expect(menu.querySelectorAll('.ai-model-select__edit')).toHaveLength(1)
-    expect(menu.querySelectorAll('.ai-model-select__delete')).toHaveLength(1)
-    expect(menu.querySelector('[data-model-id="claude-fable-5"] .ai-model-select__edit'))
-      .toBeNull()
+    // Like Obsidian's menus: a check on the chosen row only.
+    expect(option('')?.querySelector('[data-icon="check"]')).not.toBeNull()
+    expect(option('opus')?.querySelector('.ai-model-select__selection-marker')).toBeNull()
     expect(container.querySelector('[data-icon="cpu"]')).not.toBeNull()
-    expect(container.querySelector('[data-icon="chevron-down"]')).not.toBeNull()
   })
 
-  test('notifies modelId and isCustom for custom, built-in, and Default selections', () => {
+  test('the default row names the model the CLI settings give', async () => {
+    defaults.cursor = 'Auto'
+    lists.push([{ id: 'composer-2.5', label: 'Composer 2.5' }])
+    create('cursor')
+    await flush()
+    expect(container.querySelector('.ai-model-select__trigger-sub')?.textContent).toBe('Auto')
+    expect(openMenu().querySelector('[data-model-id=""]')?.textContent).toContain('Auto')
+  })
+
+  test('opening fetches a missing list, shows it while fetching, then the time it was got', async () => {
+    create('cursor')
+    const opened = openMenu()
+    expect(opened.querySelector('.ai-model-select__banner.is-fetching')?.textContent).toContain('取得中')
+    expect(menu().querySelector<HTMLButtonElement>('.ai-model-select__refresh')?.disabled).toBe(true)
+
+    pending!.resolve([{ id: 'claude-opus-5-5-medium', label: 'Claude Opus 5.5' }])
+    await flush()
+
+    expect(menu().querySelector('.ai-model-select__banner')).toBeNull()
+    expect(option('claude-opus-5-5-medium')).not.toBeNull()
+    expect(menu().querySelector('.ai-model-select__fetched-at')?.textContent).toBe('10/16 12:00 に取得')
+    // The first list marks nothing new.
+    expect(menu().querySelector('.ai-model-select__new')).toBeNull()
+  })
+
+  test('a failure keeps the built-in list and says so', async () => {
+    create('codex')
+    openMenu()
+    pending!.reject(new Error('offline'))
+    await flush()
+    expect(menu().querySelector('.ai-model-select__banner.is-failed')?.textContent).toBe('プラグインに入っている一覧を出しています。')
+    expect(option('gpt-5.6-sol')).not.toBeNull()
+    expect(menu().querySelector('.ai-model-select__fetched-at')?.textContent).toBe('まだ取得していません')
+  })
+
+  test('the refresh button asks again; a model that appeared is new until chosen', async () => {
+    const shared = catalog()
+    lists.push([{ id: 'a-1', label: 'A' }], [{ id: 'a-1', label: 'A' }, { id: 'b-1', label: 'B' }])
+    await shared.refresh('cursor')
     const onChange = jest.fn()
-    const instance = create('claude', { onChange })
+    create('cursor', { catalog: shared, onChange })
+    openMenu()
+    menu().querySelector<HTMLButtonElement>('.ai-model-select__refresh')!.click()
+    await flush()
 
-    openMenu().querySelector<HTMLButtonElement>(
-      '.ai-model-select__option[data-model-id="acme/claude-pro"]',
-    )!.click()
-    expect(instance.getValue()).toEqual({
-      modelId: 'acme/claude-pro',
-      isCustom: true,
+    expect(option('b-1')?.querySelector('.ai-model-select__new')?.textContent).toBe('新しい')
+    expect(option('a-1')?.querySelector('.ai-model-select__new')).toBeNull()
+
+    option('b-1')!.click()
+    expect(onChange).toHaveBeenLastCalledWith({ modelId: 'b-1', isUnlisted: false })
+    expect(container.querySelector('.ai-model-select__trigger-label')?.textContent).toBe('B')
+    openMenu()
+    expect(option('b-1')?.querySelector('.ai-model-select__new')).toBeNull()
+  })
+
+  test('reports the reasoning levels the list gives for the chosen model', async () => {
+    const shared = catalog()
+    lists.push([{ id: 'gpt-5.6-sol', label: 'GPT-5.6-Sol', reasoningLevels: ['low', 'ultra'] }])
+    await shared.refresh('codex')
+    const onChange = jest.fn()
+    create('codex', { catalog: shared, onChange })
+    openMenu()
+    option('gpt-5.6-sol')!.click()
+    expect(onChange).toHaveBeenLastCalledWith({
+      modelId: 'gpt-5.6-sol',
+      isUnlisted: false,
+      reasoningLevels: ['low', 'ultra'],
     })
-    expect(onChange).toHaveBeenLastCalledWith('acme/claude-pro', true)
-    expect(container.querySelector('.ai-model-select__trigger-label')?.textContent)
-      .toBe('Acme Claude Pro')
+    openMenu()
+    option('')!.click()
+    expect(onChange).toHaveBeenLastCalledWith({ modelId: null, isUnlisted: false })
+  })
 
-    openMenu().querySelector<HTMLButtonElement>(
-      '.ai-model-select__option[data-model-id="claude-fable-5"]',
-    )!.click()
-    expect(onChange).toHaveBeenLastCalledWith('claude-fable-5', false)
+  test("an older task's model the list does not have stays selected", () => {
+    const instance = create('claude', { modelId: 'claude-opus-4-8' })
+    expect(instance.getValue()).toEqual({ modelId: 'claude-opus-4-8', isUnlisted: true })
+    expect(container.querySelector('.ai-model-select__trigger-label')?.textContent).toBe('claude-opus-4-8')
+    expect(openMenu().querySelector('.ai-model-select__option[aria-selected="true"]')?.getAttribute('data-model-id'))
+      .toBe('claude-opus-4-8')
+  })
 
-    openMenu().querySelector<HTMLButtonElement>(
-      '.ai-model-select__option[data-model-id=""]',
-    )!.click()
-    expect(onChange).toHaveBeenLastCalledWith(null, false)
+  test('a long ID is cut in the middle, keeping its end', () => {
+    const instance = create('claude')
+    instance.setValue('provider/some-very-long-model-name-high-fast')
+    openMenu()
+    const id = option('provider/some-very-long-model-name-high-fast')!.querySelector('.ai-model-select__option-id')!
+    expect(id.getAttribute('title')).toBe('provider/some-very-long-model-name-high-fast')
+    expect(id.querySelector('.ai-model-select__option-id-tail')?.textContent).toBe('me-high-fast')
   })
 
   test('outside mousedown and Escape close the menu and restore trigger focus', () => {
     create()
-    const trigger = container.querySelector<HTMLButtonElement>(
-      '.ai-model-select__trigger',
-    )!
-    const menu = openMenu()
-    expect(trigger.getAttribute('aria-expanded')).toBe('true')
-    expect(menu.classList).not.toContain('is-hidden')
+    openMenu()
+    expect(container.querySelector('.ai-model-select__trigger')?.getAttribute('aria-expanded')).toBe('true')
 
     document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
-    expect(trigger.getAttribute('aria-expanded')).toBe('false')
-    expect(menu.classList).toContain('is-hidden')
+    expect(menu().classList).toContain('is-hidden')
 
-    trigger.click()
-    document.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-    )
-    expect(menu.classList).toContain('is-hidden')
-    expect(document.activeElement).toBe(trigger)
+    openMenu()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(menu().classList).toContain('is-hidden')
+    expect(document.activeElement).toBe(container.querySelector('.ai-model-select__trigger'))
   })
 
   test('opens upward with a bounded scroll area near the modal bottom', () => {
@@ -173,157 +231,40 @@ describe('AiModelSelectController', () => {
     modal.appendChild(container)
     create()
 
-    const trigger = container.querySelector<HTMLButtonElement>(
-      '.ai-model-select__trigger',
-    )!
-    const menu = container.querySelector<HTMLElement>('.ai-model-select__menu')!
-    jest.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(rect(580, 618))
-    jest.spyOn(modal, 'getBoundingClientRect').mockReturnValue(rect(400, 650))
-    jest.spyOn(menu, 'getBoundingClientRect').mockReturnValue(rect(0, 340))
+    const trigger = container.querySelector<HTMLButtonElement>('.ai-model-select__trigger')!
+    jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this === modal) return rect(400, 650)
+      if (this.classList.contains('ai-model-select__trigger')) return rect(580, 618)
+      return rect(0, 340)
+    })
 
     trigger.click()
 
-    expect(menu.classList).toContain('is-open-upward')
-    expect(menu.style.maxHeight).toBe('176px')
+    expect(menu().classList).toContain('is-open-upward')
+    expect(menu().style.maxHeight).toBe('176px')
+    jest.restoreAllMocks()
   })
 
-  test('adds a custom model at the end and automatically selects it', () => {
+  test('setHost shows the other agent and resets the selection without notifying', () => {
     const onChange = jest.fn()
-    create('claude', { onChange })
-    const menu = openMenu()
-    ;(
-      menu.querySelector('.ai-model-select__add') as HTMLButtonElement
-    ).click()
-
-    const id = document.querySelector<HTMLInputElement>(
-      '.ai-custom-model-modal__model-id',
-    )!
-    const name = document.querySelector<HTMLInputElement>(
-      '.ai-custom-model-modal__display-name',
-    )!
-    id.value = 'acme/claude-fast'
-    name.value = 'Acme Fast'
-    ;(
-      document.querySelector('.ai-custom-model-modal__submit') as HTMLButtonElement
-    ).click()
-
-    expect(store.getCustomModels('claude').map((model) => model.id)).toEqual([
-      'acme/claude-pro',
-      'acme/claude-fast',
-    ])
-    expect(onChange).toHaveBeenCalledWith('acme/claude-fast', true)
-    expect(container.querySelector('.ai-model-select__trigger-label')?.textContent)
-      .toBe('Acme Fast')
-
-    const reopened = openMenu()
-    const customRows = reopened.querySelectorAll<HTMLElement>(
-      '.ai-model-select__custom-row',
-    )
-    expect(customRows[customRows.length - 1]?.dataset.modelId)
-      .toBe('acme/claude-fast')
-    expect(
-      customRows[customRows.length - 1]?.querySelector(
-        '.ai-model-select__option-description',
-      ),
-    ).toBeNull()
-    expect(customRows[customRows.length - 1]?.textContent)
-      .not.toContain('acme/claude-fast')
-  })
-
-  test('edits only a custom model and keeps its immutable ID and selection', () => {
-    const onChange = jest.fn()
-    const instance = create('claude', {
-      modelId: 'acme/claude-pro',
-      isCustom: true,
-      onChange,
-    })
-    const menu = openMenu()
-    ;(
-      menu.querySelector(
-        '.ai-model-select__custom-row[data-model-id="acme/claude-pro"] .ai-model-select__edit',
-      ) as HTMLButtonElement
-    ).click()
-
-    const id = document.querySelector<HTMLInputElement>(
-      '.ai-custom-model-modal__model-id',
-    )!
-    const name = document.querySelector<HTMLInputElement>(
-      '.ai-custom-model-modal__display-name',
-    )!
-    expect(id.disabled).toBe(true)
-    expect(id.value).toBe('acme/claude-pro')
-    name.value = 'Renamed model'
-    ;(
-      document.querySelector('.ai-custom-model-modal__submit') as HTMLButtonElement
-    ).click()
-
-    expect(store.getCustomModels('claude')[0]).toMatchObject({
-      id: 'acme/claude-pro',
-      label: 'Renamed model',
-    })
-    expect(instance.getValue()).toEqual({
-      modelId: 'acme/claude-pro',
-      isCustom: true,
-    })
-    expect(container.querySelector('.ai-model-select__trigger-label')?.textContent)
-      .toBe('Renamed model')
-    expect(onChange).not.toHaveBeenCalled()
-  })
-
-  test('deleting the selected custom model falls back to Default and notifies once', () => {
-    const onChange = jest.fn()
-    const instance = create('claude', {
-      modelId: 'acme/claude-pro',
-      isCustom: true,
-      onChange,
-    })
-    const menu = openMenu()
-    ;(
-      menu.querySelector(
-        '.ai-model-select__custom-row[data-model-id="acme/claude-pro"] .ai-model-select__delete',
-      ) as HTMLButtonElement
-    ).click()
-
-    expect(store.getCustomModels('claude')).toEqual([])
-    expect(instance.getValue()).toEqual({ modelId: null, isCustom: false })
-    expect(onChange).toHaveBeenCalledTimes(1)
-    expect(onChange).toHaveBeenCalledWith(null, false)
-    expect(container.querySelector('.ai-model-select__trigger-label')?.textContent)
-      .toBe('デフォルトモデル')
-  })
-
-  test('setHost scopes custom choices and resets programmatic selection without notifying', () => {
-    const onChange = jest.fn()
-    const instance = create('claude', {
-      modelId: 'acme/claude-pro',
-      isCustom: true,
-      onChange,
-    })
-
+    const instance = create('claude', { modelId: 'opus', onChange })
+    lists.push([{ id: 'composer-2.5', label: 'Composer 2.5' }])
     instance.setHost('codex')
 
-    expect(instance.getValue()).toEqual({ modelId: null, isCustom: false })
+    expect(instance.getValue()).toEqual({ modelId: null, isUnlisted: false })
     expect(onChange).not.toHaveBeenCalled()
-    const menu = openMenu()
-    expect(menu.textContent).toContain('GPT-5.6 Sol')
-    expect(menu.textContent).toContain('Acme Codex Pro')
-    expect(menu.textContent).not.toContain('Claude Fable 5')
-    expect(menu.textContent).not.toContain('Acme Claude Pro')
+    expect(openMenu().textContent).toContain('GPT-5.6 Sol')
+    expect(menu().textContent).not.toContain('Claude Opus')
   })
 
-  test('destroy closes an owned modal, removes listeners, and removes owned DOM', () => {
-    const instance = create()
-    const menu = openMenu()
-    ;(menu.querySelector('.ai-model-select__add') as HTMLButtonElement).click()
-    expect(document.querySelector('.ai-custom-model-modal')).not.toBeNull()
-
+  test('destroy removes its DOM and stops listening', () => {
+    const shared = catalog()
+    const instance = create('cursor', { catalog: shared })
     instance.destroy()
     controller = null
-
-    expect(document.querySelector('.ai-custom-model-modal')).toBeNull()
     expect(container.querySelector('.ai-model-select')).toBeNull()
-    document.dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-    )
+    void shared.refresh('cursor')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(container.querySelector('.ai-model-select')).toBeNull()
   })
 })

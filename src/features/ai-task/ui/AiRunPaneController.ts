@@ -101,8 +101,10 @@ import {
   DEFAULT_TERMINAL_COLS,
   DEFAULT_TERMINAL_ROWS,
   type AiRunChangeType,
+  type AiSessionResumeOptions,
   type AiShellSessionOptions,
 } from '../services/AiTaskManager'
+import { formatAiResultSummary } from '../services/AiResultSummary'
 import { AiBinaryNotFoundError } from '../services/BinaryLocator'
 import {
   formatWorkspacePathForTerminal,
@@ -122,6 +124,10 @@ import type { FileEditorAdapterFactory } from './FileEditorAdapter'
 import { AI_PANE_MAX_HEIGHT_RATIO, AiPaneResizer } from './AiPaneResizer'
 import { WorkspaceFileEditorController } from './WorkspaceFileEditorController'
 import { WorkspaceFileTreeController } from './WorkspaceFileTreeController'
+import { AgentSessionHistoryView } from './AgentSessionHistoryView'
+import { getAiAgent } from '../agents'
+import type { AgentSessionHistory, AgentSessionListItem } from '../sessions/AgentSessionHistory'
+import type { ScopedTranslator } from '@/i18n'
 
 export interface AiRunPaneManagerLike {
   getRuns(): AiRunRecord[]
@@ -165,6 +171,16 @@ export interface AiRunPaneManagerLike {
    * surface the shell-unavailable notice instead of spawning.
    */
   startShellSession?(options?: AiShellSessionOptions): AiRunRecord
+  /** False hides the split and + controls (Windows). Absent keeps them. */
+  supportsShellSessions?(): boolean
+  /** The past agent sessions of the vault's folder (the session history). */
+  getSessionHistory?(): { history: AgentSessionHistory; folder: string } | undefined
+  /** Whether a past session can be resumed here (it opens in a terminal). */
+  supportsSessionResume?(): boolean
+  /** Settles supportsSessionResume() (the Windows ConPTY probe). */
+  settleSessionResumeSupport?(): Promise<void>
+  /** Resume a past agent session in a new terminal tab. */
+  resumeAgentSession?(options: AiSessionResumeOptions): Promise<AiRunRecord>
   /**
    * Single-provider registration used by the manager to read a terminal
    * run's live xterm buffer when its log note is composed at run exit; the
@@ -179,7 +195,7 @@ export interface AiRunPaneManagerLike {
 }
 
 export interface AiRunPaneControllerHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   manager: AiRunPaneManagerLike
   /** Adapter factory; tests substitute a fake so jsdom never loads xterm */
   createTerminalAdapter: TerminalViewAdapterFactory
@@ -301,6 +317,12 @@ const STATUS_FALLBACK_LABELS: Record<AiRunStatus, string> = {
 }
 
 /** Pixel slack when deciding whether the body is pinned to the bottom */
+/** Statuses after which a run's session file has changed for good. */
+const TERMINAL_RUN_STATUSES: ReadonlySet<AiRunStatus> = new Set(['succeeded', 'failed', 'stopped'])
+
+/** What the pane's left sidebar shows: the runs, the workspace files, or past sessions. */
+type SidebarMode = 'runs' | 'files' | 'history'
+
 const SCROLL_PIN_THRESHOLD_PX = 8
 /** Longest serialized tool input rendered inline before truncation */
 const TOOL_INPUT_PREVIEW_LIMIT = 200
@@ -320,12 +342,12 @@ const TERMINAL_CELL_HEIGHT_PX = 17
 const TERMINAL_HORIZONTAL_INSET_PX = 16
 /**
  * Pane chrome above one panel's terminal body when deriving its height:
- * the pane header (~26px incl. padding and border), the per-panel tab
- * strip (26px min-height + 1px border), the pane borders, plus slack —
- * mirrors styles.css. The composer is hidden for terminal runs, so it is
- * not part of this allowance.
+ * the pane header (24px + 1px border), the per-panel tab strip (26px
+ * min-height + 1px border), the pane borders, plus slack — mirrors
+ * styles.css. The composer is hidden for terminal runs, so it is not part
+ * of this allowance.
  */
-const TERMINAL_VERTICAL_INSET_PX = 64
+const TERMINAL_VERTICAL_INSET_PX = 56
 /**
  * Fixed width of the run sidebar (styles.css .ai-run-pane__sidebar). The
  * sidebar lives INSIDE the measured host container but not inside the
@@ -336,10 +358,11 @@ const TERMINAL_VERTICAL_INSET_PX = 64
  */
 export const RUN_SIDEBAR_WIDTH_PX = 180
 /**
- * Default share of the view height the terminal pane occupies (mirrors
- * styles.css). A drag-resized pane reports its own share instead.
+ * Default share of the view height the terminal pane occupies: half, so the
+ * terminal is usable without dragging (mirrors styles.css). A drag-resized
+ * pane reports its own share instead.
  */
-const TERMINAL_PANE_HEIGHT_RATIO = 0.4
+const TERMINAL_PANE_HEIGHT_RATIO = 0.5
 /** Share of the view height while expanded (mirrors styles.css) */
 const TERMINAL_PANE_EXPANDED_HEIGHT_RATIO = 1
 const TERMINAL_MIN_COLS = 20
@@ -360,6 +383,11 @@ export const SPLIT_MIN_PANEL_WIDTH_PX = 320
 const TERMINAL_CONTAINER_CLASS = 'ai-pane-container--terminal'
 /** Chrome class on the host container while the pane is expanded */
 const EXPANDED_CONTAINER_CLASS = 'ai-pane-container--expanded'
+/**
+ * On the TaskChute view root while the pane is expanded (⤢): full screen is
+ * the whole view, so the date row and the day's comments step aside.
+ */
+const EXPANDED_VIEW_CLASS = 'taskchute-view-root--ai-pane-expanded'
 /** Layout participation class while the pane (or a future artifact) is visible. */
 const VISIBLE_CONTAINER_CLASS = 'ai-pane-container--visible'
 /** Chrome class while the user dragged the splitter to an explicit height */
@@ -403,6 +431,10 @@ export class AiRunPaneController {
   private sidebarFilesEl: HTMLElement | null = null
   private sidebarToggleButton: HTMLButtonElement | null = null
   private sidebarFilesButton: HTMLButtonElement | null = null
+  private sidebarHistoryButton: HTMLButtonElement | null = null
+  private sidebarHistoryEl: HTMLElement | null = null
+  private sessionHistoryView: AgentSessionHistoryView | null = null
+  private sessionHistoryRefreshTimer: number | null = null
   private workspaceFileTree: WorkspaceFileTreeController | null = null
   private workspaceFileEditor: WorkspaceFileEditorController | null = null
   private fileEditorContainer: HTMLElement | null = null
@@ -431,7 +463,7 @@ export class AiRunPaneController {
   private paneResizer: AiPaneResizer | null = null
   /** Drag-resized height share; null while the stylesheet default applies. */
   private paneHeightRatio: number | null = null
-  private sidebarMode: 'runs' | 'files' = 'runs'
+  private sidebarMode: SidebarMode = 'runs'
   private unsubscribe: (() => void) | null = null
   private unregisterSnapshotProvider: (() => void) | null = null
   private readonly unregisterManagedDisposers: Array<() => void> = []
@@ -546,7 +578,17 @@ export class AiRunPaneController {
     setIcon(this.sidebarFilesButton, 'folder-closed')
     this.sidebarFilesButton.addEventListener('click', (event) => {
       event.stopPropagation()
-      this.setSidebarMode(this.sidebarMode === 'runs' ? 'files' : 'runs')
+      this.setSidebarMode(this.sidebarMode === 'files' ? 'runs' : 'files')
+    })
+    const historyLabel = this.host.tv('aiTask.history.label', 'Session history')
+    this.sidebarHistoryButton = sidebarToolbar.createEl('button', {
+      cls: 'ai-run-pane__sidebar-history',
+      attr: { 'aria-label': historyLabel, title: historyLabel, 'aria-pressed': 'false' },
+    })
+    setIcon(this.sidebarHistoryButton, 'history')
+    this.sidebarHistoryButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.setSidebarMode(this.sidebarMode === 'history' ? 'runs' : 'history')
     })
     this.sidebarRunsEl = this.sidebarEl.createDiv({
       cls: 'ai-run-pane__sidebar-runs',
@@ -558,6 +600,32 @@ export class AiRunPaneController {
     })
     this.sidebarFilesEl = this.sidebarEl.createDiv({
       cls: 'ai-run-pane__sidebar-files-view is-hidden',
+    })
+    this.sidebarHistoryEl = this.sidebarEl.createDiv({
+      cls: 'ai-run-pane__sidebar-history-view ai-session-history is-hidden',
+    })
+    this.sessionHistoryView = new AgentSessionHistoryView(this.sidebarHistoryEl, {
+      tv: this.host.tv,
+      source: () => {
+        const found = this.host.manager.getSessionHistory?.()
+        if (!found) return undefined
+        return {
+          folder: found.folder,
+          // The resume buttons ask whether a terminal runs here; on Windows
+          // that is known once the ConPTY probe has settled.
+          refresh: async () => {
+            await this.host.manager.settleSessionResumeSupport?.()
+            await found.history.refresh()
+            // Ready the folder's conversations for search, in the background.
+            void found.history.prepareSearch(found.folder)
+          },
+          page: (request) => found.history.page(request),
+        }
+      },
+      archive: (item) => this.host.manager.getSessionHistory?.()?.history.archiveSession(item.host, item.id),
+      restore: (item) => this.host.manager.getSessionHistory?.()?.history.restoreSession(item.host, item.id),
+      resume: (item) => void this.resumeSession(item),
+      canResume: () => this.host.manager.supportsSessionResume?.() === true,
     })
     this.workspaceFileTree = new WorkspaceFileTreeController(
       this.sidebarFilesEl,
@@ -686,6 +754,7 @@ export class AiRunPaneController {
     this.paneHeightRatio = null
     this.containerEl?.classList.remove(TERMINAL_CONTAINER_CLASS)
     this.containerEl?.classList.remove(EXPANDED_CONTAINER_CLASS)
+    this.containerEl?.closest('.taskchute-view-root')?.classList.remove(EXPANDED_VIEW_CLASS)
     this.containerEl?.classList.remove(VISIBLE_CONTAINER_CLASS)
     this.containerEl?.classList.remove(SIZED_CONTAINER_CLASS)
     this.containerEl?.classList.remove(COLLAPSED_CONTAINER_CLASS)
@@ -698,6 +767,14 @@ export class AiRunPaneController {
     this.sidebarFilesEl = null
     this.sidebarToggleButton = null
     this.sidebarFilesButton = null
+    this.sidebarHistoryButton = null
+    this.sidebarHistoryEl = null
+    this.sessionHistoryView?.destroy()
+    this.sessionHistoryView = null
+    if (this.sessionHistoryRefreshTimer !== null) {
+      window.clearTimeout(this.sessionHistoryRefreshTimer)
+      this.sessionHistoryRefreshTimer = null
+    }
     this.workspaceFileTree?.dispose()
     this.workspaceFileTree = null
     this.workspaceFileEditor?.dispose()
@@ -721,6 +798,14 @@ export class AiRunPaneController {
     this.sidebarMode = 'runs'
     this.runViews.clear()
     this.pendingCloseRunIds.clear()
+  }
+
+  /** Reveal the pane with the session history in its sidebar (even with no runs). */
+  openSessionHistory(): void {
+    this.revealPane()
+    this.setCollapsed(false)
+    if (this.sidebarCollapsed) this.setSidebarCollapsed(false, true)
+    this.setSidebarMode('history')
   }
 
   /** Reveal the pane, expand it, focus the run's panel, and select the run */
@@ -773,14 +858,65 @@ export class AiRunPaneController {
     this.fitVisibleTerminalViews()
   }
 
-  private setSidebarMode(mode: 'runs' | 'files'): void {
+  private setSidebarMode(mode: SidebarMode): void {
     this.sidebarMode = mode
     const files = mode === 'files'
+    const history = mode === 'history'
     this.root?.classList.toggle('is-files-mode', files)
+    this.root?.classList.toggle('is-history-mode', history)
     this.sidebarFilesButton?.setAttribute('aria-pressed', files ? 'true' : 'false')
-    this.sidebarRunsEl?.classList.toggle('is-hidden', files)
+    this.sidebarHistoryButton?.setAttribute('aria-pressed', history ? 'true' : 'false')
+    this.sidebarRunsEl?.classList.toggle('is-hidden', mode !== 'runs')
     this.sidebarFilesEl?.classList.toggle('is-hidden', !files)
+    this.sidebarHistoryEl?.classList.toggle('is-hidden', !history)
     if (files) this.refreshWorkspaceFiles()
+    if (history) void this.sessionHistoryView?.refresh()
+  }
+
+  /** Resume a past session from the history in a new terminal tab of the focused panel. */
+  private async resumeSession(item: AgentSessionListItem): Promise<void> {
+    const manager = this.host.manager
+    const found = manager.getSessionHistory?.()
+    if (!found || typeof manager.resumeAgentSession !== 'function') {
+      this.notifyShellError(new AiShellUnavailableError())
+      return
+    }
+    // A CLI asked for a missing id may report success or start afresh: check first.
+    if (!(await found.history.canResume(item))) {
+      new Notice(this.host.tv('aiTask.history.missing', 'This session can no longer be found (its file or folder is gone).'))
+      void this.sessionHistoryView?.refresh()
+      return
+    }
+    const panel = this.getFocusedPanel()
+    if (!panel) return
+    this.focusPanel(panel)
+    const agent = getAiAgent(item.host)
+    const size = this.computeTerminalSize()
+    const preexistingRunIds = new Set(this.runViews.keys())
+    try {
+      const record = await manager.resumeAgentSession({
+        host: item.host,
+        sessionId: item.id,
+        cwd: item.cwd,
+        name: `${agent.icon} ${item.title}`,
+        cols: size.cols,
+        rows: size.rows,
+      })
+      if (this.panels.includes(panel)) this.adoptRunIntoPanel(panel, record.id)
+    } catch (error) {
+      this.closeRunViewsCreatedSince(preexistingRunIds)
+      const message = error instanceof Error ? error.message : String(error)
+      new Notice(this.host.tv('aiTask.history.resumeFailed', 'Could not resume the session: {error}', { error: message }))
+    }
+  }
+
+  /** A run ended while the history is shown: its session changed, so list again (once). */
+  private scheduleSessionHistoryRefresh(): void {
+    if (this.sidebarMode !== 'history' || this.sessionHistoryRefreshTimer !== null) return
+    this.sessionHistoryRefreshTimer = window.setTimeout(() => {
+      this.sessionHistoryRefreshTimer = null
+      if (this.sidebarMode === 'history') void this.sessionHistoryView?.refresh()
+    }, 500)
   }
 
   private refreshWorkspaceFiles(): void {
@@ -961,14 +1097,15 @@ export class AiRunPaneController {
     this.paneHeightRatio = next
     if (next === null) {
       container.style.removeProperty(PANE_HEIGHT_PROPERTY)
-      container.classList.remove(SIZED_CONTAINER_CLASS)
     } else {
       container.style.setProperty(
         PANE_HEIGHT_PROPERTY,
         `${(next * 100).toFixed(2)}%`,
       )
-      container.classList.add(SIZED_CONTAINER_CLASS)
     }
+    // The --sized class itself is owned by updateContainerChrome, which also
+    // gates it on the pane not being collapsed.
+    this.updateContainerChrome()
     if (persist) {
       this.host.saveLocalStorage?.(AI_PANE_HEIGHT_RATIO_STORAGE_KEY, next)
     }
@@ -1089,28 +1226,35 @@ export class AiRunPaneController {
       }
     })
 
-    const addLabel = this.host.tv('aiTask.newShell', 'New terminal session')
-    const addButton = tabstrip.createEl('button', {
-      cls: 'ai-run-pane__add',
-      attr: { 'aria-label': addLabel, title: addLabel },
-    })
-    setIcon(addButton, 'plus')
-    addButton.addEventListener('click', (event) => {
-      event.stopPropagation()
-      this.handleNewShell(panel)
-    })
+    // Both controls only spawn shell sessions.
+    const shellSessionsSupported =
+      this.host.manager.supportsShellSessions?.() !== false
+    if (shellSessionsSupported) {
+      const addLabel = this.host.tv('aiTask.newShell', 'New terminal session')
+      const addButton = tabstrip.createEl('button', {
+        cls: 'ai-run-pane__add',
+        attr: { 'aria-label': addLabel, title: addLabel },
+      })
+      setIcon(addButton, 'plus')
+      addButton.addEventListener('click', (event) => {
+        event.stopPropagation()
+        this.handleNewShell(panel)
+      })
+    }
 
     const actions = tabstrip.createDiv({ cls: 'ai-run-pane__actions' })
-    const splitLabel = this.host.tv('aiTask.splitPane', 'Split the run pane')
-    const splitButton = actions.createEl('button', {
-      cls: 'ai-run-pane__split',
-      attr: { 'aria-label': splitLabel, title: splitLabel },
-    })
-    setIcon(splitButton, 'columns-2')
-    splitButton.addEventListener('click', (event) => {
-      event.stopPropagation()
-      this.handleSplit(panel)
-    })
+    if (shellSessionsSupported) {
+      const splitLabel = this.host.tv('aiTask.splitPane', 'Split the run pane')
+      const splitButton = actions.createEl('button', {
+        cls: 'ai-run-pane__split',
+        attr: { 'aria-label': splitLabel, title: splitLabel },
+      })
+      setIcon(splitButton, 'columns-2')
+      splitButton.addEventListener('click', (event) => {
+        event.stopPropagation()
+        this.handleSplit(panel)
+      })
+    }
     panel.bodiesEl = el.createDiv({ cls: 'ai-run-pane__bodies' })
 
     const afterIndex = afterPanel ? this.panels.indexOf(afterPanel) : -1
@@ -1462,6 +1606,7 @@ export class AiRunPaneController {
     if (record.status === 'interrupted' && record.host !== 'shell') {
       this.host.onInterruptedTaskRun?.(record)
     }
+    if (TERMINAL_RUN_STATUSES.has(record.status)) this.scheduleSessionHistoryRefresh()
     const existing = this.runViews.get(record.id)
     if (!existing) {
       // Stopped runs never (re)gain a view: their view auto-closed at
@@ -1635,7 +1780,8 @@ export class AiRunPaneController {
       while (this.panels.length > 1) {
         this.closePanel(this.panels[this.panels.length - 1])
       }
-      if (!this.workspaceFileEditor?.hasOpenFiles()) {
+      // The history stays open with no runs: it is where they start from.
+      if (!this.workspaceFileEditor?.hasOpenFiles() && this.sidebarMode !== 'history') {
         this.root?.classList.add('is-hidden')
       }
       const primary = this.getPrimaryPanel()
@@ -2337,12 +2483,23 @@ export class AiRunPaneController {
    * pane height in styles.css) exactly while some panel displays a terminal
    * run on screen, the expanded class exactly while the expanded pane is on
    * screen.
+   *
+   * Every class that gives the container a height — including the dragged
+   * one — drops while the pane is collapsed, so a collapsed pane shrinks to
+   * its header row instead of leaving the box it was dragged to as empty
+   * space above the task list. The ratio itself survives in
+   * `paneHeightRatio` and in storage, so expanding restores the same height.
+   * (--sized only needs the collapse gate: a hidden container is
+   * `display: none`, and keeping the class there preserves the height across
+   * a hidden→revealed cycle.)
    */
   private updateContainerChrome(): void {
     const container = this.containerEl
     if (!container) return
     const paneVisible = !this.isHidden()
     const visible = !this.isCollapsed() && paneVisible
+    // With nothing running, the terminal side shows as an empty terminal.
+    this.root?.classList.toggle('is-without-runs', this.runViews.size === 0)
     const anyTerminalOnScreen = this.getVisiblePanels().some(
       (panel) =>
         panel.selectedRunId !== null &&
@@ -2353,6 +2510,11 @@ export class AiRunPaneController {
       anyTerminalOnScreen && visible,
     )
     container.classList.toggle(EXPANDED_CONTAINER_CLASS, this.expanded && visible)
+    container.closest('.taskchute-view-root')?.classList.toggle(EXPANDED_VIEW_CLASS, this.expanded && visible)
+    container.classList.toggle(
+      SIZED_CONTAINER_CLASS,
+      this.paneHeightRatio !== null && !this.isCollapsed(),
+    )
     container.classList.toggle(VISIBLE_CONTAINER_CLASS, paneVisible)
     container.classList.toggle(
       COLLAPSED_CONTAINER_CLASS,
@@ -2576,9 +2738,20 @@ export class AiRunPaneController {
     if (pinned) this.scrollToBottom(view.body)
   }
 
+  /**
+   * One node per event, ALWAYS — renderEvents' in-place elision patch pairs
+   * each appended event with exactly one node. An event with nothing to say
+   * therefore becomes an empty node that the stylesheet collapses, never a
+   * skipped one.
+   */
   private appendEventElement(body: HTMLElement, event: AiStreamEvent): HTMLElement {
+    const isError =
+      (event.kind === 'result' || event.kind === 'tool-result') &&
+      event.isError === true
     return body.createDiv({
-      cls: `ai-run-pane__event ai-run-pane__event--${event.kind}`,
+      cls:
+        `ai-run-pane__event ai-run-pane__event--${event.kind}` +
+        (isError ? ' is-error' : ''),
       text: this.formatEventText(event),
     })
   }
@@ -2596,12 +2769,11 @@ export class AiRunPaneController {
 
   private formatEventText(event: AiStreamEvent): string {
     switch (event.kind) {
-      case 'init': {
-        const details = [event.model, event.sessionId]
-          .filter((part): part is string => typeof part === 'string' && part.length > 0)
-          .join(' · ')
-        return details.length > 0 ? details : 'init'
-      }
+      case 'init':
+        // The session id belongs to resume plumbing, not to a reader, and a
+        // follow-up restarts the CLI so it repeated on every turn — codex,
+        // which sends no model, printed a bare UUID and nothing else.
+        return event.model ?? ''
       case 'assistant-text':
         return event.text
       case 'user-text':
@@ -2610,8 +2782,22 @@ export class AiRunPaneController {
         return this.formatToolUse(event.toolName, event.input)
       case 'tool-result':
         return event.text ?? ''
-      case 'result':
-        return event.text ?? event.subtype ?? 'result'
+      case 'result': {
+        // `event.text` is the CLI's copy of the final assistant message, which
+        // already arrived as an assistant-text event; rendering it here showed
+        // every answer twice. Errors are the exception: nothing else carries
+        // their body.
+        const summary = formatAiResultSummary(event)
+        if (event.isError === true) {
+          return event.text === undefined ? summary : `${summary}\n${event.text}`
+        }
+        // A successful turn is worth a row only when it reports something the
+        // run pane does not already show. Codex sends neither figure, so its
+        // `turn.completed` was a bare protocol word between every exchange.
+        const hasFigures =
+          event.totalCostUsd !== undefined || event.numTurns !== undefined
+        return hasFigures ? summary : ''
+      }
       case 'stderr':
         return event.text
       case 'raw':

@@ -1,6 +1,6 @@
-import { SectionBoundary } from "../../types"
-import { t } from "../../i18n"
-import { SectionConfigService } from "../../services/SectionConfigService"
+import { SectionBoundary } from "@/types"
+import { t } from "@/i18n"
+import { SectionConfigService } from "@/services/SectionConfigService"
 import type { PluginWithSettings } from "../pluginWithSettings"
 import { notifySectionSettingsChanged } from "./viewNotifications"
 

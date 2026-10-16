@@ -1,14 +1,14 @@
 import { EventRef, ItemView, Notice, TFile, WorkspaceLeaf } from 'obsidian'
 
-import type { TaskChutePluginLike } from '../../types'
+import type { TaskChutePluginLike } from '@/types'
 import { applyIcon } from '../icons'
 import {
   ProjectBoardItem,
   ProjectBoardStatus,
   ProjectFolderUnsetError,
-} from '../../types'
-import { ProjectBoardService } from '../../services/projects'
-import { t } from '../../i18n'
+} from '@/types'
+import { ProjectBoardService } from '@/services/projects'
+import { t, type TranslationKey, type Variables } from '@/i18n'
 import { createNameModal } from '../components/NameModal'
 
 function formatDateStamp(date: Date = new Date()): string {
@@ -90,7 +90,7 @@ export class ProjectBoardView extends ItemView {
   }
 
   getDisplayText(): string {
-    return this.translate('navigation.projects', 'Projects')
+    return this.translate('taskChuteView.navigation.projects', 'Projects')
   }
 
   async onOpen(): Promise<void> {
@@ -127,9 +127,9 @@ export class ProjectBoardView extends ItemView {
   }
 
   private translate(
-    key: string,
+    key: TranslationKey,
     fallback: string,
-    vars?: Record<string, string | number>,
+    vars?: Variables,
   ): string {
     return t(key, fallback, vars)
   }

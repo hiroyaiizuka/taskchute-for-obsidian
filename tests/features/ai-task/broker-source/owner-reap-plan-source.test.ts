@@ -1,9 +1,9 @@
 import { createContext, runInContext } from 'vm'
 
-import { OWNER_REAP_PLAN_SOURCE } from '../../../../src/features/ai-task/services/broker-source/OwnerReapPlanSource'
-import { OWNER_SENTINEL_PROBE_SOURCE } from '../../../../src/features/ai-task/services/broker-source/OwnerSentinelProbeSource'
-import { POSIX_PROCESS_SNAPSHOT_SOURCE } from '../../../../src/features/ai-task/services/broker-source/PosixProcessSnapshotSource'
-import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
+import { OWNER_REAP_PLAN_SOURCE } from '@/features/ai-task/services/broker-source/OwnerReapPlanSource'
+import { OWNER_SENTINEL_PROBE_SOURCE } from '@/features/ai-task/services/broker-source/OwnerSentinelProbeSource'
+import { POSIX_PROCESS_SNAPSHOT_SOURCE } from '@/features/ai-task/services/broker-source/PosixProcessSnapshotSource'
+import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
 import { LSTART, LSTART_EPOCH_MS } from './psSnapshots'
 
 /**

@@ -6,9 +6,9 @@
  */
 
 import { App, Modal } from 'obsidian';
-import { t } from '../../../i18n';
-import { createElCompat } from '../../../ui/components/domCompat';
-import { createModalFooter } from '../../../ui/components/modalFooter';
+import { t, type ScopedKey, type Variables } from '@/i18n';
+import { createElCompat } from '@/ui/components/domCompat';
+import { createModalFooter } from '@/ui/components/modalFooter';
 
 export interface ReminderNotificationModalOptions {
   taskName: string;
@@ -60,7 +60,7 @@ export class ReminderNotificationModal extends Modal {
     return this.beingDisplayed;
   }
 
-  private tv(key: string, fallback: string, vars?: Record<string, string | number>): string {
+  private tv(key: ScopedKey<'reminder.notification'>, fallback: string, vars?: Variables): string {
     return t(`reminder.notification.${key}`, fallback, vars);
   }
 

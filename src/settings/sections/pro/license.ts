@@ -1,16 +1,20 @@
 import { Notice, setIcon } from "obsidian"
-import type { Setting, SettingDefinitionItem } from "obsidian"
-import { getCurrentLocale, t } from "../../../i18n"
-import { licensePurchaseUrl } from "../../../features/license/config"
-import type { LicenseManager } from "../../../features/license/services/LicenseManager"
-import { formatLicenseId } from "../../../features/license/token/primitives"
-import { DeviceListView } from "../../../features/license/ui/DeviceListView"
+import type {
+  Setting,
+  SettingDefinitionItem,
+  SettingDefinitionRender,
+} from "obsidian"
+import { getCurrentLocale, t } from "@/i18n"
+import { licensePurchaseUrl } from "@/features/license/config"
+import type { LicenseManager } from "@/features/license/services/LicenseManager"
+import { DeviceListView } from "@/features/license/ui/DeviceListView"
+import { checkSeatRegistration } from "@/features/license/ui/notifySeatReleased"
 import {
   describeActivationFailure,
   describeApiFailure,
-} from "../../../features/license/ui/licenseMessages"
-import { showInfoModal } from "../../../ui/modals/ConfirmModal"
-import type { SectionContext } from "../../types"
+} from "@/features/license/ui/licenseMessages"
+import { showConfirmModal, showInfoModal } from "@/ui/modals/ConfirmModal"
+import type { SectionContext } from "@/settings/types"
 import { LicenseActivationState } from "./licenseActivationState"
 
 /**
@@ -29,6 +33,27 @@ import { LicenseActivationState } from "./licenseActivationState"
 function deviceListHost(setting: Setting): HTMLElement {
   setting.settingEl.addClass("taskchute-license-devices-item")
   return setting.controlEl
+}
+
+/**
+ * Re-ask the server whether this device is licensed, because the Pro page is
+ * being shown.
+ *
+ * A row's render callback is the seam for that: the page's `items` are built
+ * with the rest of the tab's definitions, long before anyone navigates into it,
+ * and only these callbacks run at the moment it is drawn. Both shapes of the
+ * page call it, since "is my license working again?" matters most to someone
+ * looking at the activation form.
+ *
+ * Not forced: arriving at the settings tab has already forced one, and a forced
+ * sync here would re-run on every redraw of the page — including the redraw a
+ * changed answer causes. Throttled, the page reuses an answer at most a minute
+ * old and a redraw settles.
+ */
+function syncOnShown(ctx: SectionContext): void {
+  void checkSeatRegistration(ctx.plugin).then((result) => {
+    if (result.changed) ctx.update()
+  })
 }
 
 /**
@@ -80,6 +105,9 @@ function codeRow(
     // A failure belongs under the field it was typed into.
     desc: form.errorDesc,
     render: (setting) => {
+      // The activation form is drawn only on the Pro page, so this row being
+      // rendered is that page being shown.
+      syncOnShown(ctx)
       setting.settingEl.addClass("taskchute-license-code-item")
       // A failure is not a description: it reads as one unless it is coloured
       // like the error it is.
@@ -96,7 +124,7 @@ function codeRow(
           )
           // Re-seeded on every render: the row is rebuilt whenever activation
           // starts or fails, and the draft must survive that.
-          .setValue(form.currentCode(ctx.plugin.settings.licenseCode))
+          .setValue(form.currentCode(manager.getStoredCode()))
           .onChange((value) => {
             form.code = value
           })
@@ -136,6 +164,65 @@ function purchaseRow(): SettingDefinitionItem {
   }
 }
 
+/**
+ * The way out of a licence this vault cannot act with.
+ *
+ * The token is device-local and the code lives in the synced vault settings, so
+ * a vault can be licensed while holding no code — activated from another vault
+ * on this machine, or a data.json that never carried it. Everything that talks
+ * to the server then fails on the code that is not there, and the active screen
+ * offers no field to supply one. Signing out drops the token, which brings the
+ * activation form back, and that form is the field.
+ *
+ * Only ever shown in that state: with a code in hand, the seat list already
+ * releases this device properly, and that path tells the server.
+ */
+function signOutRow(
+  ctx: SectionContext,
+  manager: LicenseManager,
+  applyLicenseChange: () => Promise<void>,
+): SettingDefinitionRender {
+  return {
+    name: t("settings.license.signOutName", "Sign out on this device"),
+    desc: t(
+      "settings.license.signOutDesc",
+      "This vault has no license code stored, so devices cannot be managed from here. Sign out to enter your code again. The seat stays with this device, so re-entering the same code costs no extra device.",
+    ),
+    render: (setting) => {
+      setting.addButton((button) => {
+        button
+          .setDestructive()
+          .setButtonText(t("settings.license.signOut", "Sign out"))
+          .onClick(() => {
+            void signOut(ctx, manager, applyLicenseChange)
+          })
+      })
+    },
+  }
+}
+
+async function signOut(
+  ctx: SectionContext,
+  manager: LicenseManager,
+  applyLicenseChange: () => Promise<void>,
+): Promise<void> {
+  const confirmed = await showConfirmModal(ctx.app, {
+    title: t("settings.license.signOutConfirmTitle", "Sign out on this device?"),
+    message: t(
+      "settings.license.signOutConfirmBody",
+      "AI tasks stop working on this device until you enter your license code again.",
+    ),
+    confirmText: t("settings.license.signOut", "Sign out"),
+    destructive: true,
+  })
+  if (!confirmed) return
+
+  manager.signOutLocally()
+  await applyLicenseChange()
+  ctx.update()
+  new Notice(t("settings.license.signedOut", "Signed out on this device."))
+}
+
 async function activate(
   ctx: SectionContext,
   manager: LicenseManager,
@@ -146,7 +233,7 @@ async function activate(
   ctx.update()
 
   const result = await manager.activate(
-    form.currentCode(ctx.plugin.settings.licenseCode),
+    form.currentCode(manager.getStoredCode()),
   )
 
   if (result.ok) {
@@ -201,6 +288,9 @@ function activationRows(
           if (!failure) return undefined
           const view = new DeviceListView(deviceListHost(setting), manager, {
             initialDevices: failure.devices,
+            // The rejected activation stored nothing, so the list has to carry
+            // the typed code or releasing a seat would have none to send.
+            code: form.currentCode(manager.getStoredCode()),
             onChanged: () => {
               form.clearError()
               ctx.refreshDomState()
@@ -225,34 +315,37 @@ function activeLicenseRows(
   manager: LicenseManager,
   applyLicenseChange: () => Promise<void>,
 ): SettingDefinitionItem[] {
-  const summary = manager.getLicenseSummary()
   // Two sections rather than a single card: the licence is a fact to read once,
   // the seats are a list to act on, and a heading over each says which is which.
   // No status or expiry rows — the page header already says "Active".
   const rows: SettingDefinitionItem[] = []
 
-  // The code the user actually typed, not the id derived from it: that is what
-  // they hold, what support asks for, and what they would re-enter elsewhere.
-  // The id is the fallback for a licence activated before the code was stored.
-  const stored = ctx.plugin.settings.licenseCode
-  const identity =
-    stored !== undefined && stored.length > 0
-      ? { name: t("settings.license.codeName", "License code"), value: stored }
-      : summary
-        ? {
-            name: t("settings.license.licenseIdName", "License ID"),
-            value: formatLicenseId(summary.license_id),
-          }
-        : undefined
+  // The code the user actually typed: what they hold, what support asks for,
+  // and what they would re-enter elsewhere. Read through the manager so a
+  // device that gave up its seat does not show a code it can no longer use.
+  //
+  // Nothing stands in for it. The licence id used to, but the server no longer
+  // sends one — and a value the user can neither act on nor quote to support
+  // was never the point. This device is identified in the seat list below.
+  const stored = manager.getStoredCode()
+  const code = stored !== undefined && stored.length > 0 ? stored : undefined
 
-  if (identity) {
-    rows.push({
-      type: "group",
-      heading: t("settings.license.heading", "License"),
-      cls: "taskchute-license-identity",
-      items: [{ name: identity.name, desc: identity.value }],
-    })
-  }
+  rows.push({
+    type: "group",
+    heading: t("settings.license.heading", "License"),
+    cls: "taskchute-license-identity",
+    items:
+      code !== undefined
+        ? [{ name: t("settings.license.codeName", "License code"), desc: code }]
+        : // Nothing to name the licence with, so the section carries the one
+          // action that still works instead.
+          [signOutRow(ctx, manager, applyLicenseChange)],
+  })
+
+  // No code means no request can be made: the seat list, its refresh and every
+  // release need one. The list would show nothing but a permanent
+  // no_activation_code, so it is left out entirely.
+  if (code === undefined) return rows
 
   rows.push({
     type: "group",
@@ -263,6 +356,9 @@ function activeLicenseRows(
     // other seat, so there is no separate sign-out control.
     name: "",
     render: (setting) => {
+      // Same seam as the activation form: the seat list is only ever drawn on
+      // the Pro page, so mounting it is that page being shown.
+      syncOnShown(ctx)
       const view = new DeviceListView(deviceListHost(setting), manager, {
         onChanged: () => {
           // Seat counts come from the server, so a release has to re-read the

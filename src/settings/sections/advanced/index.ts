@@ -1,11 +1,12 @@
-import { t } from "../../../i18n"
-import type { SectionModule } from "../../types"
+import { t } from "@/i18n"
+import type { SectionModule } from "@/settings/types"
 import { externalToolsSection } from "./externalTools"
 import { recipeSection } from "./recipe"
 import { sectionCustomizationSection } from "./sectionCustomization"
 import type { SectionBoundaryDraft } from "./sectionBoundaryDraft"
 import { taskCreationSection } from "./taskCreation"
 import { timeSlotsSection } from "./timeSlots"
+import { dayCommentsSection } from "./dayComments"
 
 /** Folds one kind of handler map from each part into a single map. */
 function mergeHandlers<T extends Record<string, unknown>>(
@@ -31,6 +32,7 @@ export function advancedSection(draft: SectionBoundaryDraft): SectionModule {
     recipeSection,
     sectionCustomizationSection(draft),
     timeSlotsSection,
+    dayCommentsSection,
     externalToolsSection,
   ]
 

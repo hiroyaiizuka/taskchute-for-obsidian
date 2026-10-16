@@ -1,7 +1,7 @@
 import 'obsidian'
-import { calculateNextBoundary } from '../../../utils/time'
-import type { TaskInstance } from '../../../types'
-import type { SectionConfigService } from '../../../services/SectionConfigService'
+import { calculateNextBoundary } from '@/utils/time'
+import type { TaskInstance } from '@/types'
+import type { SectionConfigService } from '@/services/SectionConfigService'
 
 export type DayStateCacheClearMode = 'none' | 'current' | 'all'
 

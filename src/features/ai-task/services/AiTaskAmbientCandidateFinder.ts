@@ -1,10 +1,10 @@
 import type { App } from 'obsidian'
 
-import { RoutineService } from '../../routine/services/RoutineService'
-import { extractTaskIdFromFrontmatter } from '../../../services/TaskIdManager'
-import { getScheduledTime } from '../../../utils/fieldMigration'
-import { listFilesInFolder } from '../../../utils/vaultFiles'
-import { normalizeReminderTime } from '../../reminder/services/ReminderFrontmatterService'
+import { RoutineService } from '@/features/routine/services/RoutineService'
+import { extractTaskIdFromFrontmatter } from '@/services/TaskIdManager'
+import { getScheduledTime } from '@/utils/fieldMigration'
+import { listFilesInFolder } from '@/utils/vaultFiles'
+import { normalizeReminderTime } from '@/features/reminder/services/ReminderFrontmatterService'
 import { readAiTaskConfig } from './AiTaskFrontmatterReader'
 import { readObsidianTaskLinkConfig } from './ObsidianTaskLinkConfig'
 import {

@@ -2,17 +2,17 @@ import { TFile } from 'obsidian'
 import {
   AiTaskManager,
   type AiTaskManagerDeps,
-} from '../../../src/features/ai-task/services/AiTaskManager'
+} from '@/features/ai-task/services/AiTaskManager'
 import type {
   AiDispatcher,
   AiRunCallbacks,
   AiRunRequest,
-} from '../../../src/features/ai-task/services/dispatchers/Dispatcher'
-import type { RecipeContextSnapshot } from '../../../src/features/recipe/services/RecipeDelegationContextBuilder'
+} from '@/features/ai-task/services/dispatchers/Dispatcher'
+import type { RecipeContextSnapshot } from '@/features/recipe/services/RecipeDelegationContextBuilder'
 import {
   AI_RUN_MAX_LAUNCH_SIZE,
   AiRunLaunchTooLargeError,
-} from '../../../src/features/ai-task/services/AiRunLaunchSizeGuard'
+} from '@/features/ai-task/services/AiRunLaunchSizeGuard'
 
 class CapturingDispatcher implements AiDispatcher {
   readonly requests: AiRunRequest[] = []
@@ -69,7 +69,7 @@ describe('AiTaskManager Recipe v2 integration', () => {
           }),
         },
       },
-      dispatchers: { claude: dispatcher, codex: dispatcher },
+      dispatchers: { claude: dispatcher, codex: dispatcher, cursor: dispatcher },
       binaryLocator: { resolve: async () => '/bin/claude' },
       logWriter: {
         writeRunLog: async () => 'log.md',
@@ -140,7 +140,7 @@ describe('AiTaskManager Recipe v2 integration', () => {
           }),
         },
       },
-      dispatchers: { claude: dispatcher, codex: dispatcher },
+      dispatchers: { claude: dispatcher, codex: dispatcher, cursor: dispatcher },
       binaryLocator: { resolve: async () => '/bin/claude' },
       logWriter: {
         writeRunLog: async () => 'log.md',

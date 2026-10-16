@@ -5,7 +5,7 @@
  * that would be passed through the various task creation paths in TaskLoaderService.
  */
 
-import { normalizeReminderTime } from '../../src/features/reminder/services/ReminderFrontmatterService';
+import { normalizeReminderTime } from '@/features/reminder/services/ReminderFrontmatterService';
 
 describe('TaskLoaderService reminder_time normalization (integration)', () => {
   describe('createTaskFromExecutions path', () => {

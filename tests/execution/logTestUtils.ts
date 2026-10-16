@@ -1,6 +1,6 @@
 import { TFile, TFolder } from 'obsidian'
-import type { TaskChutePluginLike } from '../../src/types'
-import { LOG_INBOX_FOLDER } from '../../src/features/log/constants'
+import type { TaskChutePluginLike } from '@/types'
+import { LOG_INBOX_FOLDER } from '@/features/log/constants'
 
 export interface PluginStub {
   plugin: TaskChutePluginLike

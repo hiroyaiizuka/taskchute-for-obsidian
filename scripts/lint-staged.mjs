@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The pre-commit lint gate: eslint over the staged source and test files.
+// The pre-commit lint gate: eslint over the staged source, test and E2E files.
 //
 // This replaces lint-staged, which Obsidian's plugin review flags through
 // depend/ban-dependencies. The review does not distinguish dev from prod
@@ -11,7 +11,7 @@
 // lint-staged configuration this replaces did.
 import { spawnSync } from "node:child_process";
 
-const PATTERNS = [/^src\/.*\.(ts|tsx|js)$/, /^tests\/.*\.(ts|tsx|js)$/];
+const PATTERNS = [/^src\/.*\.(ts|tsx|js)$/, /^tests\/.*\.(ts|tsx|js)$/, /^e2e\/.*\.ts$/];
 
 function git(...args) {
   const result = spawnSync("git", args, { encoding: "utf8" });

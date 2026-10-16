@@ -5,7 +5,7 @@ import {
   POSIX_INTERACTIVE_LOGIN_SHELL_FLAG,
   POSIX_LOGIN_SHELL_FLAG,
   buildWindowsTaskkillArgs,
-} from '../../../src/features/ai-task/services/NodeProcessGateway'
+} from '@/features/ai-task/services/NodeProcessGateway'
 
 const ENV_KEYS = [
   'CLAUDECODE',

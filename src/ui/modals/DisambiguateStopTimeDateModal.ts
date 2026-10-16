@@ -1,13 +1,14 @@
 import { App, Modal } from 'obsidian'
 import { createElCompat } from '../components/domCompat'
 import { createModalFooter } from '../components/modalFooter'
+import type { ScopedTranslator } from '@/i18n'
 
 export type DisambiguateChoice = 'same-day' | 'next-day' | 'cancel'
 
 export interface DisambiguateStopTimeDateOptions {
   sameDayDate: Date
   nextDayDate: Date
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
 }
 
 function formatDateForDisplay(date: Date): string {

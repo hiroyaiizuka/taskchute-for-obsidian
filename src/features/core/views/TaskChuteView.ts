@@ -8,91 +8,101 @@ import {
   DayState,
   TaskChutePluginLike,
   DeletedInstance,
-} from "../../../types"
-import { TimerService } from "../../../services/TimerService"
+} from "@/types"
+import { TimerService } from "@/services/TimerService"
 import { loadTasksRefactored } from "../helpers"
-import { RunningTasksService } from "../../../features/core/services/RunningTasksService"
-import { ExecutionLogService } from "../../../features/log/services/ExecutionLogService"
-import DayStateStoreService from "../../../services/DayStateStoreService"
-import TaskOrderManager from "../../../features/core/services/TaskOrderManager"
-import { TaskLoaderService } from "../../../features/core/services/TaskLoaderService"
-import type { TaskLoaderHost } from "../../../features/core/services/TaskLoaderService"
-import { TaskCreationService } from "../../../features/core/services/TaskCreationService"
-import { TaskReuseService } from "../../../features/core/services/TaskReuseService"
-import { getCurrentLocale, t } from "../../../i18n"
-import { TASKCHUTE_NAME } from "../../../constants"
-import TaskReloadCoordinator from "../../../features/core/services/TaskReloadCoordinator"
+import { RunningTasksService } from "@/features/core/services/RunningTasksService"
+import { ExecutionLogService } from "@/features/log/services/ExecutionLogService"
+import DayStateStoreService from "@/services/DayStateStoreService"
+import TaskOrderManager from "@/features/core/services/TaskOrderManager"
+import { TaskLoaderService } from "@/features/core/services/TaskLoaderService"
+import type { TaskLoaderHost } from "@/features/core/services/TaskLoaderService"
+import type { RoutineTaskShape } from "@/types/routine"
+import { TaskCreationService } from "@/features/core/services/TaskCreationService"
+import { TaskReuseService } from "@/features/core/services/TaskReuseService"
+import { checkSeatRegistration } from "@/features/license/ui/notifySeatReleased"
+import { getCurrentLocale, t, type ScopedKey, type Variables } from "@/i18n"
+import { TASKCHUTE_NAME } from "@/constants"
+import TaskReloadCoordinator from "@/features/core/services/TaskReloadCoordinator"
 import type {
   DayStateCacheClearMode,
   TaskReloadCoordinatorHost,
-} from "../../../features/core/services/TaskReloadCoordinator"
+} from "@/features/core/services/TaskReloadCoordinator"
 import TaskExecutionService, {
   CrossDayStartPayload,
   calculateCrossDayDuration,
-} from "../../../features/core/services/TaskExecutionService"
-import type { RunningTaskRecord } from "../../../features/core/services/RunningTasksService"
-import NavigationController from "../../../ui/navigation/NavigationController"
-import ProjectController from "../../../ui/project/ProjectController"
-import { GoogleCalendarService } from "../../calendar/services/GoogleCalendarService"
-import { CalendarExportModal } from "../../calendar/ui/CalendarExportModal"
-import TaskDragController from "../../../ui/tasklist/TaskDragController"
-import TaskMutationService from "../../../features/core/services/TaskMutationService"
-import type { DuplicateInstanceOptions, TaskMutationHost } from "../../../features/core/services/TaskMutationService"
-import TaskListRenderer from "../../../ui/tasklist/TaskListRenderer"
-import type { TaskListRendererHost } from "../../../ui/tasklist/TaskListRenderer"
-import TaskContextMenuController from "../../../ui/tasklist/TaskContextMenuController"
-import TaskTimeController from "../../../ui/time/TaskTimeController"
+} from "@/features/core/services/TaskExecutionService"
+import type { RunningTaskRecord } from "@/features/core/services/RunningTasksService"
+import NavigationController from "@/ui/navigation/NavigationController"
+import ProjectController from "@/ui/project/ProjectController"
+import { GoogleCalendarService } from "@/features/calendar/services/GoogleCalendarService"
+import { CalendarExportModal } from "@/features/calendar/ui/CalendarExportModal"
+import TaskDragController from "@/ui/tasklist/TaskDragController"
+import TaskMutationService from "@/features/core/services/TaskMutationService"
+import type { DuplicateInstanceOptions, TaskMutationHost } from "@/features/core/services/TaskMutationService"
+import TaskListRenderer from "@/ui/tasklist/TaskListRenderer"
+import type { TaskListRendererHost } from "@/ui/tasklist/TaskListRenderer"
+import type { DragPointer } from "@/ui/tasklist/TaskListPointerDrag"
+import TaskContextMenuController from "@/ui/tasklist/TaskContextMenuController"
+import TaskTimeController from "@/ui/time/TaskTimeController"
 import TaskCreationController, {
   CreatedTaskTarget,
   DeletedTaskRestoreCandidate,
-} from "../../../ui/task/TaskCreationController"
-import TaskScheduleController from "../../../ui/task/TaskScheduleController"
-import TaskCompletionController from "../../../ui/task/TaskCompletionController"
-import TaskSettingsTooltipController from "../../../ui/task/TaskSettingsTooltipController"
-import TaskSelectionController from "../../../ui/task/TaskSelectionController"
-import TaskKeyboardController from "../../../ui/task/TaskKeyboardController"
-import AccentContrastController from "../../../ui/tasklist/AccentContrastController"
-import RoutineController from "../../routine/controllers/RoutineController"
-import TaskHeaderController from "../../../ui/header/TaskHeaderController"
-import { showConfirmModal } from "../../../ui/modals/ConfirmModal"
-import { showDisambiguateStopTimeDateModal } from "../../../ui/modals/DisambiguateStopTimeDateModal"
-import TaskViewLayout from "../../../ui/layout/TaskViewLayout"
-import { ReminderSettingsModal } from "../../reminder/modals/ReminderSettingsModal"
-import { isDeleted as isDeletedEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from "../../../services/dayState/conflictResolver"
-import { SectionConfigService } from "../../../services/SectionConfigService"
-import { normalizeReminderTime } from "../../reminder/services/ReminderFrontmatterService"
-import { RecipeService, createRecipeProgressKeyForInstance } from "../../recipe/services/RecipeService"
-import { TaskRecipeAssignmentService } from "../../recipe/services/TaskRecipeAssignmentService"
-import { RecipeRunPopover } from "../../recipe/ui/RecipeRunPopover"
-import { RecipeSelectModal } from "../../recipe/modals/RecipeSelectModal"
-import RecipeManagerModal from "../../recipe/modals/RecipeManagerModal"
-import { isAiTaskFeatureAvailable } from "../../ai-task/availability"
-import { AiRunPaneController } from "../../ai-task/ui/AiRunPaneController"
-import { createTerminalViewAdapter } from "../../ai-task/ui/TerminalViewAdapter"
+} from "@/ui/task/TaskCreationController"
+import TaskScheduleController from "@/ui/task/TaskScheduleController"
+import TaskCompletionController from "@/ui/task/TaskCompletionController"
+import TaskSettingsTooltipController from "@/ui/task/TaskSettingsTooltipController"
+import TaskSelectionController from "@/ui/task/TaskSelectionController"
+import TaskKeyboardController from "@/ui/task/TaskKeyboardController"
+import AccentContrastController from "@/ui/tasklist/AccentContrastController"
+import RoutineController from "@/features/routine/controllers/RoutineController"
+import TaskHeaderController from "@/ui/header/TaskHeaderController"
+import { showConfirmModal } from "@/ui/modals/ConfirmModal"
+import { showDisambiguateStopTimeDateModal } from "@/ui/modals/DisambiguateStopTimeDateModal"
+import TaskViewLayout from "@/ui/layout/TaskViewLayout"
+import { ReminderSettingsModal } from "@/features/reminder/modals/ReminderSettingsModal"
+import { isDeleted as isDeletedEntry, isLegacyDeletionEntry, getEffectiveDeletedAt } from "@/services/dayState/conflictResolver"
+import { SectionConfigService } from "@/services/SectionConfigService"
+import { normalizeReminderTime } from "@/features/reminder/services/ReminderFrontmatterService"
+import { RecipeService, createRecipeProgressKeyForInstance } from "@/features/recipe/services/RecipeService"
+import { TaskRecipeAssignmentService } from "@/features/recipe/services/TaskRecipeAssignmentService"
+import { RecipeRunPopover } from "@/features/recipe/ui/RecipeRunPopover"
+import { RecipeSelectModal } from "@/features/recipe/modals/RecipeSelectModal"
+import RecipeManagerModal from "@/features/recipe/modals/RecipeManagerModal"
+import { isAiTaskFeatureAvailable } from "@/features/ai-task/availability"
+import { AiRunPaneController } from "@/features/ai-task/ui/AiRunPaneController"
+import { createTerminalViewAdapter } from "@/features/ai-task/ui/TerminalViewAdapter"
 import {
   AiPromptNotFoundError,
   AiRunAlreadyActiveError,
-} from "../../ai-task/services/AiTaskManager"
-import { AiBinaryNotFoundError } from "../../ai-task/services/BinaryLocator"
-import { readAiTaskConfig } from "../../ai-task/services/AiTaskFrontmatterReader"
-import { AiTaskEditService } from "../../ai-task/services/AiTaskEditService"
-import { AiTaskObsidianLinkCoordinator } from "../../ai-task/services/AiTaskObsidianLinkCoordinator"
-import { readObsidianTaskLinkConfig } from "../../ai-task/services/ObsidianTaskLinkConfig"
-import { collectAiTaskWorkingDirectoryCandidates } from "../../ai-task/services/AiTaskWorkingDirectoryCandidates"
-import { matchesAiTaskBoardView } from "../../ai-task/services/BoardViewFilter"
+} from "@/features/ai-task/services/AiTaskManager"
+import { AiBinaryNotFoundError } from "@/features/ai-task/services/BinaryLocator"
+import { readAiTaskConfig } from "@/features/ai-task/services/AiTaskFrontmatterReader"
+import { AiTaskEditService } from "@/features/ai-task/services/AiTaskEditService"
+import { AiTaskObsidianLinkCoordinator } from "@/features/ai-task/services/AiTaskObsidianLinkCoordinator"
+import { AiTaskLinkSync } from "@/features/ai-task/services/AiTaskLinkSync"
+import { readObsidianTaskLinkConfig } from "@/features/ai-task/services/ObsidianTaskLinkConfig"
+import { collectAiTaskWorkingDirectoryCandidates } from "@/features/ai-task/services/AiTaskWorkingDirectoryCandidates"
+import { matchesAiTaskBoardView } from "@/features/ai-task/services/BoardViewFilter"
 import type {
   AiTaskStartReservation,
   AiTaskManager,
   PreparedAiRun,
-} from "../../ai-task/services/AiTaskManager"
-import RoutineService from "../../routine/services/RoutineService"
-import { getScheduledTime } from "../../../utils/fieldMigration"
-import { extractTaskIdFromFrontmatter } from "../../../services/TaskIdManager"
+} from "@/features/ai-task/services/AiTaskManager"
+import RoutineService from "@/features/routine/services/RoutineService"
+import { getScheduledTime } from "@/utils/fieldMigration"
+import { extractTaskIdFromFrontmatter } from "@/services/TaskIdManager"
+import { CommentsController, canCommentWhileRunning } from "@/features/comments/CommentsController"
+import { preserveCommentFocus } from "@/features/comments/ui/commentDom"
+
+/** At or below this view width, comments are added and rewritten in a modal. */
+const COMMENTS_NARROW_WIDTH_PX = 600
 import type {
   AiRunMode,
   AiRunRecord,
+  AiRunStatus,
   AiTaskBoardView,
-} from "../../ai-task/types"
+} from "@/features/ai-task/types"
 
 /**
  * Per-device persistence key of the AI board view (App#saveLocalStorage /
@@ -101,6 +111,7 @@ import type {
 export const AI_TASK_BOARD_VIEW_STORAGE_KEY = 'taskchute-plus.ai-task-board-view'
 
 const AI_TASK_BOARD_VIEWS: readonly AiTaskBoardView[] = ['human', 'ai', 'mixed']
+const terminalFallbackNotified = new WeakSet<object>()
 
 export interface AmbientAiTaskRunResult {
   satisfiedPaths: string[]
@@ -123,6 +134,10 @@ class NavigationStateManager implements NavigationState {
   selectedSection: "routine" | "recipes" | "review" | "log" | "settings" | null = null
   isOpen: boolean = false
 }
+
+
+/** Linked AI run exits already finished by one of the mounted leaves (#183). */
+const claimedLinkedAiRunExits = new Set<string>()
 
 export class TaskChuteView
   extends ItemView
@@ -164,6 +179,7 @@ export class TaskChuteView
   private readonly taskViewLayout: TaskViewLayout
   public readonly taskExecutionService: TaskExecutionService
   private readonly aiTaskObsidianLinkCoordinator: AiTaskObsidianLinkCoordinator
+  private readonly aiTaskLinkSync: AiTaskLinkSync
   public readonly recipeService: RecipeService
   private readonly recipeRunPopover: RecipeRunPopover
   public sectionConfig: SectionConfigService
@@ -177,9 +193,17 @@ export class TaskChuteView
   public navigationOverlay?: HTMLElement
   public navigationContent?: HTMLElement
 
+  // Comments while working (#181): the day's box and the running rows' panels
+  private commentsController: CommentsController | null = null
+
   // AI Task pane (mounted only while plugin.aiTaskManager exists)
   private aiPaneContainer: HTMLElement | null = null
   private aiRunPaneController: AiRunPaneController | null = null
+  /** Watches the AI manager for linked runs whose process ends on its own (#183). */
+  private linkedAiRunExitWatch: {
+    manager: AiTaskManager
+    dispose: () => void
+  } | null = null
   /** Selected board view (render-only filter); restored in the constructor */
   private aiTaskBoardView: AiTaskBoardView = 'mixed'
   /**
@@ -246,9 +270,9 @@ export class TaskChuteView
   }
 
   public tv(
-    key: string,
+    key: ScopedKey<"taskChuteView">,
     fallback: string,
-    vars?: Record<string, string | number>,
+    vars?: Variables,
   ): string {
     return t(`taskChuteView.${key}`, fallback, vars)
   }
@@ -409,21 +433,24 @@ export class TaskChuteView
         this.taskMutationService.syncDuplicateSlotWithScheduledTime(inst, params),
       saveScheduledTime: (inst, scheduledTime) =>
         this.updateTaskScheduledTime(inst, scheduledTime),
-      onInstanceResetToIdle: async (inst, { wasRunning }) => {
+      onInstanceResetToIdle: async (inst, { wasRunning, previousState }) => {
         // Resetting a running instance bypasses stopInstance, so stop the
         // coupled AI run here to keep play/stop coupling symmetric.
         if (wasRunning) {
           this.maybeStopAiRunForInstance(inst)
           await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
         }
+        await this.aiTaskLinkSync.afterResetToIdle(inst, previousState)
       },
       onInstanceStopped: async (inst) => {
         this.maybeStopAiRunForInstance(inst)
         await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+        await this.aiTaskLinkSync.afterStopped(inst)
       },
       onInstanceStarted: async (inst) => {
         this.maybeStartAiRunForInstance(inst)
         await this.aiTaskObsidianLinkCoordinator.handleSourceStarted(inst)
+        await this.aiTaskLinkSync.afterStarted(inst)
       },
     })
     this.taskCreationController = new TaskCreationController({
@@ -494,6 +521,8 @@ export class TaskChuteView
         this.moveDuplicateInstanceToDate(inst, dateStr),
       moveNonRoutineSlotOverrideToDate: (inst, dateStr) =>
         this.moveNonRoutineSlotOverrideToDate(inst, dateStr),
+      onInstanceMoved: (inst, dateStr) =>
+        this.aiTaskLinkSync.afterMoved(inst, dateStr),
       moveRunningTaskToDate: async (inst, dateStr) => {
         return await this.runningTasksService.moveRunningTaskToDateStrict({
           targetDate: dateStr,
@@ -516,6 +545,8 @@ export class TaskChuteView
       plugin: this.plugin,
       appendCommentDelta: (dateKey, entry) =>
         this.executionLogService.appendCommentDelta(dateKey, entry),
+      getRunningComments: (inst) =>
+        inst.instanceId ? this.commentsController?.commentsFor(inst.instanceId) ?? [] : [],
     })
     this.taskSettingsTooltipController = new TaskSettingsTooltipController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -538,6 +569,10 @@ export class TaskChuteView
       isGoogleCalendarEnabled: () =>
         this.plugin.settings.googleCalendar?.enabled === true,
       showProjectModal: (inst) => this.projectController.showProjectModal(inst),
+      showChangeTaskTypeModal: (inst) => {
+        void this.taskCreationController.showChangeTaskTypeModal(inst)
+      },
+      isAiTaskFeatureEnabled: () => this.isAiTaskFeatureEnabled(),
     })
     this.taskHeaderController = new TaskHeaderController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -588,6 +623,18 @@ export class TaskChuteView
         if (stopped) this.maybeStopAiRunForInstance(target)
         return stopped
       },
+    })
+    this.aiTaskLinkSync = new AiTaskLinkSync({
+      getTaskInstances: () => [
+        ...this.taskInstances,
+        ...this.linkedAiTaskCandidates,
+      ],
+      startInstance: (inst) => this.startInstance(inst),
+      stopInstance: (inst) => this.stopInstance(inst),
+      resetToIdle: (inst) => this.resetTaskToIdle(inst),
+      deleteInstance: (inst) => this.deleteTask(inst),
+      moveToDate: (inst, dateStr) =>
+        this.taskScheduleController.moveTaskToDate(inst, dateStr, { quiet: true }),
     })
     this.taskViewLayout = new TaskViewLayout({
       renderHeader: (container) => this.taskHeaderController.render(container),
@@ -648,9 +695,9 @@ export class TaskChuteView
         view.registerManagedDomEvent(target, event, handler),
       handleDragOver: (event, taskItem, inst) =>
         view.handleDragOver(event, taskItem, inst),
-      handleDrop: (event, taskItem, inst) =>
-        view.handleDrop(event, taskItem, inst),
-      handleSlotDrop: (event, slot) => view.handleSlotDrop(event, slot),
+      handleDrop: (event, taskItem, inst, payload) =>
+        view.handleDrop(event, taskItem, inst, payload),
+      handleSlotDrop: (event, slot, payload) => view.handleSlotDrop(event, slot, payload),
       startInstance: (inst) => view.startInstance(inst),
       stopInstance: (inst) => view.stopInstance(inst),
       duplicateAndStartInstance: (inst) => {
@@ -689,6 +736,9 @@ export class TaskChuteView
         void view.taskCreationController.showEditAiTaskModal(inst)
       },
       getAiTaskBoardView: () => view.getAiTaskBoardView(),
+      getRunningComments: (inst) => view.commentsController?.commentButton(inst) ?? null,
+      toggleRunningComments: (inst) => view.commentsController?.togglePanel(inst),
+      renderRowComments: (inst) => view.commentsController?.renderPanel(inst) ?? null,
     }
   }
 
@@ -781,6 +831,14 @@ export class TaskChuteView
     this.setupAccentContrast()
     this.navigationController.initializeNavigationEventListeners()
     this.setupEventListeners()
+
+    // Settle entitlement against the server now that the view is up. Opening
+    // the task list is the most common way into the plugin, and this is the
+    // screen the AI task affordances appear on — so it is where a seat released
+    // from another machine would otherwise stay invisible until a restart.
+    // Deliberately not awaited: the list must not wait on the license server,
+    // and a change re-renders through the license listener in main.ts.
+    void checkSeatRegistration(this.plugin)
   }
 
   private getContentContainer(): HTMLElement {
@@ -795,6 +853,7 @@ export class TaskChuteView
     this.isClosingOrClosed = true
     this.recipeRunPopover.close()
     this.unmountAiRunPane()
+    this.unwatchLinkedAiRunExits()
     this.disposeManagedEvents()
     // Clean up autocomplete instances
     this.cleanupAutocompleteInstances()
@@ -809,10 +868,18 @@ export class TaskChuteView
   // ===========================================
 
   private setupUI(container: HTMLElement): void {
-    const { taskListElement, aiPaneContainer } = this.taskViewLayout.render(container)
+    const {
+      taskListElement,
+      taskListContainer,
+      aiPaneContainer,
+      dayCommentsContainer,
+      dayCommentsResizer,
+    } = this.taskViewLayout.render(container)
     this.taskListElement = taskListElement
     this.aiPaneContainer = aiPaneContainer
+    this.mountComments(container, dayCommentsContainer, dayCommentsResizer, taskListContainer)
     this.mountAiRunPane()
+    this.watchLinkedAiRunExits()
   }
 
   // ===========================================
@@ -910,6 +977,9 @@ export class TaskChuteView
             cols: size.cols,
             rows: size.rows,
           })
+      if (mode === 'terminal' && record.mode === 'headless') {
+        this.notifyTerminalFallback(manager)
+      }
       this.aiRunPaneController?.openRun(record.id)
       this.renderTaskList()
       return record
@@ -1811,6 +1881,47 @@ export class TaskChuteView
     this.renderTaskList()
   }
 
+  /** True when one of these AI timers has a linked human task in this view. */
+  private isLinkedAiRunTarget(instances: readonly TaskInstance[]): boolean {
+    return instances.some((instance) => this.aiTaskLinkSync.partnerOf(instance) !== undefined)
+  }
+
+  /**
+   * A linked AI run that ends — interrupted, orphaned, or its process exiting
+   * on its own — completes its timer through the normal stop, which writes
+   * the completion log and finishes the linked human task as well (#183).
+   */
+  private async completeLinkedAiRunTimers(
+    instances: readonly TaskInstance[],
+  ): Promise<void> {
+    for (const instance of new Set(instances)) {
+      if (instance.state !== 'running') continue
+      this.invalidateAiStartAttempt(instance)
+      await this.stopInstance(instance)
+    }
+  }
+
+  /**
+   * Other mounted leaves hold their own TaskInstance objects for the timers
+   * one leaf completed above; mark them done locally until they reload.
+   */
+  private finishReconciledLinkedAiRunInstances(
+    instances: readonly TaskInstance[],
+  ): void {
+    const runningInstances = [...new Set(instances)].filter(
+      (instance) => instance.state === 'running',
+    )
+    if (runningInstances.length === 0) return
+    const stoppedAt = new Date()
+    for (const instance of runningInstances) {
+      this.invalidateAiStartAttempt(instance)
+      instance.state = 'done'
+      instance.stopTime = stoppedAt
+      if (this.currentInstance === instance) this.currentInstance = null
+    }
+    this.renderTaskList()
+  }
+
   /**
    * Reconcile timers only after task loading has restored DayState. The
    * manager coordinates the durable mutation across all mounted views. Every
@@ -1833,17 +1944,22 @@ export class TaskChuteView
       // Do not consume the durable marker from a leaf that cannot see the
       // timer (for example, a leaf displaying another date).
       if (targets.length === 0) continue
+      // A run linked to a human task is finished, not reset: both sides of
+      // the pair end as done (#183). Unlinked runs keep going back to idle.
+      const linked = this.isLinkedAiRunTarget(targets)
       recoveries.push(manager
         .coordinateInterruptedTaskStateReconciliation(
           record.id,
           this.getAiRunRecoveryGeneration(record, targets),
-          () => this.resetInterruptedAiRunTimers(targets, record.taskPath),
+          () => linked
+            ? this.completeLinkedAiRunTimers(targets)
+            : this.resetInterruptedAiRunTimers(targets, record.taskPath),
         )
         .then((reconciled) => {
           if (!reconciled || this.plugin.aiTaskManager !== manager) return
-          this.idleReconciledAiRunInstances(
-            this.findRunningInstancesForAiRunRecovery(record),
-          )
+          const leftovers = this.findRunningInstancesForAiRunRecovery(record)
+          if (linked) this.finishReconciledLinkedAiRunInstances(leftovers)
+          else this.idleReconciledAiRunInstances(leftovers)
         })
         .catch((error: unknown) => {
           console.error(
@@ -1889,22 +2005,25 @@ export class TaskChuteView
         instanceId: representative.instanceId,
         timerStartedAt: representative.startTime?.getTime(),
       }
+      const linked = this.isLinkedAiRunTarget(instances)
       recoveries.push(manager
         .coordinateOrphanedTaskStateReconciliation(
           taskPath,
           owner,
-          () => this.resetInterruptedAiRunTimers(instances, taskPath),
+          () => linked
+            ? this.completeLinkedAiRunTimers(instances)
+            : this.resetInterruptedAiRunTimers(instances, taskPath),
         )
         .then((reconciled) => {
           if (!reconciled || this.plugin.aiTaskManager !== manager) return
-          this.idleReconciledAiRunInstances(
-            this.taskInstances.filter(
-              (instance) =>
-                instance.state === 'running' &&
-                instance.task?.path === taskPath &&
-                readAiTaskConfig(instance.task?.frontmatter) !== null,
-            ),
+          const leftovers = this.taskInstances.filter(
+            (instance) =>
+              instance.state === 'running' &&
+              instance.task?.path === taskPath &&
+              readAiTaskConfig(instance.task?.frontmatter) !== null,
           )
+          if (linked) this.finishReconciledLinkedAiRunInstances(leftovers)
+          else this.idleReconciledAiRunInstances(leftovers)
         })
         .catch((error: unknown) => {
           console.error(
@@ -1914,6 +2033,19 @@ export class TaskChuteView
         }))
     }
     await Promise.all(recoveries)
+  }
+
+  /** Once per manager: terminal mode fell back to conversation (Windows). */
+  private notifyTerminalFallback(manager: AiTaskManager): void {
+    const reason = manager.getTerminalUnavailableReason?.()
+    if (reason === undefined || terminalFallbackNotified.has(manager)) return
+    terminalFallbackNotified.add(manager)
+    new Notice(
+      `${this.tv(
+        "aiTask.notices.terminalFallback",
+        "The embedded terminal is not available on this computer, so the AI run uses conversation mode.",
+      )}\n(${reason})`,
+    )
   }
 
   private notifyAiRunError(error: unknown): void {
@@ -1966,7 +2098,10 @@ export class TaskChuteView
     this.aiRunPaneController = new AiRunPaneController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
       manager,
-      createTerminalAdapter: () => createTerminalViewAdapter(),
+      createTerminalAdapter: () =>
+        createTerminalViewAdapter({
+          windowsPty: manager.getTerminalWindowsPty?.(),
+        }),
       registerManagedDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
       onStopAndCloseTaskRun: (record) => this.handleAiRunStopAndClose(record),
       onInterruptedTaskRun: () => {
@@ -1987,6 +2122,50 @@ export class TaskChuteView
     this.aiRunPaneController.mount(this.aiPaneContainer)
   }
 
+  /**
+   * When the process of a linked AI run ends on its own (succeeded or
+   * failed), finish its timer and the linked human task (#183). Unlinked
+   * runs are left alone: their timer keeps running until the user stops it.
+   * Subscribed apart from the AI Runs pane, which may be hidden.
+   */
+  private watchLinkedAiRunExits(): void {
+    const manager = this.plugin.aiTaskManager
+    if (this.linkedAiRunExitWatch?.manager === manager) return
+    this.unwatchLinkedAiRunExits()
+    if (!manager) return
+    const lastStatus = new Map<string, AiRunStatus>(
+      manager.getRuns().map((record) => [record.id, record.status]),
+    )
+    const dispose = manager.onChange((record, changeType) => {
+      if (changeType === 'persisted') return
+      const previous = lastStatus.get(record.id)
+      lastStatus.set(record.id, record.status)
+      if (record.host === 'shell') return
+      if (record.status !== 'succeeded' && record.status !== 'failed') return
+      if (previous !== 'starting' && previous !== 'running') return
+      void this.completeLinkedAiRunOnExit(record).catch((error: unknown) => {
+        console.error('[TaskChuteView] Failed to finish a linked AI run', error)
+      })
+    })
+    this.linkedAiRunExitWatch = { manager, dispose }
+  }
+
+  private unwatchLinkedAiRunExits(): void {
+    this.linkedAiRunExitWatch?.dispose()
+    this.linkedAiRunExitWatch = null
+  }
+
+  private async completeLinkedAiRunOnExit(record: AiRunRecord): Promise<void> {
+    const target = this.findRunningInstanceForAiRun(record)
+    if (!target || !this.aiTaskLinkSync.partnerOf(target)) return
+    // Every mounted leaf hears the same exit; the first that sees the timer
+    // finishes it.
+    const exitKey = `${record.id}:${record.endedAt ?? ''}`
+    if (claimedLinkedAiRunExits.has(exitKey)) return
+    claimedLinkedAiRunExits.add(exitKey)
+    await this.completeLinkedAiRunTimers([target])
+  }
+
   private unmountAiRunPane(): void {
     this.aiRunPaneController?.unmount()
     this.aiRunPaneController = null
@@ -1994,6 +2173,7 @@ export class TaskChuteView
 
   /** Mirror of onRecipeFeatureSettingsChanged for the AI Task feature toggle */
   public onAiTaskSettingsChanged(): void {
+    this.watchLinkedAiRunExits()
     if (this.plugin.aiTaskManager) {
       this.mountAiRunPane()
       void this.reconcileInterruptedAiRunTasks()
@@ -2075,8 +2255,8 @@ export class TaskChuteView
         'forms.confirmStopNextDayMessage',
         'The stop time you entered is earlier than the start time. Save it as next day?',
       ),
-      confirmText: this.tv('common.yes', 'Yes'),
-      cancelText: this.tv('common.no', 'No'),
+      confirmText: t('common.yes', 'Yes'),
+      cancelText: t('common.no', 'No'),
     })
   }
 
@@ -2510,7 +2690,79 @@ export class TaskChuteView
   // ===========================================
 
   renderTaskList(): void {
-    this.taskListRenderer.render()
+    // Rebuilding replaces the comment inputs; keep the one being typed in.
+    preserveCommentFocus(this.taskListElement?.closest<HTMLElement>(".taskchute-view-root"), () => {
+      this.taskListRenderer.render()
+      this.commentsController?.renderDay()
+    })
+  }
+
+  private mountComments(
+    root: HTMLElement,
+    dayBox: HTMLElement,
+    grip: HTMLElement,
+    taskListContainer: HTMLElement,
+  ): void {
+    // Duck-typed like the board view persistence: App#saveLocalStorage exists
+    // at runtime, but test doubles (and older typings) may lack it.
+    const app = this.app as unknown as {
+      saveLocalStorage?: (key: string, data: unknown) => void
+      loadLocalStorage?: (key: string) => unknown
+    }
+    this.commentsController = new CommentsController({
+      app: this.app,
+      tv: (key, fallback, vars) => this.tv(key, fallback, vars),
+      store: this.dayStateManager,
+      getDateKey: () => this.getCurrentDateString(),
+      isViewingToday: () => {
+        const today = new Date()
+        return (
+          today.getFullYear() === this.currentDate.getFullYear() &&
+          today.getMonth() === this.currentDate.getMonth() &&
+          today.getDate() === this.currentDate.getDate()
+        )
+      },
+      getRoot: () => root,
+      getTaskListContainer: () => taskListContainer,
+      rerender: () => this.renderTaskList(),
+      getInstanceTitle: (instanceId) => {
+        const inst = this.taskInstances.find((candidate) => candidate.instanceId === instanceId)
+        return inst ? this.getInstanceDisplayTitle(inst) : ""
+      },
+      getCommandTargetInstanceId: () => this.getCommentTargetInstanceId(),
+      isDayCommentsEnabled: () => this.plugin.settings.dayCommentsEnabled === true,
+      // The same width the prototype switched at: a phone, or a pane that narrow.
+      isNarrow: () => root.getBoundingClientRect().width <= COMMENTS_NARROW_WIDTH_PX,
+      loadLocalStorage: (key) =>
+        typeof app.loadLocalStorage === "function" ? app.loadLocalStorage(key) : null,
+      saveLocalStorage: (key, value) => {
+        if (typeof app.saveLocalStorage === "function") app.saveLocalStorage(key, value)
+      },
+      registerInterval: (id) => this.registerInterval(id),
+      registerCleanup: (cleanup) => this.registerManagedDisposer(cleanup),
+    })
+    this.commentsController.mountDay(dayBox, grip)
+  }
+
+  /** For "leave a comment": the selected running task, else the one started last. */
+  private getCommentTargetInstanceId(): string | null {
+    const selected = this.taskSelectionController.getSelectedInstance()
+    if (selected && canCommentWhileRunning(selected)) return selected.instanceId
+    const running = this.taskInstances.filter(canCommentWhileRunning)
+    running.sort((a, b) => (b.startTime?.getTime() ?? 0) - (a.startTime?.getTime() ?? 0))
+    return running[0]?.instanceId ?? null
+  }
+
+  /** The "open AI session history" command; false when the AI pane is not available. */
+  public openSessionHistory(): boolean {
+    if (!this.aiRunPaneController) return false
+    this.aiRunPaneController.openSessionHistory()
+    return true
+  }
+
+  /** The "leave a comment" command. */
+  public leaveComment(): void {
+    this.commentsController?.leaveComment()
   }
 
   private isRecipeFeatureEnabled(): boolean {
@@ -2568,7 +2820,7 @@ export class TaskChuteView
       new Notice(
         this.tv(
           "calendar.export.disabled",
-          "Googleカレンダー連携は設定で有効化してください",
+          "Enable Google Calendar integration in settings",
         ),
       )
       return
@@ -2591,13 +2843,13 @@ export class TaskChuteView
       )
       const url = this.googleCalendarService.buildEventUrl(event)
       this.googleCalendarService.open(url)
-      new Notice(this.tv("calendar.export.opened", "ブラウザでGoogleカレンダーを開きました"))
+      new Notice(this.tv("calendar.export.opened", "Opened Google Calendar in your browser"))
     } catch (error) {
       console.error("[TaskChuteView] Failed to open calendar export for created task", error)
       new Notice(
         this.tv(
           "calendar.export.cannotOpen",
-          "プレビューを作成できません。開始時刻と所要時間を確認してください。",
+          "Cannot create preview. Check start time and duration.",
         ),
       )
     }
@@ -3067,7 +3319,11 @@ export class TaskChuteView
     return this.taskOrderManager.calculateSimpleOrder(targetIndex, sameTasks)
   }
 
-  public showRoutineEditModal(task: TaskData, button?: HTMLElement): void {
+  // Mirrors RoutineController's parameter rather than narrowing it to TaskData:
+  // this is a pass-through, and the navigation hosts hand it routine shapes
+  // whose `file` may be absent. TaskData still satisfies RoutineTaskShape, so
+  // the task-list callers are unaffected.
+  public showRoutineEditModal(task: RoutineTaskShape, button?: HTMLElement): void {
     this.routineController.showRoutineEditModal(task, button)
   }
 
@@ -3180,6 +3436,7 @@ export class TaskChuteView
       await this.aiTaskObsidianLinkCoordinator.handleSourceStarted(
         startedInstance,
       )
+      await this.aiTaskLinkSync.afterStarted(startedInstance)
     } finally {
       if (manager) {
         this.releasePreparedAiRunReservation(manager, reservation)
@@ -3197,6 +3454,7 @@ export class TaskChuteView
     if (stopped) {
       this.maybeStopAiRunForInstance(inst)
       await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
+      await this.aiTaskLinkSync.afterStopped(inst)
     }
     const viewDate = this.getViewDate()
     const today = new Date()
@@ -3519,7 +3777,7 @@ export class TaskChuteView
       } else {
         const file = inst.task.file
         if (!file) {
-          new Notice(this.tv('errors.taskFileNotFound', 'Task file not found'))
+          new Notice(this.tv('notices.taskFileMissing', 'Task file not found'))
           return
         }
 
@@ -3999,6 +4257,8 @@ export class TaskChuteView
 
   private async deleteTask(inst: TaskInstance): Promise<void> {
     const wasRunning = inst.state === 'running'
+    // Found before the deletion takes `inst` out of the view.
+    const partner = this.aiTaskLinkSync.partnerOf(inst)
     const deleted = await this.taskMutationService.deleteTask(inst)
     // Deleting a running instance never goes through stopInstance, so stop
     // the coupled AI run here (otherwise it would keep running orphaned).
@@ -4006,6 +4266,7 @@ export class TaskChuteView
       this.maybeStopAiRunForInstance(inst)
       await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
     }
+    if (deleted) await this.aiTaskLinkSync.afterDeleted(inst, partner)
   }
 
   private showDeleteConfirmDialog(inst: TaskInstance): Promise<boolean> {
@@ -4038,7 +4299,7 @@ export class TaskChuteView
       new Notice(
         this.tv(
           "calendar.export.disabled",
-          "Googleカレンダー連携は設定で有効化してください",
+          "Enable Google Calendar integration in settings",
         ),
       )
       return
@@ -4066,7 +4327,7 @@ export class TaskChuteView
   }
 
   private handleDragOver(
-    e: DragEvent,
+    e: DragPointer,
     taskItem: HTMLElement,
     inst: TaskInstance,
   ): void {
@@ -4074,19 +4335,21 @@ export class TaskChuteView
   }
 
   private handleDrop(
-    e: DragEvent,
+    e: DragPointer,
     taskItem: HTMLElement,
     targetInst: TaskInstance,
+    payload?: string,
   ): void {
-    this.taskDragController.handleDrop(e, taskItem, targetInst)
+    this.taskDragController.handleDrop(e, taskItem, targetInst, payload)
   }
 
-  private handleSlotDrop(e: DragEvent, slot: string): void {
-    this.taskDragController.handleSlotDrop(e, slot)
+  private handleSlotDrop(e: DragPointer, slot: string, payload?: string): void {
+    this.taskDragController.handleSlotDrop(e, slot, payload)
   }
 
   private async deleteInstance(inst: TaskInstance): Promise<void> {
     const wasRunning = inst.state === 'running'
+    const partner = this.aiTaskLinkSync.partnerOf(inst)
     const deleted = await this.taskMutationService.deleteInstance(inst)
     // Same reasoning as deleteTask: a deleted running instance must not
     // leave its coupled AI run orphaned.
@@ -4094,6 +4357,7 @@ export class TaskChuteView
       this.maybeStopAiRunForInstance(inst)
       await this.aiTaskObsidianLinkCoordinator.handleSourceStopped(inst)
     }
+    if (deleted) await this.aiTaskLinkSync.afterDeleted(inst, partner)
   }
 
   private async resetTaskToIdle(inst: TaskInstance): Promise<void> {

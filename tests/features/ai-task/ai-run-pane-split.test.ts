@@ -20,11 +20,11 @@ import {
   SPLIT_MIN_PANEL_WIDTH_PX,
   TERMINAL_FALLBACK_COLS,
   TERMINAL_FALLBACK_ROWS,
-} from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunPaneControllerHost } from '../../../src/features/ai-task/ui/AiRunPaneController'
-import type { AiRunChangeType } from '../../../src/features/ai-task/services/AiTaskManager'
-import type { TerminalViewAdapterLike } from '../../../src/features/ai-task/ui/TerminalViewAdapter'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
+} from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunPaneControllerHost } from '@/features/ai-task/ui/AiRunPaneController'
+import type { AiRunChangeType } from '@/features/ai-task/services/AiTaskManager'
+import type { TerminalViewAdapterLike } from '@/features/ai-task/ui/TerminalViewAdapter'
+import type { AiRunRecord } from '@/features/ai-task/types'
 
 type ChangeListener = (record: AiRunRecord, changeType?: AiRunChangeType) => void
 type TerminalDataListener = (chunk: string) => void
@@ -258,6 +258,17 @@ describe('AiRunPaneController split panels', () => {
   })
 
   describe('split button', () => {
+    test('draws neither split nor + where the manager cannot host shell sessions', () => {
+      Object.assign(manager, { supportsShellSessions: () => false })
+      controller.mount(container)
+      manager.emit(createRun())
+
+      expect(splitButton()).toBeNull()
+      expect(container.querySelector('.ai-run-pane__add')).toBeNull()
+      expect(container.querySelector('.ai-run-pane__expand')).not.toBeNull()
+      expect(container.querySelector('.ai-run-pane__actions')).not.toBeNull()
+    })
+
     test('keeps split local to the panel and expand global in the AI Runs header', () => {
       controller.mount(container)
       manager.emit(createRun())
@@ -411,10 +422,10 @@ describe('AiRunPaneController split panels', () => {
       setParentHeight(500)
 
       // cols: (1000 total - 180 sidebar - 16 horizontal inset) / 8 px cells
-      // rows: (500 * 0.4 pane share - 64 vertical chrome) / 17 px cells —
-      // the vertical inset must cover the pane header (~26px), the panel
-      // tab strip (27px incl. border), and the pane borders.
-      expect(controller.computeTerminalSize()).toEqual({ cols: 100, rows: 8 })
+      // rows: (500 * 0.5 pane share - 56 vertical chrome) / 17 px cells —
+      // the vertical inset must cover the pane header (25px incl. border),
+      // the panel tab strip (27px incl. border), and the pane borders.
+      expect(controller.computeTerminalSize()).toEqual({ cols: 100, rows: 11 })
     })
 
     test('a split spawns the shell with the sidebar-excluded per-panel size', () => {
@@ -430,7 +441,7 @@ describe('AiRunPaneController split panels', () => {
       expect(panels()).toHaveLength(2)
       expect(manager.startShellSession).toHaveBeenCalledWith({
         cols: 38, // (320 panel - 16 horizontal inset) / 8 px cells
-        rows: 8,
+        rows: 11,
         name: 'Terminal',
         parentRunId: 'run-a',
       })

@@ -4,8 +4,8 @@
 import {
   ReminderSettingsModal,
   ReminderSettingsModalOptions,
-} from '../../src/features/reminder/modals/ReminderSettingsModal';
-import { t } from '../../src/i18n';
+} from '@/features/reminder/modals/ReminderSettingsModal';
+import { t } from '@/i18n';
 
 describe('ReminderSettingsModal', () => {
   let mockApp: unknown;

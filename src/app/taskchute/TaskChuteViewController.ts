@@ -1,14 +1,14 @@
 import { Notice } from 'obsidian'
 ;
 
-import { t } from "../../i18n";
-import { VIEW_TYPE_TASKCHUTE } from "../../types";
+import { t } from "@/i18n";
+import { VIEW_TYPE_TASKCHUTE } from "@/types";
 
-import type { TaskChutePluginLike } from "../../types";
+import type { TaskChutePluginLike } from "@/types";
 import type {
   AmbientAiTaskStartedRun,
   TaskChuteView,
-} from "../../features/core/views/TaskChuteView";
+} from "@/features/core/views/TaskChuteView";
 
 export interface TaskChuteBackgroundViewSession {
   view: TaskChuteView
@@ -245,6 +245,30 @@ export class TaskChuteViewController {
     await view.resetSelectedTask();
   }
 
+  /** Opens the comment input for the running task (or the day), bringing the view up first. */
+  async triggerLeaveComment(): Promise<void> {
+    const view = await this.getOrCreateView(["leaveComment"]);
+    if (!view) {
+      new Notice(t("notices.viewNotOpen", "TaskChute view is not open"));
+      return;
+    }
+    await this.plugin.app.workspace.revealLeaf(view.leaf);
+    view.leaveComment();
+  }
+
+  /** Shows the AI pane with the session history, bringing the view up first. */
+  async triggerOpenSessionHistory(): Promise<void> {
+    const view = await this.getOrCreateView(["openSessionHistory"]);
+    if (!view) {
+      new Notice(t("notices.viewNotOpen", "TaskChute view is not open"));
+      return;
+    }
+    await this.plugin.app.workspace.revealLeaf(view.leaf);
+    if (!view.openSessionHistory()) {
+      new Notice(t("notices.sessionHistoryUnavailable", "Turn on AI tasks to use the session history."));
+    }
+  }
+
   reorganizeIdleTasks(): void {
     const view = this.getView();
     if (!view) {
@@ -252,17 +276,5 @@ export class TaskChuteViewController {
       return;
     }
     view.reorganizeIdleTasks();
-  }
-
-  applyLocaleToActiveView(): void {
-    const view = this.getView();
-    const viewWithLocale = view as TaskChuteView & { applyLocale?: () => void };
-    if (viewWithLocale && typeof viewWithLocale.applyLocale === "function") {
-      try {
-        viewWithLocale.applyLocale();
-      } catch (error) {
-        console.warn("Failed to apply locale to TaskChuteView", error);
-      }
-    }
   }
 }

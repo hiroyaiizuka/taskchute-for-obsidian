@@ -1,9 +1,9 @@
 /**
  * @jest-environment jsdom
  */
-import { ReminderService } from '../../src/features/reminder/services/ReminderService';
-import { EditDetector } from '../../src/features/reminder/services/EditDetector';
-import { ReminderSchedule } from '../../src/features/reminder/services/ReminderScheduleManager';
+import { ReminderService } from '@/features/reminder/services/ReminderService';
+import { EditDetector } from '@/features/reminder/services/EditDetector';
+import { ReminderSchedule } from '@/features/reminder/services/ReminderScheduleManager';
 
 describe('ReminderService tick logic', () => {
   let service: ReminderService;

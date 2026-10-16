@@ -6,14 +6,14 @@
  *     open (mount on enable, clean unmount + unsubscribe on disable)
  */
 import { Notice, TFile, WorkspaceLeaf } from 'obsidian'
-import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView'
+import { TaskChuteView } from '@/features/core/views/TaskChuteView'
 import {
   AiPromptNotFoundError,
   AiRunAlreadyActiveError,
-} from '../../../src/features/ai-task/services/AiTaskManager'
-import { AiBinaryNotFoundError } from '../../../src/features/ai-task/services/BinaryLocator'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
-import type { TaskChutePluginLike, TaskInstance } from '../../../src/types'
+} from '@/features/ai-task/services/AiTaskManager'
+import { AiBinaryNotFoundError } from '@/features/ai-task/services/BinaryLocator'
+import type { AiRunRecord } from '@/features/ai-task/types'
+import type { TaskChutePluginLike, TaskInstance } from '@/types'
 
 const TASK_PATH = 'TASKS/ai-task.md'
 
@@ -261,6 +261,35 @@ describe('TaskChuteView AI run notices', () => {
 
     expect(noticeMessages()).toEqual([])
     expect(view.renderTaskList).toHaveBeenCalled()
+  })
+
+  test('announces a terminal-to-conversation fallback once, with the reason', async () => {
+    const { manager, internals } = setUp()
+    Object.assign(manager, {
+      getTerminalUnavailableReason: () => 'the ConPTY probe exited with code 65',
+    })
+    manager.startRun.mockResolvedValue(makeRecord({ mode: 'headless' }))
+
+    await internals.startAiRun(makeInstance())
+    await internals.startAiRun(makeInstance())
+
+    const messages = noticeMessages()
+    expect(messages).toHaveLength(1)
+    expect(messages[0]).toContain('conversation mode')
+    expect(messages[0]).toContain('the ConPTY probe exited with code 65')
+    expect(manager.startRun).toHaveBeenCalledTimes(2)
+  })
+
+  test('stays quiet when the run started in the terminal it asked for', async () => {
+    const { manager, internals } = setUp()
+    Object.assign(manager, {
+      getTerminalUnavailableReason: () => 'stale reason',
+    })
+    manager.startRun.mockResolvedValueOnce(makeRecord({ mode: 'terminal' }))
+
+    await internals.startAiRun(makeInstance())
+
+    expect(noticeMessages()).toEqual([])
   })
 })
 

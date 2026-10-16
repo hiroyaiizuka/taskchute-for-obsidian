@@ -1,6 +1,6 @@
 import { TFile } from 'obsidian'
 
-import { listFilesInFolder } from '../../src/utils/vaultFiles'
+import { listFilesInFolder } from '@/utils/vaultFiles'
 
 function file(path: string): TFile {
   const result = new TFile()

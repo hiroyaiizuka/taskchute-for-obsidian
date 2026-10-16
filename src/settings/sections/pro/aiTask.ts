@@ -1,21 +1,19 @@
 import { Notice } from "obsidian"
 import type { Setting, SettingDefinitionRender } from "obsidian"
-import { t } from "../../../i18n"
-import { ElectronDirectoryPicker } from "../../../features/ai-task/services/ElectronDirectoryPicker"
-import type { TaskChuteSettings } from "../../../types"
-import { DEFAULT_SETTINGS } from "../../defaults"
-import { clampedNumber, choice } from "../../controlHandlers"
+import { t } from "@/i18n"
+import { ElectronDirectoryPicker } from "@/features/ai-task/services/ElectronDirectoryPicker"
+import { listAiAgents, type AiCliPathSettingKey } from "@/features/ai-task/agents"
+import { DEFAULT_SETTINGS } from "@/settings/defaults"
+import { clampedNumber } from "@/settings/controlHandlers"
 import {
   AiTaskToggleGuard,
   handleAiTaskEnabledToggle,
-} from "../../services/aiTaskLifecycle"
+} from "@/settings/services/aiTaskLifecycle"
 import type {
   AnyControlHandler,
   SectionContext,
   SectionModule,
-} from "../../types"
-
-type AiTaskRunMode = NonNullable<TaskChuteSettings["aiTaskRunMode"]>
+} from "@/settings/types"
 
 /**
  * On Windows these launch through a shim that swallows the child process, so a
@@ -27,36 +25,18 @@ function isUnsupportedWindowsCliShim(path: string): boolean {
 }
 
 interface CliPath {
-  key: "aiTaskClaudePath" | "aiTaskCodexPath"
+  key: AiCliPathSettingKey
   name: string
   desc: string
 }
 
+/** One CLI path row per agent, in the order the agents are listed. */
 function cliPaths(): CliPath[] {
-  return [
-    {
-      key: "aiTaskClaudePath",
-      name: t(
-        "settings.aiTask.claudePathName",
-        "Claude CLI path (advanced fallback)",
-      ),
-      desc: t(
-        "settings.aiTask.claudePathDesc",
-        "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
-      ),
-    },
-    {
-      key: "aiTaskCodexPath",
-      name: t(
-        "settings.aiTask.codexPathName",
-        "Codex CLI path (advanced fallback)",
-      ),
-      desc: t(
-        "settings.aiTask.codexPathDesc",
-        "Normally leave this empty: macOS, Linux, and Windows are auto-detected. Set a custom path only when detection fails. On Windows, do not select a command shim.",
-      ),
-    },
-  ]
+  return listAiAgents().map(({ pathSetting }) => ({
+    key: pathSetting.key,
+    name: t(pathSetting.name.key, pathSetting.name.fallback),
+    desc: t(pathSetting.desc.key, pathSetting.desc.fallback),
+  }))
 }
 
 function cliPathHandler(path: CliPath): AnyControlHandler {
@@ -151,6 +131,7 @@ function cliPathRow(
   }
 }
 
+
 /**
  * Everything a Pro license unlocks. Only reached from the Pro page, which has
  * already checked entitlement.
@@ -174,28 +155,6 @@ export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
               type: "toggle",
               key: "aiTaskEnabled",
               defaultValue: false,
-            },
-          },
-          {
-            name: t("settings.aiTask.runModeName", "Run mode"),
-            desc: t(
-              "settings.aiTask.runModeDesc",
-              "Terminal embeds the interactive CLI session on macOS and Linux; conversation mode streams parsed events and supports follow-up input on every desktop platform. Windows automatically uses it because the plugin does not bundle a native pseudoterminal runtime.",
-            ),
-            control: {
-              type: "dropdown",
-              key: "aiTaskRunMode",
-              defaultValue: "terminal",
-              options: {
-                terminal: t(
-                  "settings.aiTask.runModeTerminal",
-                  "Terminal (interactive)",
-                ),
-                headless: t(
-                  "settings.aiTask.runModeHeadless",
-                  "Conversation (cross-platform)",
-                ),
-              },
             },
           },
           ...paths.map((path) => cliPathRow(ctx, path)),
@@ -227,13 +186,6 @@ export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
         write: (value, ctx) =>
           handleAiTaskEnabledToggle(ctx.plugin, guard, Boolean(value)),
       },
-      aiTaskRunMode: choice<AiTaskRunMode>({
-        read: (settings) => settings.aiTaskRunMode,
-        write: (settings, value) => {
-          settings.aiTaskRunMode = value
-        },
-        normalize: (raw) => (raw === "headless" ? "headless" : "terminal"),
-      }),
       aiTaskLogRetentionDays: clampedNumber({
         read: (settings) => settings.aiTaskLogRetentionDays,
         write: (settings, value) => {

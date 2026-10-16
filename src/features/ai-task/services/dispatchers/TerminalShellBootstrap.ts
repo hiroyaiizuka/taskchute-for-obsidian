@@ -113,8 +113,8 @@ export function buildTerminalShellLaunch(
   resolvedPath: string,
   binaryArgsPrefix: readonly string[],
   args: readonly string[],
-  terminalCommand?: 'claude' | 'codex',
-  fallbackCommand?: 'claude' | 'codex',
+  terminalCommand?: string,
+  fallbackCommand?: string,
 ): TerminalShellLaunch {
   const dataTokens = [
     shellPath,

@@ -1,7 +1,7 @@
 import { normalizePath } from 'obsidian'
 
-import type { TaskChutePluginLike } from '../../types'
-import { ProjectBoardState, ProjectBoardStatus } from '../../types'
+import type { TaskChutePluginLike } from '@/types'
+import { ProjectBoardState, ProjectBoardStatus } from '@/types'
 
 const STATE_FILE_NAME = 'projectBoardState.json'
 

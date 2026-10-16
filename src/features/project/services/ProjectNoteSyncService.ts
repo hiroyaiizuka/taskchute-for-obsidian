@@ -1,6 +1,6 @@
 import { App, TFile } from 'obsidian'
-import type { TaskInstance, PathManagerLike } from '../../../types'
-import { t } from '../../../i18n'
+import type { TaskInstance, PathManagerLike } from '@/types'
+import { t } from '@/i18n'
 
 /**
  * Syncs task comments to related project notes' log section.

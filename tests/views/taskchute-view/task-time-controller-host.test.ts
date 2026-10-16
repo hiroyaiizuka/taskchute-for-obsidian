@@ -1,10 +1,10 @@
 import { WorkspaceLeaf } from 'obsidian'
-import type { TaskChutePluginLike } from '../../../src/types'
-import TaskTimeController from '../../../src/ui/time/TaskTimeController'
-import { TaskChuteView } from '../../../src/features/core/views/TaskChuteView'
+import type { TaskChutePluginLike } from '@/types'
+import TaskTimeController from '@/ui/time/TaskTimeController'
+import { TaskChuteView } from '@/features/core/views/TaskChuteView'
 
 jest.mock('obsidian')
-jest.mock('../../../src/ui/time/TaskTimeController', () => {
+jest.mock('@/ui/time/TaskTimeController', () => {
   const ctor = jest.fn()
   return {
     __esModule: true,

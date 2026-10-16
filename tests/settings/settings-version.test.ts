@@ -1,8 +1,9 @@
 import { mockApp } from 'obsidian'
-import { TaskChuteSettingTab } from '../../src/settings/SettingsTab'
-import { versionSection } from '../../src/settings/sections/version'
-import type { SectionContext } from '../../src/settings/types'
-import { initializeLocaleManager, setLocaleOverride, t } from '../../src/i18n'
+import { TaskChuteSettingTab } from '@/settings/SettingsTab'
+import { versionSection } from '@/settings/sections/version'
+import type { SectionContext } from '@/settings/types'
+import { t } from '@/i18n'
+import { setObsidianLanguage } from '@tests/utils/locale'
 import { findByName } from './definitionHelpers'
 
 function createContext(version: string): SectionContext & {
@@ -27,11 +28,11 @@ function createContext(version: string): SectionContext & {
 
 describe('TaskChute settings version display', () => {
   beforeAll(() => {
-    initializeLocaleManager('en')
+    setObsidianLanguage('en')
   })
 
   afterEach(() => {
-    setLocaleOverride('en')
+    setObsidianLanguage('en')
     jest.clearAllMocks()
   })
 
@@ -44,7 +45,7 @@ describe('TaskChute settings version display', () => {
   })
 
   test('uses the localized label', () => {
-    setLocaleOverride('ja')
+    setObsidianLanguage('ja')
     const ctx = createContext('1.7.11')
 
     const items = versionSection().items(ctx)

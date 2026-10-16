@@ -10,7 +10,7 @@
  * starting with `-` is never parsed as a flag.
  */
 
-import type { AiStreamEvent } from '../../types'
+import type { AiStreamEvent } from '@/features/ai-task/types'
 import { parseClaudeLine } from '../streams/StreamJsonParser'
 import { HeadlessCliDispatcher } from './Dispatcher'
 import type { AiRunRequest } from './Dispatcher'

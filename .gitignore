@@ -1,5 +1,6 @@
-.claude
-.claude/plans
+# Local agent state stays private; the skills under .claude/skills are shared.
+.claude/*
+!.claude/skills/
 .cursor
 .kiro
 .serena
@@ -21,3 +22,9 @@ memory:
 .agents/
 # Report written by npm run review:obsidian
 /obsidian-review.json
+
+# Local dev settings (OBSIDIAN_PLUGIN_DIR) read by `npm run dev`
+.env
+
+# Playwright output from npm run test:e2e
+/e2e-results/

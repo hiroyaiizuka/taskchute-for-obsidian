@@ -1,27 +1,27 @@
 import { Modal, Notice, TFile } from 'obsidian'
 import type { App } from 'obsidian'
-import { getCurrentLocale, t } from '../../../i18n'
-import { DATE_FORMAT_DISPLAY } from '../../../constants'
+import { getCurrentLocale, t, type ScopedKey, type ScopedTranslator, type Variables } from '@/i18n'
+import { DATE_FORMAT_DISPLAY } from '@/constants'
 import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from '../utils/RoutineFrontmatterUtils'
-import { TaskValidator } from '../../core/services/TaskValidator'
-import type { RoutineFrontmatter, TaskChutePluginLike, TaskData } from '../../../types'
-import type { RoutineMonthday, RoutineWeek } from '../../../types/TaskFields'
-import type { RoutineTaskShape } from '../../../types/routine'
-import { setScheduledTime } from '../../../utils/fieldMigration'
-import { attachCalendarButtonIcon } from '../../../ui/components/iconUtils'
-import { createModalFooter } from '../../../ui/components/modalFooter'
+import { TaskValidator } from '@/features/core/services/TaskValidator'
+import type { RoutineFrontmatter, TaskChutePluginLike, TaskData } from '@/types'
+import type { RoutineMonthday, RoutineWeek } from '@/types/TaskFields'
+import type { RoutineTaskShape } from '@/types/routine'
+import { setScheduledTime } from '@/utils/fieldMigration'
+import { attachCalendarButtonIcon } from '@/ui/components/iconUtils'
+import { createModalFooter } from '@/ui/components/modalFooter'
 import {
   deriveRoutineModalTitle,
   deriveWeeklySelection,
   deriveMonthlySelection,
   deriveMonthlyDateSelection,
 } from '../modals/RoutineModal'
-import { readAiTaskConfig } from '../../ai-task/services/AiTaskFrontmatterReader'
+import { readAiTaskConfig } from '@/features/ai-task/services/AiTaskFrontmatterReader'
 import {
   createObsidianTaskLinkFields,
   type ObsidianTaskLinkFieldsController,
-} from '../../ai-task/ui/ObsidianTaskLinkFields'
-import type { ObsidianTaskLinkConfig } from '../../../types/TaskFields'
+} from '@/features/ai-task/ui/ObsidianTaskLinkFields'
+import type { ObsidianTaskLinkConfig } from '@/types/TaskFields'
 
 type CreateOptions = {
   cls?: string
@@ -65,7 +65,7 @@ class RoutineEditDialog extends Modal {
 export interface RoutineControllerHost {
   app: App
   plugin: TaskChutePluginLike
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   getWeekdayNames: () => string[]
   reloadTasksAndRestore: (options?: { runBoundaryCheck?: boolean }) => Promise<void>
   getCurrentDate: () => Date
@@ -296,7 +296,7 @@ export default class RoutineController {
       const option = monthdayOptions.createEl('label', { cls: 'routine-monthday-option' })
       const checkbox = option.createEl('input', { type: 'checkbox', value: String(day) })
       option.createSpan( {
-        text: this.tv('labels.routineMonthdayNth', '{day}日', { day }),
+        text: this.tv('labels.routineMonthdayNth', 'Day {day}', { day }),
         cls: 'routine-monthday-option__label',
       })
       monthdayCheckboxes.push(checkbox)
@@ -392,8 +392,6 @@ export default class RoutineController {
         initialValue: task.frontmatter?.obsidian_sync,
         excludePath: task.path,
         taskFolderPath: this.host.plugin.pathManager.getTaskFolderPath(),
-        translate: (key, fallback) =>
-          this.tv(`obsidianLink.${key}`, fallback),
       })
     }
 
@@ -801,7 +799,7 @@ export default class RoutineController {
     }
   }
 
-  private tv(key: string, fallback: string, vars?: Record<string, string | number>): string {
+  private tv(key: ScopedKey<'taskChuteView'>, fallback: string, vars?: Variables): string {
     return this.host.tv(key, fallback, vars)
   }
 
@@ -812,9 +810,7 @@ export default class RoutineController {
   ): HTMLInputElement {
     const wrapper = container.createDiv( { cls: 'form-input-icon-wrapper' })
     const localeCode = getCurrentLocale() === 'ja' ? 'ja-JP' : 'en-US'
-    const placeholder = getCurrentLocale() === 'ja'
-      ? this.tv('forms.datePlaceholderJa', '年/月/日')
-      : this.tv('forms.datePlaceholderEn', 'YYYY-MM-DD')
+    const placeholder = this.tv('forms.datePlaceholder', 'YYYY-MM-DD')
     const displayInput = wrapper.createEl('input', {
       type: 'text',
       cls: 'form-input--date form-input--bare',
@@ -1304,7 +1300,7 @@ export default class RoutineController {
     const labels = monthdays.map((day) =>
       day === 'last'
         ? this.tv('labels.routineMonthdayLast', 'Last day')
-        : this.tv('labels.routineMonthdayNth', '{day}日', { day }),
+        : this.tv('labels.routineMonthdayNth', 'Day {day}', { day }),
     )
     return labels.join(joiner)
   }

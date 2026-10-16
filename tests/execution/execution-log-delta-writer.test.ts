@@ -6,9 +6,9 @@
  * 2. ensureFileExists が既存ファイルを空で上書きしないこと
  * 3. 書き込みキューにより並行書き込みが直列化されること
  */
-import { ExecutionLogDeltaWriter, type ExecutionLogDeltaPayload } from '../../src/features/log/services/ExecutionLogDeltaWriter'
-import { DEVICE_ID_STORAGE_KEY } from '../../src/services/DeviceIdentityService'
-import type { TaskChutePluginLike } from '../../src/types'
+import { ExecutionLogDeltaWriter, type ExecutionLogDeltaPayload } from '@/features/log/services/ExecutionLogDeltaWriter'
+import { DEVICE_ID_STORAGE_KEY } from '@/services/DeviceIdentityService'
+import type { TaskChutePluginLike } from '@/types'
 
 function primeDeviceId(id: string | null): void {
   if (typeof window === 'undefined' || !window.localStorage) return

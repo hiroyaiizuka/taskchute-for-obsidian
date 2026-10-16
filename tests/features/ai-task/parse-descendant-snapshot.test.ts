@@ -1,4 +1,4 @@
-import { parseDescendantSnapshot } from '../../../src/features/ai-task/services/process/parseDescendantSnapshot'
+import { parseDescendantSnapshot } from '@/features/ai-task/services/process/parseDescendantSnapshot'
 
 /**
  * Until this file existed, the gateway's `ps` parsing was reachable only by

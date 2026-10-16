@@ -4,9 +4,9 @@
  * no longer represented in this secondary control; the row's primary
  * play/stop button is the single execution-state indicator and stop action.
  */
-import { AiTaskRowRenderer } from '../../../src/features/ai-task/ui/AiTaskRowRenderer'
-import type { AiTaskRowRendererHost } from '../../../src/features/ai-task/ui/AiTaskRowRenderer'
-import type { TaskInstance } from '../../../src/types'
+import { AiTaskRowRenderer } from '@/features/ai-task/ui/AiTaskRowRenderer'
+import type { AiTaskRowRendererHost } from '@/features/ai-task/ui/AiTaskRowRenderer'
+import type { TaskInstance } from '@/types'
 
 function createInstance(
   instanceId: string,

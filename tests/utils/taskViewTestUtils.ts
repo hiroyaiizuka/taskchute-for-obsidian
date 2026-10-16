@@ -1,8 +1,10 @@
 import { TFile } from 'obsidian';
-import { loadTasksRefactored } from '../../src/features/core/helpers';
-import DayStateStoreService from '../../src/services/DayStateStoreService';
-import { TaskLoaderService } from '../../src/features/core/services/TaskLoaderService';
-import { isDeleted as isDeletedEntry } from '../../src/services/dayState/conflictResolver';
+import { loadTasksRefactored } from '@/features/core/helpers';
+import DayStateStoreService from '@/services/DayStateStoreService';
+import { TaskLoaderService } from '@/features/core/services/TaskLoaderService';
+import type { TaskLoaderHost } from '@/features/core/services/TaskLoaderService';
+import type { TaskChuteView } from '@/features/core/views/TaskChuteView';
+import { isDeleted as isDeletedEntry } from '@/services/dayState/conflictResolver';
 import {
   DayState,
   TaskData,
@@ -10,8 +12,8 @@ import {
   HiddenRoutine,
   DuplicatedInstance,
   DeletedInstance,
-} from '../../src/types';
-import { SectionConfigService } from '../../src/services/SectionConfigService';
+} from '@/types';
+import { SectionConfigService } from '@/services/SectionConfigService';
 
 const DEFAULT_ROUTINE_METADATA = {
   isRoutine: true,
@@ -82,6 +84,15 @@ interface TaskChuteViewContextStub {
   taskLoader: TaskLoaderService;
   getSectionConfig: () => SectionConfigService;
 }
+
+/**
+ * The stub covers only what TaskLoaderService.load() reaches for, while
+ * loadTasksRefactored declares `this: TaskChuteView & TaskLoaderHost` — some
+ * 250 members. strictBindCallApply checks the receiver of `.call()`, so the
+ * gap has to be stated once here rather than filled in.
+ */
+const asLoadHost = (context: TaskChuteViewContextStub): TaskChuteView & TaskLoaderHost =>
+  context as unknown as TaskChuteView & TaskLoaderHost;
 
 function createDayState(overrides?: Partial<DayState>): DayState {
   return {
@@ -306,7 +317,7 @@ export function createRoutineLoadContext(options: RoutineContextOptions = {}) {
     routinePath,
     routineMetadata: metadata,
     async load() {
-      await loadTasksRefactored.call(context);
+      await loadTasksRefactored.call(asLoadHost(context));
     },
   };
 }
@@ -475,7 +486,7 @@ export function createNonRoutineLoadContext(options: NonRoutineContextOptions = 
     dayState,
     nonRoutinePath: taskPath,
     async load() {
-      await loadTasksRefactored.call(context);
+      await loadTasksRefactored.call(asLoadHost(context));
     },
   };
 }
@@ -659,7 +670,7 @@ export function createExecutionLogContext(options: ExecutionLogContextOptions = 
     dayState,
     logPath,
     async load() {
-      await loadTasksRefactored.call(context);
+      await loadTasksRefactored.call(asLoadHost(context));
     },
   };
 }

@@ -1,6 +1,6 @@
 import { normalizePath, TFile } from 'obsidian'
-import type { TaskChutePluginLike } from '../../../types'
-import type { DailySummaryEntry, TaskLogEntry, TaskLogSnapshotMeta } from '../../../types/ExecutionLog'
+import type { TaskChutePluginLike } from '@/types'
+import type { DailySummaryEntry, TaskLogEntry, TaskLogSnapshotMeta } from '@/types/ExecutionLog'
 
 export const RECORDS_VERSION = 1
 

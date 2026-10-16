@@ -1,13 +1,13 @@
 import { TFile } from 'obsidian'
-import { RunningTasksService, type RunningTaskRecord } from '../../src/features/core/services/RunningTasksService'
-import { SectionConfigService } from '../../src/services/SectionConfigService'
+import { RunningTasksService, type RunningTaskRecord } from '@/features/core/services/RunningTasksService'
+import { SectionConfigService } from '@/services/SectionConfigService'
 import type {
   DeletedInstance,
   HiddenRoutine,
   TaskChutePluginLike,
   TaskData,
   TaskInstance,
-} from '../../src/types'
+} from '@/types'
 
 describe('RunningTasksService.restoreForDate', () => {
   const dateString = '2025-10-13'

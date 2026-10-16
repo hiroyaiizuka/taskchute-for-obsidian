@@ -9,10 +9,10 @@
 import { Platform } from 'obsidian'
 import type { App } from 'obsidian'
 
-import type { TaskChuteSettings } from '../../types'
+import type { PluginLogFn, TaskChuteSettings } from '@/types'
 import { LicenseApiClient } from './services/LicenseApiClient'
 import { LicenseManager } from './services/LicenseManager'
-import { LicenseStore } from './services/LicenseStore'
+import { createDeviceLocalStorageBridge, LicenseStore } from './services/LicenseStore'
 
 /** Electron's CommonJS require, available in Obsidian desktop only. */
 declare function require(moduleId: string): unknown
@@ -22,7 +22,7 @@ export interface LicensePluginLike {
   settings: TaskChuteSettings
   saveSettings: () => Promise<void>
   manifest?: { version?: string }
-  _log?: (level?: string, ...args: unknown[]) => void
+  _log?: PluginLogFn
 }
 
 /** Best-effort platform hint, shown to the user in the device list. */
@@ -37,11 +37,9 @@ function describePlatform(): string | undefined {
 }
 
 /**
- * The machine's hostname, or undefined off desktop.
- *
- * Mobile has no Node runtime, so the label falls back to the platform name.
- * A label only helps the user pick a seat to release; being wrong about it is
- * cosmetic, so every failure path degrades quietly.
+ * The machine's hostname, or undefined off desktop (mobile has no Node runtime,
+ * so the label falls back to the platform name). A label only helps the user
+ * pick a seat to release, so every failure path degrades quietly.
  */
 function readHostname(): string | undefined {
   // Written without optional chaining on purpose: the plugin review rule only
@@ -72,46 +70,42 @@ function cleanPart(value: unknown): string | undefined {
 }
 
 /**
- * Join the machine and vault names into one seat label.
+ * The machine's name as a seat label.
  *
- * Both halves matter: one person often runs several vaults on one machine, and
- * the same vault name can exist on several machines. Kept pure and separate
- * from the platform lookups so the formatting can be tested directly.
+ * A seat is one machine, so the machine name is the whole label. The vault name
+ * used to be appended, but every vault now shares one seat, which left whichever
+ * refreshed last naming it for all of them. Kept pure so it can be tested.
  */
-export function formatDeviceLabel(host: unknown, vault: unknown): string | undefined {
-  const parts = [cleanPart(host), cleanPart(vault)].filter(
-    (part): part is string => part !== undefined,
-  )
-  if (parts.length === 0) return undefined
+export function formatDeviceLabel(host: unknown): string | undefined {
+  const cleaned = cleanPart(host)
+  if (cleaned === undefined) return undefined
 
   // Truncated rather than dropped: a clipped label still identifies the seat.
-  return parts.join(' / ').slice(0, DEVICE_LABEL_MAX_LENGTH)
+  return cleaned.slice(0, DEVICE_LABEL_MAX_LENGTH)
 }
 
-/** Human-readable name for this seat, as "<hostname> / <vault>". */
-export function describeDeviceLabel(app: App): string | undefined {
-  let vault: unknown
-  try {
-    vault = app.vault?.getName?.()
-  } catch {
-    // A label only helps the user pick a seat to release; losing it is cosmetic.
-    vault = undefined
-  }
-
-  return formatDeviceLabel(readHostname() ?? describePlatform(), vault)
+/** Human-readable name for this seat, as "<hostname>" or the platform name. */
+export function describeDeviceLabel(): string | undefined {
+  return formatDeviceLabel(readHostname() ?? describePlatform())
 }
 
 export function createLicenseManager(plugin: LicensePluginLike): LicenseManager {
   const log = (level: string, ...args: unknown[]) => plugin._log?.(level, ...args)
 
-  // App exposes loadLocalStorage/saveLocalStorage but does not declare them in
-  // the public typings; the same cast is used by AiCustomModelStore's callers.
-  const store = new LicenseStore(plugin.app)
+  // The device state is kept out of the vault-scoped store so every vault on
+  // one machine shares a seat; plugin.app is passed only to migrate installs
+  // written by an older version. Where the raw store is unusable the
+  // vault-scoped one still beats no persistence: it costs extra seats, while
+  // losing the id costs one on every launch.
+  const deviceStorage = createDeviceLocalStorageBridge()
+  const store = deviceStorage
+    ? new LicenseStore(deviceStorage, plugin.app)
+    : new LicenseStore(plugin.app)
   const client = new LicenseApiClient({ log })
 
   const platform = describePlatform()
   const pluginVersion = plugin.manifest?.version
-  const deviceLabel = describeDeviceLabel(plugin.app)
+  const deviceLabel = describeDeviceLabel()
 
   const manager = new LicenseManager({
     client,

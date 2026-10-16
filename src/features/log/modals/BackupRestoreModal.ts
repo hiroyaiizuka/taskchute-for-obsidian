@@ -1,8 +1,8 @@
 import { App, Modal } from 'obsidian'
 import type { BackupEntry, BackupPreview } from '../services/BackupRestoreService'
-import { getCurrentLocale } from '../../../i18n'
-import { applyIcon } from '../../../ui/icons'
-import { createModalFooter } from '../../../ui/components/modalFooter'
+import { getCurrentLocale, type ScopedTranslator } from '@/i18n'
+import { applyIcon } from '@/ui/icons'
+import { createModalFooter } from '@/ui/components/modalFooter'
 
 const JA_WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
 const EN_WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -37,7 +37,7 @@ export class BackupRestoreModal extends Modal {
     app: App,
     private readonly backups: Map<string, BackupEntry[]>,
     private readonly callbacks: BackupRestoreModalCallbacks,
-    private readonly tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string = (_k, fb) => fb
+    private readonly tv: ScopedTranslator<'logView.restore'>
   ) {
     super(app)
   }
@@ -240,7 +240,7 @@ class BackupConfirmModal extends Modal {
     initialPreview: BackupPreview,
     private readonly resolve: (confirmed: boolean) => void,
     private readonly getPreview: (backupPath: string, targetDate?: string) => Promise<BackupPreview>,
-    private readonly tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string = (_k, fb) => fb
+    private readonly tv: ScopedTranslator<'logView.restore'>
   ) {
     super(app)
     this.currentDate = initialPreview.targetDate

@@ -4,7 +4,7 @@ import {
   minutesFromLogEntries,
   parseTaskLogSnapshot,
   parseCursorSnapshotRevision,
-} from '../../src/utils/executionLogUtils'
+} from '@/utils/executionLogUtils'
 
 describe('executionLogUtils', () => {
   test('parseTaskLogSnapshot returns empty snapshot on invalid json', () => {

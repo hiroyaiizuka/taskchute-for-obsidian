@@ -1,7 +1,7 @@
 import {
   buildRecipeDelegationPrompt,
   type RecipeContextSnapshot,
-} from '../../src/features/recipe/services/RecipeDelegationContextBuilder'
+} from '@/features/recipe/services/RecipeDelegationContextBuilder'
 
 function snapshot(): RecipeContextSnapshot {
   return {

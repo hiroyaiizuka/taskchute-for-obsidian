@@ -1,5 +1,5 @@
 import { App, Plugin } from "obsidian"
-import { TaskChuteSettings, PathManagerLike } from "../types"
+import { TaskChuteSettings, PathManagerLike, type PluginLogFn } from "../types"
 import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
 import type { LicenseManager } from "../features/license/services/LicenseManager"
 
@@ -20,5 +20,5 @@ export interface PluginWithSettings extends Plugin {
   aiTaskRuntimeLeaseGeneration?: number
   licenseManager?: LicenseManager
   saveSettings(): Promise<void>
-  _log?(level?: string, ...args: unknown[]): void
+  _log?: PluginLogFn
 }

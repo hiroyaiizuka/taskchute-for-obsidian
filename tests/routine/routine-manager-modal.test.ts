@@ -1,6 +1,6 @@
 import { App, Notice, TFile, WorkspaceLeaf } from 'obsidian'
-import RoutineManagerModal from '../../src/features/routine/modals/RoutineManagerModal'
-import type { TaskChutePluginLike } from '../../src/types'
+import RoutineManagerModal from '@/features/routine/modals/RoutineManagerModal'
+import type { TaskChutePluginLike } from '@/types'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')

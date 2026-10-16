@@ -1,8 +1,8 @@
 import {
   LineSplitter,
   MAX_LINE_LENGTH,
-} from '../../../src/features/ai-task/services/streams/LineSplitter'
-import { parseCodexLine } from '../../../src/features/ai-task/services/streams/StreamJsonParser'
+} from '@/features/ai-task/services/streams/LineSplitter'
+import { parseCodexLine } from '@/features/ai-task/services/streams/StreamJsonParser'
 
 describe('LineSplitter', () => {
   test('emits complete lines and buffers the trailing partial line', () => {

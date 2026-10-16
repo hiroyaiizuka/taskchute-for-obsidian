@@ -5,7 +5,7 @@ import {
   buildWorkingDirectoryChoices,
   normalizeDirectoryPath,
   normalizeDirectoryPathForComparison,
-} from '../../../src/features/ai-task/services/WorkingDirectoryHistory'
+} from '@/features/ai-task/services/WorkingDirectoryHistory'
 
 describe('WorkingDirectoryHistory', () => {
   test.each([

@@ -8,9 +8,9 @@
  */
 import TaskListRenderer, {
   TaskListRendererHost,
-} from '../../../src/ui/tasklist/TaskListRenderer'
-import type { AiTaskBoardView } from '../../../src/features/ai-task/types'
-import type { TaskInstance } from '../../../src/types'
+} from '@/ui/tasklist/TaskListRenderer'
+import type { AiTaskBoardView } from '@/features/ai-task/types'
+import type { TaskInstance } from '@/types'
 
 // JSDOM lacks DragEvent; provide a minimal polyfill
 if (typeof globalThis.DragEvent === 'undefined') {

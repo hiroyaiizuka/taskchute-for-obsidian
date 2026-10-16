@@ -1,7 +1,7 @@
-import { TaskChuteViewController } from '../../../src/app/taskchute/TaskChuteViewController'
-import { VIEW_TYPE_TASKCHUTE } from '../../../src/types'
+import { TaskChuteViewController } from '@/app/taskchute/TaskChuteViewController'
+import { VIEW_TYPE_TASKCHUTE } from '@/types'
 
-import type { TaskChutePluginLike } from '../../../src/types'
+import type { TaskChutePluginLike } from '@/types'
 
 const STARTED_RUN = {
   runId: 'ai-run-ambient-1',

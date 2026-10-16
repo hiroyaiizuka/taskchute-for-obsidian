@@ -1,10 +1,11 @@
-import type { RoutineTaskShape } from '../../types/routine'
+import type { RoutineTaskShape } from '@/types/routine'
 import type { TFile } from 'obsidian'
+import type { ScopedTranslator } from '@/i18n'
 
 export type RoutineTaskWithFile = RoutineTaskShape & { file: TFile }
 
 export interface RoutineListHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   getWeekdayNames: () => string[]
 }
 
@@ -113,7 +114,7 @@ export default class NavigationRoutineRenderer {
             weekSet.push(converted)
           }
         }
-        const weekLabel = this.formatWeekList(weekSet) ?? this.host.tv('labels.routineWeekLabel', 'Week {week}', { week: 1 })
+        const weekLabel = this.formatWeekList(weekSet) ?? this.host.tv('labels.routineWeekNth', 'Week {week}', { week: 1 })
 
         const weekdaySet = this.normalizeWeekdayArray(
           task.routine_weekdays ?? (typeof task.routine_weekday === 'number' ? [task.routine_weekday] : undefined),
@@ -221,7 +222,7 @@ export default class NavigationRoutineRenderer {
     const labels = weeks.map((week) =>
       week === 'last'
         ? this.host.tv('labels.routineWeekLast', 'Last')
-        : this.host.tv('labels.routineWeekLabel', 'Week {week}', { week }),
+        : this.host.tv('labels.routineWeekNth', 'Week {week}', { week }),
     )
     return labels.join(joiner)
   }

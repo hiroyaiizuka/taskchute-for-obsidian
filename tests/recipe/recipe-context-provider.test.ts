@@ -1,8 +1,8 @@
 import {
   RecipeContextError,
   RecipeContextProvider,
-} from '../../src/features/recipe/services/RecipeContextProvider'
-import type { Recipe } from '../../src/features/recipe/types'
+} from '@/features/recipe/services/RecipeContextProvider'
+import type { Recipe } from '@/features/recipe/types'
 
 function recipe(overrides: Partial<Recipe> = {}): Recipe {
   return {

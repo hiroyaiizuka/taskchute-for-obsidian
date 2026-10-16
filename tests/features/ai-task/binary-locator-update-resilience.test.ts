@@ -2,8 +2,8 @@ import {
   BinaryLocator,
   type AiCliLaunchSpec,
   type BinaryLocatorGateway,
-} from '../../../src/features/ai-task/services/BinaryLocator'
-import type { ExecCaptureResult } from '../../../src/features/ai-task/services/NodeProcessGateway'
+} from '@/features/ai-task/services/BinaryLocator'
+import type { ExecCaptureResult } from '@/features/ai-task/services/NodeProcessGateway'
 
 function result(code: number, stdout = ''): ExecCaptureResult {
   return { code, stdout, stderr: '', timedOut: false }

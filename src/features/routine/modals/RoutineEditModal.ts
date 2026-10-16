@@ -1,7 +1,7 @@
 import { App, Modal, Notice, TFile } from 'obsidian'
 
-import { t, getCurrentLocale } from "../../../i18n"
-import { DATE_FORMAT_DISPLAY } from "../../../constants"
+import { t, getCurrentLocale, type ScopedKey, type Variables } from "@/i18n"
+import { DATE_FORMAT_DISPLAY } from "@/constants"
 
 import {
   RoutineFrontmatter,
@@ -9,20 +9,20 @@ import {
   RoutineWeek,
   TaskChutePluginLike,
   RoutineType,
-} from "../../../types"
-import { TaskValidator } from "../../core/services/TaskValidator"
+} from "@/types"
+import { TaskValidator } from "@/features/core/services/TaskValidator"
 import {
   getScheduledTime,
   setScheduledTime,
-} from "../../../utils/fieldMigration"
-import { getToday } from "../../../utils/date"
+} from "@/utils/fieldMigration"
+import { getToday } from "@/utils/date"
 import { applyRoutineFrontmatterMerge, resolveTargetDateOnDisable } from "../utils/RoutineFrontmatterUtils"
-import { attachCalendarButtonIcon } from "../../../ui/components/iconUtils"
-import { createModalFooter } from "../../../ui/components/modalFooter"
+import { attachCalendarButtonIcon } from "@/ui/components/iconUtils"
+import { createModalFooter } from "@/ui/components/modalFooter"
 import {
   createObsidianTaskLinkFields,
   type ObsidianTaskLinkFieldsController,
-} from "../../ai-task/ui/ObsidianTaskLinkFields"
+} from "@/features/ai-task/ui/ObsidianTaskLinkFields"
 
 interface TaskChuteViewLike {
   reloadTasksAndRestore?(options?: { runBoundaryCheck?: boolean }): unknown
@@ -71,9 +71,9 @@ export default class RoutineEditModal extends Modal {
   }
 
   private tv(
-    key: string,
+    key: ScopedKey<'routineEdit'>,
     fallback: string,
-    vars?: Record<string, string | number>,
+    vars?: Variables,
   ): string {
     return t(`routineEdit.${key}`, fallback, vars)
   }
@@ -86,7 +86,7 @@ export default class RoutineEditModal extends Modal {
   }
 
   private getWeekOptions(): Array<{ value: RoutineWeek; label: string }> {
-    const keyMap: Record<string, string> = {
+    const keyMap: Record<string, ScopedKey<"routineEdit">> = {
       "1": "weekOptions.first",
       "2": "weekOptions.second",
       "3": "weekOptions.third",
@@ -400,8 +400,6 @@ export default class RoutineEditModal extends Modal {
         initialValue: frontmatter.obsidian_sync,
         excludePath: this.file.path,
         taskFolderPath: this.plugin.pathManager?.getTaskFolderPath?.(),
-        translate: (key, fallback) =>
-          this.tv(`obsidianLink.${key}`, fallback),
       })
     }
 
@@ -969,9 +967,7 @@ export default class RoutineEditModal extends Modal {
   ): HTMLInputElement {
     const wrapper = container.createDiv( { cls: "form-input-icon-wrapper" })
     const localeCode = getCurrentLocale() === "ja" ? "ja-JP" : "en-US"
-    const placeholder = getCurrentLocale() === "ja"
-      ? this.tv("fields.datePlaceholderJa", "年/月/日")
-      : this.tv("fields.datePlaceholderEn", "YYYY-MM-DD")
+    const placeholder = this.tv("fields.datePlaceholder", "YYYY-MM-DD")
     const displayInput = wrapper.createEl("input", {
       type: "text",
       cls: "form-input--date form-input--bare",

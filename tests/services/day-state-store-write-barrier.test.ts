@@ -3,8 +3,8 @@
  * Verifies that persist/persistAsync are suppressed during barrier,
  * and flushed with mergeAndSaveMonth on endWriteBarrier.
  */
-import { DayStateStoreService } from '../../src/services/DayStateStoreService'
-import type { DayState, DayStateServiceAPI } from '../../src/types'
+import { DayStateStoreService } from '@/services/DayStateStoreService'
+import type { DayState, DayStateServiceAPI } from '@/types'
 
 function createEmptyState(): DayState {
   return {

@@ -1,18 +1,19 @@
 
 import { App, Notice, TFile } from 'obsidian'
-import { getScheduledTime, setScheduledTime } from '../../utils/fieldMigration'
-import { getToday } from '../../utils/date'
-import { resolveTargetDateOnDisable } from '../../features/routine/utils/RoutineFrontmatterUtils'
-import { listFilesInFolder } from '../../utils/vaultFiles'
-import type { RoutineTaskShape } from '../../types/routine'
+import { getScheduledTime, setScheduledTime } from '@/utils/fieldMigration'
+import { getToday } from '@/utils/date'
+import { resolveTargetDateOnDisable } from '@/features/routine/utils/RoutineFrontmatterUtils'
+import { listFilesInFolder } from '@/utils/vaultFiles'
+import type { RoutineTaskShape } from '@/types/routine'
 import NavigationRoutineRenderer, { RoutineTaskWithFile } from './NavigationRoutineRenderer'
+import { t, type ScopedTranslator } from '@/i18n'
 
 interface TaskChuteViewLike {
   currentDate?: Date
 }
 
 export interface NavigationRoutineHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   app: App
   plugin: {
     pathManager: {
@@ -110,7 +111,7 @@ export default class NavigationRoutineController {
       return frontmatter
     })
     const noticeKey = enabled ? 'notices.routineEnabled' : 'notices.routineDisabled'
-    new Notice(this.host.tv(noticeKey, enabled ? 'Routine enabled' : 'Routine disabled'))
+    new Notice(t(noticeKey, enabled ? 'Routine enabled' : 'Routine disabled'))
   }
 
   private getCurrentViewDateString(): string {

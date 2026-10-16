@@ -5,8 +5,8 @@
 import {
   NotificationService,
   ReminderNotificationOptions,
-} from '../../src/features/reminder/services/NotificationService';
-import { t } from '../../src/i18n';
+} from '@/features/reminder/services/NotificationService';
+import { t } from '@/i18n';
 
 const expectedBody = t('reminder.notification.body', '{name} - starting soon ({time})', {
     name: 'Test Task',

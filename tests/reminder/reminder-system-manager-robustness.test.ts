@@ -7,8 +7,8 @@
  * - Invalid values are skipped
  */
 
-import { ReminderSystemManager } from '../../src/features/reminder/services/ReminderSystemManager';
-import type { ReminderSchedule } from '../../src/features/reminder/services/ReminderScheduleManager';
+import { ReminderSystemManager } from '@/features/reminder/services/ReminderSystemManager';
+import type { ReminderSchedule } from '@/features/reminder/services/ReminderScheduleManager';
 
 describe('ReminderSystemManager.buildTodaySchedules robustness', () => {
   let manager: ReminderSystemManager;

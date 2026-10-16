@@ -1,8 +1,8 @@
 /**
  * @jest-environment jsdom
  */
-import { TaskChuteSettings } from '../../src/types';
-import { DEFAULT_SETTINGS } from '../../src/settings';
+import { TaskChuteSettings } from '@/types';
+import { DEFAULT_SETTINGS } from '@/settings';
 
 describe('TaskChuteSettings reminder fields', () => {
   describe('type definition', () => {

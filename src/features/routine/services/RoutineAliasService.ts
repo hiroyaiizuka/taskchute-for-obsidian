@@ -1,6 +1,6 @@
 import { Plugin, normalizePath, Notice, TFile } from 'obsidian'
-import { TaskChuteSettings, PathManagerLike } from '../../../types'
-import { t } from '../../../i18n'
+import { TaskChuteSettings, PathManagerLike } from '@/types'
+import { t } from '@/i18n'
 
 interface PluginWithManagers extends Plugin {
   settings: TaskChuteSettings;

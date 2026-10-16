@@ -79,6 +79,25 @@ export interface TerminalViewAdapterOptions {
   openExternalUrl?: (url: string) => void
   /** Test/embedding override; production defaults to Obsidian Platform. */
   isMacOS?: boolean
+  /** Set for ConPTY sessions: passed to xterm and enables Windows clipboard keys. */
+  windowsPty?: { backend: 'conpty'; buildNumber?: number }
+}
+
+type ClipboardKeyEvent = Pick<
+  KeyboardEvent,
+  'type' | 'key' | 'code' | 'ctrlKey' | 'altKey' | 'metaKey'
+>
+
+/** Ctrl+V pastes; Ctrl+C copies only with a selection, otherwise it interrupts. */
+export function resolveWindowsClipboardKey(
+  event: ClipboardKeyEvent,
+  hasSelection: boolean,
+): 'copy' | 'paste' | null {
+  if (!event.ctrlKey || event.altKey || event.metaKey) return null
+  const key = event.key.toLowerCase()
+  if (key === 'v' || event.code === 'KeyV') return 'paste'
+  if ((key === 'c' || event.code === 'KeyC') && hasSelection) return 'copy'
+  return null
 }
 
 /** Thin view-layer contract implemented by the xterm adapter (mocked in tests) */
@@ -498,6 +517,7 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
     // The xterm css ships vendored in styles.css, which Obsidian loads into
     // every window (pop-outs included), so there is nothing to inject here.
     this.timerWindow = container.ownerDocument.defaultView ?? window
+    const windowsPty = this.options.windowsPty
     const terminal = new Terminal({
       cols,
       rows,
@@ -506,7 +526,13 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
       fontFamily: TERMINAL_FONT_FAMILY,
       cursorBlink: true,
       theme: TERMINAL_DARK_THEME,
+      ...(windowsPty ? { windowsPty: { ...windowsPty } } : {}),
     })
+    if (windowsPty) {
+      terminal.attachCustomKeyEventHandler((event) =>
+        this.handleWindowsClipboardKey(terminal, event),
+      )
+    }
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.onData((data) => {
@@ -568,6 +594,24 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
     for (const chunk of buffered) {
       this.writeToTerminal(terminal, chunk)
     }
+  }
+
+  /**
+   * Returning false keeps xterm from sending the key. Paste uses Chromium's
+   * default paste event; copy is explicit because xterm's selection is not a
+   * DOM selection.
+   */
+  private handleWindowsClipboardKey(terminal: Terminal, event: KeyboardEvent): boolean {
+    const action = resolveWindowsClipboardKey(event, terminal.hasSelection())
+    if (action === null) return true
+    if (action === 'copy' && event.type === 'keydown') {
+      event.preventDefault()
+      const clipboard = (this.timerWindow ?? window).navigator.clipboard
+      void clipboard?.writeText(terminal.getSelection()).catch(() => undefined)
+      // As in Windows Terminal, so the next Ctrl+C interrupts again.
+      terminal.clearSelection()
+    }
+    return false
   }
 
   fit(): void {

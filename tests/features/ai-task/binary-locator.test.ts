@@ -4,17 +4,17 @@ import {
   POSIX_BINARY_PATH_MARKER,
   PROBE_TIMEOUT_MS,
   WHICH_TIMEOUT_MS,
-} from '../../../src/features/ai-task/services/BinaryLocator'
+} from '@/features/ai-task/services/BinaryLocator'
 import type {
   AiCliLaunchSpec,
   AiBinaryPathOverrides,
   BinaryLocatorGateway,
-} from '../../../src/features/ai-task/services/BinaryLocator'
-import type { ExecCaptureResult } from '../../../src/features/ai-task/services/NodeProcessGateway'
+} from '@/features/ai-task/services/BinaryLocator'
+import type { ExecCaptureResult } from '@/features/ai-task/services/NodeProcessGateway'
 import {
   POSIX_INTERACTIVE_LOGIN_SHELL_FLAG,
   POSIX_LOGIN_SHELL_FLAG,
-} from '../../../src/features/ai-task/services/NodeProcessGateway'
+} from '@/features/ai-task/services/NodeProcessGateway'
 
 type ExecCaptureMock = jest.Mock<Promise<ExecCaptureResult>, [string, string[], number]>
 type IsFileMock = jest.Mock<Promise<boolean>, [string]>

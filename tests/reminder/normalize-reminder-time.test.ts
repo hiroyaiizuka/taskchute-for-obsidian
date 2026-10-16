@@ -8,7 +8,7 @@
  * - Boundary values
  */
 
-import { normalizeReminderTime } from '../../src/features/reminder/services/ReminderFrontmatterService';
+import { normalizeReminderTime } from '@/features/reminder/services/ReminderFrontmatterService';
 
 describe('normalizeReminderTime', () => {
   describe('string values', () => {

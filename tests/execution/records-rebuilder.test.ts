@@ -1,5 +1,5 @@
-import { RecordsRebuilder } from '../../src/features/log/services/RecordsRebuilder'
-import { computeRecordsHash } from '../../src/features/log/services/RecordsWriter'
+import { RecordsRebuilder } from '@/features/log/services/RecordsRebuilder'
+import { computeRecordsHash } from '@/features/log/services/RecordsWriter'
 import { createPluginStub, seedVaultFile } from './logTestUtils'
 
 describe('RecordsRebuilder', () => {

@@ -1,7 +1,8 @@
 import { Notice, App, TFile } from 'obsidian'
-import { HeatmapService } from '../../log/services/HeatmapService'
-import type { TaskInstance, TaskChutePluginLike } from '../../../types'
-import type { SectionConfigService } from '../../../services/SectionConfigService'
+import { HeatmapService } from '@/features/log/services/HeatmapService'
+import type { TaskInstance, TaskChutePluginLike } from '@/types'
+import type { SectionConfigService } from '@/services/SectionConfigService'
+import type { ScopedTranslator } from '@/i18n'
 
 export interface CrossDayStartPayload {
   instance: TaskInstance
@@ -10,7 +11,7 @@ export interface CrossDayStartPayload {
 }
 
 export interface TaskExecutionHost {
-  tv: (key: string, fallback: string, vars?: Record<string, string | number>) => string
+  tv: ScopedTranslator<'taskChuteView'>
   app: App
   plugin: TaskChutePluginLike
   getViewDate(): Date

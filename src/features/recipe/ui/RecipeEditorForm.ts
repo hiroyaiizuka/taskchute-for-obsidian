@@ -1,5 +1,6 @@
-import { t } from '../../../i18n'
-import { applyIcon } from '../../../ui/icons'
+import { t } from '@/i18n'
+import { applyIcon } from '@/ui/icons'
+import RecipeReorderPointerDrag, { appendRecipeDragHandleIcon } from './RecipeReorderPointerDrag'
 
 let recipeEditorFormId = 0
 
@@ -45,7 +46,16 @@ export class RecipeEditorForm {
   private readonly stepsList: HTMLElement
   private readonly qualityList: HTMLElement
   private errorEl: HTMLElement
-  private dragged: { kind: ChecklistKind; index: number } | null = null
+  private readonly pointerDrag = new RecipeReorderPointerDrag({
+    rowSelector: '.recipe-step-row',
+    draggingClass: 'recipe-run-step--dragging',
+    dropBeforeClass: 'recipe-run-step--drop-before',
+    dropAfterClass: 'recipe-run-step--drop-after',
+    ghostClass: 'recipe-reorder-drag-ghost',
+    onReorder: (kind, fromIndex, toIndex) => {
+      this.reorder(kind as ChecklistKind, fromIndex, toIndex)
+    },
+  })
 
   constructor(
     private readonly container: HTMLElement,
@@ -66,7 +76,7 @@ export class RecipeEditorForm {
       const titleGroup = container.createDiv({ cls: 'form-group' })
       titleGroup.createEl('label', {
         cls: 'form-label',
-        text: t('recipes.manager.nameLabel', 'レシピ名'),
+        text: t('recipes.manager.nameLabel', 'Recipe name'),
         attr: { for: `${this.fieldIdPrefix}-title` },
       })
       this.titleInput = titleGroup.createEl('input', {
@@ -75,7 +85,7 @@ export class RecipeEditorForm {
           type: 'text',
           id: `${this.fieldIdPrefix}-title`,
           autocomplete: 'off',
-          placeholder: t('recipes.manager.namePlaceholder', 'タスクを迷わず実行できる名前'),
+          placeholder: t('recipes.manager.namePlaceholder', 'A name that makes the task easy to start'),
         },
       })
       this.titleInput.value = this.initialValue.title
@@ -85,19 +95,19 @@ export class RecipeEditorForm {
     const goalGroup = container.createDiv({ cls: 'form-group recipe-goal-group' })
     goalGroup.createEl('label', {
       cls: 'form-label',
-      text: t('recipes.manager.goalLabel', '完了基準'),
+      text: t('recipes.manager.goalLabel', 'Definition of done'),
       attr: { for: `${this.fieldIdPrefix}-goal` },
     })
     goalGroup.createDiv({
       cls: 'recipe-field-description',
-      text: t('recipes.manager.goalDescription', 'どうなったら、このタスクを完了にできるかを記述します。'),
+      text: t('recipes.manager.goalDescription', 'Describe what must be true before this task is complete.'),
     })
     this.goalInput = goalGroup.createEl('textarea', {
       cls: 'form-input recipe-goal-input',
       attr: {
         rows: '3',
         id: `${this.fieldIdPrefix}-goal`,
-        placeholder: t('recipes.manager.goalPlaceholder', '例: 公開前レビューを通過し、URLを共有できている'),
+        placeholder: t('recipes.manager.goalPlaceholder', 'For example, the review is approved and the published URL is shared'),
       },
     })
     this.goalInput.value = this.initialValue.goal
@@ -106,11 +116,11 @@ export class RecipeEditorForm {
     const stepsGroup = container.createDiv({ cls: 'form-group recipe-checklist-group recipe-steps-group' })
     stepsGroup.createEl('label', {
       cls: 'form-label',
-      text: t('recipes.manager.stepsLabel', '手順'),
+      text: t('recipes.manager.stepsLabel', 'Steps'),
     })
     stepsGroup.createDiv({
       cls: 'recipe-field-description',
-      text: t('recipes.manager.stepsDescription', '実行する順番に並べます。実行時にチェックできます。'),
+      text: t('recipes.manager.stepsDescription', 'Put the procedure in execution order. Check items while working.'),
     })
     this.stepsList = stepsGroup.createDiv({ cls: 'recipe-steps-list' })
     this.renderChecklist('steps')
@@ -119,11 +129,11 @@ export class RecipeEditorForm {
     const qualityGroup = container.createDiv({ cls: 'form-group recipe-checklist-group recipe-quality-group' })
     qualityGroup.createEl('label', {
       cls: 'form-label',
-      text: t('recipes.manager.qualityChecksLabel', '品質基準'),
+      text: t('recipes.manager.qualityChecksLabel', 'Quality checks'),
     })
     qualityGroup.createDiv({
       cls: 'recipe-field-description',
-      text: t('recipes.manager.qualityChecksDescription', '完了前に満たしているか確認する品質チェックです。'),
+      text: t('recipes.manager.qualityChecksDescription', 'Checks that must pass before completion.'),
     })
     this.qualityList = qualityGroup.createDiv({ cls: 'recipe-quality-checks-list' })
     this.renderChecklist('quality')
@@ -132,19 +142,19 @@ export class RecipeEditorForm {
     const constraintsGroup = container.createDiv({ cls: 'form-group recipe-constraints-group' })
     constraintsGroup.createEl('label', {
       cls: 'form-label',
-      text: t('recipes.manager.constraintsLabel', '制約・ルール'),
+      text: t('recipes.manager.constraintsLabel', 'Constraints and rules'),
       attr: { for: `${this.fieldIdPrefix}-constraints` },
     })
     constraintsGroup.createDiv({
       cls: 'recipe-field-description',
-      text: t('recipes.manager.constraintsDescription', '必ず守るルールを1行に1つ入力します。'),
+      text: t('recipes.manager.constraintsDescription', 'Enter one rule per line. These rules must always be followed.'),
     })
     this.constraintsInput = constraintsGroup.createEl('textarea', {
       cls: 'form-input recipe-constraints-input',
       attr: {
         rows: '4',
         id: `${this.fieldIdPrefix}-constraints`,
-        placeholder: t('recipes.manager.constraintsPlaceholder', '例: 顧客データを外部サービスへ送信しない'),
+        placeholder: t('recipes.manager.constraintsPlaceholder', 'For example, do not send customer data to external services'),
       },
     })
     this.constraintsInput.value = this.initialValue.constraints.join('\n')
@@ -172,7 +182,7 @@ export class RecipeEditorForm {
     let invalidTarget: HTMLElement | null = null
     this.clearInvalidState()
     if (!value.title) {
-      message = t('recipes.manager.validation.nameRequired', 'レシピ名を入力してください。')
+      message = t('recipes.manager.validation.nameRequired', 'Enter a recipe name.')
       invalidTarget = this.titleInput
     } else if (
       !value.goal
@@ -182,7 +192,7 @@ export class RecipeEditorForm {
     ) {
       message = t(
         'recipes.manager.validation.contentRequired',
-        '完了基準・手順・品質基準・制約のいずれかを入力してください。',
+        'Enter a definition of done, step, quality check, or constraint.',
       )
       invalidTarget = this.goalInput
     }
@@ -215,6 +225,17 @@ export class RecipeEditorForm {
     })
   }
 
+  /**
+   * Abandons a reorder in flight and removes its ghost.
+   *
+   * The ghost is parented to `body` so it can follow the pointer, which means
+   * closing the dialog mid-drag -- Escape, most easily -- would strand it on
+   * screen with no pointer events left to clean it up.
+   */
+  destroy(): void {
+    this.pointerDrag.cancel()
+  }
+
   focus(): void {
     if (this.titleInput) {
       this.titleInput.focus()
@@ -235,33 +256,20 @@ export class RecipeEditorForm {
       const row = list.createDiv({ cls: rowClass })
       row.setAttribute('data-recipe-list-kind', kind)
       row.setAttribute('data-recipe-item-index', String(index))
-      row.addEventListener('dragover', (event) => {
-        if (!this.dragged || this.dragged.kind !== kind || this.dragged.index === index) return
-        event.preventDefault()
-        row.classList.add('recipe-run-step--drop-target')
-      })
-      row.addEventListener('dragleave', () => row.classList.remove('recipe-run-step--drop-target'))
-      row.addEventListener('drop', (event) => {
-        event.preventDefault()
-        row.classList.remove('recipe-run-step--drop-target')
-        if (!this.dragged || this.dragged.kind !== kind) return
-        const fromIndex = this.dragged.index
-        this.dragged = null
-        this.reorder(kind, fromIndex, index)
-      })
+      this.pointerDrag.registerRow(row, kind, index)
 
       const handleClass = kind === 'steps' ? 'recipe-step-drag-handle' : 'recipe-quality-drag-handle'
       const handle = row.createEl('button', {
         cls: `recipe-list-drag-handle ${handleClass}`,
         attr: {
           type: 'button',
-          draggable: 'true',
-          title: t('recipes.manager.reorderStep', 'ドラッグして並び替え'),
-          'aria-label': t('recipes.manager.reorderStep', 'ドラッグして並び替え'),
+          title: t('recipes.manager.reorderStep', 'Drag to reorder'),
+          'aria-label': t('recipes.manager.reorderStep', 'Drag to reorder'),
           'aria-keyshortcuts': 'Alt+ArrowUp Alt+ArrowDown',
         },
       })
-      this.appendDragHandleIcon(handle)
+      appendRecipeDragHandleIcon(handle)
+      this.pointerDrag.attachHandle(handle, row)
       handle.addEventListener('click', (event) => {
         event.preventDefault()
         event.stopPropagation()
@@ -274,18 +282,6 @@ export class RecipeEditorForm {
         this.reorder(kind, index, targetIndex)
         this.getList(kind).querySelectorAll<HTMLButtonElement>('.recipe-list-drag-handle')[targetIndex]?.focus()
       })
-      handle.addEventListener('dragstart', (event) => {
-        this.dragged = { kind, index }
-        row.classList.add('recipe-run-step--dragging')
-        event.dataTransfer?.setData('text/plain', `${kind}:${index}`)
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-      })
-      handle.addEventListener('dragend', () => {
-        this.dragged = null
-        row.classList.remove('recipe-run-step--dragging')
-        list.querySelectorAll('.recipe-run-step--drop-target')
-          .forEach((element) => element.classList.remove('recipe-run-step--drop-target'))
-      })
 
       const isQuality = kind === 'quality'
       const input = row.createEl('input', {
@@ -293,11 +289,11 @@ export class RecipeEditorForm {
         attr: {
           type: 'text',
           'aria-label': isQuality
-            ? t('recipes.manager.qualityCheckPlaceholder', '品質基準')
-            : t('recipes.manager.stepPlaceholder', '手順'),
+            ? t('recipes.manager.qualityCheckPlaceholder', 'Quality check')
+            : t('recipes.manager.stepPlaceholder', 'Step'),
           placeholder: isQuality
-            ? t('recipes.manager.qualityCheckPlaceholder', '品質基準')
-            : t('recipes.manager.stepPlaceholder', '手順'),
+            ? t('recipes.manager.qualityCheckPlaceholder', 'Quality check')
+            : t('recipes.manager.stepPlaceholder', 'Step'),
         },
       })
       input.value = value.text
@@ -311,11 +307,11 @@ export class RecipeEditorForm {
         attr: {
           type: 'button',
           title: isQuality
-            ? t('recipes.manager.removeQualityCheck', '品質基準を削除')
-            : t('recipes.manager.removeStep', '手順を削除'),
+            ? t('recipes.manager.removeQualityCheck', 'Remove quality check')
+            : t('recipes.manager.removeStep', 'Remove step'),
           'aria-label': isQuality
-            ? t('recipes.manager.removeQualityCheck', '品質基準を削除')
-            : t('recipes.manager.removeStep', '手順を削除'),
+            ? t('recipes.manager.removeQualityCheck', 'Remove quality check')
+            : t('recipes.manager.removeStep', 'Remove step'),
         },
       })
       applyIcon(remove, 'x')
@@ -334,8 +330,8 @@ export class RecipeEditorForm {
     const button = container.createEl('button', {
       cls: `form-button cancel recipe-add-step-button ${isQuality ? 'recipe-add-quality-check-button' : ''}`,
       text: isQuality
-        ? t('recipes.manager.addQualityCheck', '+ 品質基準を追加')
-        : t('recipes.manager.addStep', '+ 手順を追加'),
+        ? t('recipes.manager.addQualityCheck', '+ add quality check')
+        : t('recipes.manager.addStep', '+ add step'),
       attr: { type: 'button' },
     })
     button.addEventListener('click', () => {
@@ -444,24 +440,5 @@ export class RecipeEditorForm {
 
   private normalizeLines(values: string[]): string[] {
     return values.map((value) => value.trim()).filter((value) => value.length > 0)
-  }
-
-  private appendDragHandleIcon(container: HTMLElement): void {
-    const svg = createSvg('svg')
-    svg.setAttribute('viewBox', '0 0 12 16')
-    svg.setAttribute('width', '12')
-    svg.setAttribute('height', '16')
-    svg.setAttribute('aria-hidden', 'true')
-    svg.classList.add('recipe-step-drag-handle-icon')
-    ;[
-      ['2', '2'], ['8', '2'], ['2', '8'], ['8', '8'], ['2', '14'], ['8', '14'],
-    ].forEach(([cx, cy]) => {
-      const circle = createSvg('circle')
-      circle.setAttribute('cx', cx)
-      circle.setAttribute('cy', cy)
-      circle.setAttribute('r', '1.5')
-      svg.appendChild(circle)
-    })
-    container.appendChild(svg)
   }
 }

@@ -6,7 +6,7 @@
  */
 
 import type { App, EventRef } from 'obsidian';
-import type { TaskChuteSettings } from '../../../types';
+import type { TaskChuteSettings } from '@/types';
 import { EditDetector } from './EditDetector';
 import { ReminderService } from './ReminderService';
 import { NotificationService, type ReminderNotificationOptions } from './NotificationService';
@@ -20,7 +20,7 @@ import {
   stableTimerSource,
   type StableIntervalId,
   type StableTimerSource,
-} from '../../../utils/stableTimer';
+} from '@/utils/stableTimer';
 
 // Default values for settings (internal, not exposed to users)
 const DEFAULT_CHECK_INTERVAL_SEC = 5;

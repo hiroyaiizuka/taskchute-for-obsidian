@@ -1,6 +1,6 @@
 import { Notice } from 'obsidian'
-import TimeEditPopup from '../../../src/ui/time/TimeEditPopup'
-import type { TimeEditPopupOptions } from '../../../src/ui/time/TimeEditPopup'
+import TimeEditPopup from '@/ui/time/TimeEditPopup'
+import type { TimeEditPopupOptions } from '@/ui/time/TimeEditPopup'
 
 jest.mock('obsidian', () => ({
   Notice: jest.fn(),

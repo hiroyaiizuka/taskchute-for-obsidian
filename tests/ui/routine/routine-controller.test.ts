@@ -2,10 +2,11 @@ import type { App } from 'obsidian'
 import { Notice, TFile } from 'obsidian'
 import RoutineController, {
   RoutineControllerHost,
-} from '../../../src/features/routine/controllers/RoutineController'
-import type { RoutineTaskShape } from '../../../src/types/routine'
-import type { TaskChutePluginLike } from '../../../src/types'
-import { initializeLocaleManager, setLocaleOverride } from '../../../src/i18n'
+} from '@/features/routine/controllers/RoutineController'
+import type { RoutineTaskShape } from '@/types/routine'
+import type { TaskChutePluginLike } from '@/types'
+import { t } from '@/i18n'
+import { setObsidianLanguage } from '@tests/utils/locale'
 
 const setActiveDocument = (doc: Document): void => {
   ;(globalThis as typeof globalThis & { activeDocument: Document }).activeDocument = doc
@@ -63,10 +64,9 @@ describe('RoutineController', () => {
     const host: RoutineControllerHost = {
       app,
       plugin,
-      tv: (key, fallback, vars) => {
-        if (!vars) return fallback
-        return fallback.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? `{${k}}`))
-      },
+      // Mirror TaskChuteView.tv so locale-dependent labels resolve through the
+      // real dictionary instead of always falling back to the English default.
+      tv: (key, fallback, vars) => t(`taskChuteView.${key}`, fallback, vars),
       getWeekdayNames: () => [...baseWeekdays],
       reloadTasksAndRestore: jest.fn(async () => {}),
       getCurrentDate: () => new Date('2025-10-09T00:00:00Z'),
@@ -94,8 +94,7 @@ describe('RoutineController', () => {
   })
 
   beforeEach(() => {
-    initializeLocaleManager('en')
-    setLocaleOverride('en')
+    setObsidianLanguage('en')
     noticeMock.mockClear()
     document.body.innerHTML = ''
   })
@@ -315,7 +314,7 @@ describe('RoutineController', () => {
   })
 
   it('uses en-US locale for native date inputs when locale is English', () => {
-    setLocaleOverride('en')
+    setObsidianLanguage('en')
     const { host } = createHost()
     const controller = new RoutineController(host)
     const task = createTask({ isRoutine: false })
@@ -330,7 +329,7 @@ describe('RoutineController', () => {
   })
 
   it('uses ja-JP locale for native date inputs when locale is Japanese', () => {
-    setLocaleOverride('ja')
+    setObsidianLanguage('ja')
     const { host } = createHost()
     const controller = new RoutineController(host)
     const task = createTask({ isRoutine: false })
@@ -345,7 +344,7 @@ describe('RoutineController', () => {
   })
 
   it('shows English end-date placeholder when locale is English', () => {
-    setLocaleOverride('en')
+    setObsidianLanguage('en')
     const { host } = createHost()
     const controller = new RoutineController(host)
     const task = createTask({ isRoutine: false })
@@ -359,7 +358,7 @@ describe('RoutineController', () => {
   })
 
   it('shows Japanese end-date placeholder when locale is Japanese', () => {
-    setLocaleOverride('ja')
+    setObsidianLanguage('ja')
     const { host } = createHost()
     const controller = new RoutineController(host)
     const task = createTask({ isRoutine: false })

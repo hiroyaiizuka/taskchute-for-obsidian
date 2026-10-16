@@ -1,7 +1,7 @@
 import { App, Modal, Notice, TFile, WorkspaceLeaf } from 'obsidian'
 ;
 
-import { t } from '../../../i18n';
+import { t, type ScopedKey, type Variables } from '@/i18n';
 
 import {
   RoutineFrontmatter,
@@ -9,13 +9,13 @@ import {
   RoutineType,
   RoutineWeek,
   TaskChutePluginLike,
-} from '../../../types';
-import { getScheduledTime } from '../../../utils/fieldMigration';
-import { getToday } from '../../../utils/date';
-import { listFilesInFolder } from '../../../utils/vaultFiles';
+} from '@/types';
+import { getScheduledTime } from '@/utils/fieldMigration';
+import { getToday } from '@/utils/date';
+import { listFilesInFolder } from '@/utils/vaultFiles';
 import RoutineEditModal from './RoutineEditModal';
 import { resolveTargetDateOnDisable } from '../utils/RoutineFrontmatterUtils';
-import { createModalFooter } from '../../../ui/components/modalFooter';
+import { createModalFooter } from '@/ui/components/modalFooter';
 
 interface RoutineRow {
   file: TFile;
@@ -107,9 +107,9 @@ export class RoutineManagerModal extends Modal {
   }
 
   private tv(
-    key: string,
+    key: ScopedKey<'routineManager'>,
     fallback: string,
-    vars?: Record<string, string | number>,
+    vars?: Variables,
   ): string {
     return t(`routineManager.${key}`, fallback, vars);
   }

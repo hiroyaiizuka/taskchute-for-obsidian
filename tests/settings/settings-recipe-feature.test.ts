@@ -1,6 +1,6 @@
 import { mockApp } from 'obsidian'
-import { DEFAULT_SETTINGS } from '../../src/settings'
-import { TaskChuteSettingTab } from '../../src/settings/SettingsTab'
+import { DEFAULT_SETTINGS } from '@/settings'
+import { TaskChuteSettingTab } from '@/settings/SettingsTab'
 import { findByKey, headings } from './definitionHelpers'
 
 function createTab() {

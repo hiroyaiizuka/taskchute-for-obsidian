@@ -1,5 +1,5 @@
-import TaskRowController from '../../../src/ui/tasklist/TaskRowController'
-import type { TaskInstance } from '../../../src/types'
+import TaskRowController from '@/ui/tasklist/TaskRowController'
+import type { TaskInstance } from '@/types'
 
 type CreateElFn = <K extends keyof HTMLElementTagNameMap>(
   tag: K,

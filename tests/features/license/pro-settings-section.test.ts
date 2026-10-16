@@ -11,17 +11,27 @@ import type {
 } from 'obsidian'
 import { Platform, Setting, SettingGroup, mockApp } from 'obsidian'
 
-import { TaskChuteSettingTab } from '../../../src/settings/SettingsTab'
-import { setLocaleOverride, t } from '../../../src/i18n'
-import type { LicenseManager } from '../../../src/features/license/services/LicenseManager'
-import { flatten, isVisible, pageNamed } from '../../settings/definitionHelpers'
+import { TaskChuteSettingTab } from '@/settings/SettingsTab'
+import { t } from '@/i18n'
+import { setObsidianLanguage } from '@tests/utils/locale'
+import type { LicenseManager } from '@/features/license/services/LicenseManager'
+import { flatten, isVisible, pageNamed } from '@tests/settings/definitionHelpers'
 
-jest.mock('../../../src/features/license/ui/DeviceListView', () => ({
+jest.mock('@/features/license/ui/DeviceListView', () => ({
   DeviceListView: jest.fn().mockImplementation(() => ({ dispose: jest.fn() })),
 }))
 
-const { DeviceListView } = require('../../../src/features/license/ui/DeviceListView') as {
+jest.mock('@/ui/modals/ConfirmModal', () => ({
+  showConfirmModal: jest.fn().mockResolvedValue(true),
+  showInfoModal: jest.fn().mockResolvedValue(undefined),
+}))
+
+const { DeviceListView } = require('@/features/license/ui/DeviceListView') as {
   DeviceListView: jest.Mock
+}
+
+const { showConfirmModal } = require('@/ui/modals/ConfirmModal') as {
+  showConfirmModal: jest.Mock
 }
 
 function fakeManager(
@@ -32,28 +42,43 @@ function fakeManager(
     isActive: () => false,
     getDeviceId: () => 'DEVICE-0001',
     getLicenseSummary: () => undefined,
+    // What the screen may show and act with, which is not simply
+    // settings.licenseCode: a device that gave up its seat has none.
+    getStoredCode: () => undefined,
+    isSeatReleased: () => false,
     activate: jest.fn(),
     listDevices: jest.fn(),
     deactivateDevice: jest.fn(),
     refreshIfNeeded: jest.fn().mockResolvedValue(undefined),
     verifyDeviceRegistration: jest.fn().mockResolvedValue('unknown'),
+    syncFromServer: jest.fn().mockResolvedValue({ status: 'unlicensed' }),
     onChange: jest.fn(() => () => undefined),
     ...overrides,
   } as unknown as LicenseManager
 }
 
+const CODE = 'TCP-AAAA-BBBB-CCCC-DDDD'
+
 const ACTIVE_SUMMARY = {
-  license_id: '8F3K2M9QX7RD4WPZ',
   max_devices: 3,
   devices_used: 2,
   expires_at: null,
 }
 
-function activeManager(): LicenseManager {
+/**
+ * An activated device. Without a stored code it is the state a vault reaches
+ * when the token was issued elsewhere — licensed, but unable to make a single
+ * request, since every one of them needs the code.
+ */
+function activeManager(storedCode?: string): LicenseManager {
   return fakeManager({
     getState: () => ({ status: 'active', token: {}, license: ACTIVE_SUMMARY }),
     isActive: () => true,
     getLicenseSummary: () => ACTIVE_SUMMARY,
+    getStoredCode: () => storedCode,
+    syncFromServer: jest
+      .fn()
+      .mockResolvedValue({ status: 'active', token: {}, license: ACTIVE_SUMMARY }),
   })
 }
 
@@ -138,6 +163,16 @@ function deviceItem(manager: LicenseManager): SettingDefinitionItem {
       candidate.name === '',
   )
   if (!item) throw new Error('Device list row not found')
+  return item
+}
+
+/** The row that gives up the licence on this device. */
+function signOutItem(manager: LicenseManager): SettingDefinitionItem {
+  const item = proItems(manager).find(
+    (candidate) =>
+      'name' in candidate && candidate.name === 'Sign out on this device',
+  )
+  if (!item) throw new Error('Sign out row not found')
   return item
 }
 
@@ -246,13 +281,13 @@ describe('Pro settings section', () => {
     })
 
     test('sends Japanese users to the Japanese purchase page', () => {
-      setLocaleOverride('ja')
+      setObsidianLanguage('ja')
       try {
         expect(openPurchasePage(fakeManager())).toBe(
           'https://obsidian.levers.co.jp/ja/howto/pro-license',
         )
       } finally {
-        setLocaleOverride('en')
+        setObsidianLanguage('en')
       }
     })
 
@@ -334,28 +369,36 @@ describe('Pro settings section', () => {
 
   describe('when activated', () => {
     test('shows the license details', () => {
-      const items = proItems(activeManager())
+      const items = proItems(activeManager(CODE), CODE)
 
       // Two sections: the licence to read, the seats to act on.
       expect(headings(items)).toEqual(
         expect.arrayContaining(['License', 'Devices']),
       )
-      expect(names(items)).toContain('License ID')
-
-      const licenseId = items.find(
-        (item) => 'name' in item && item.name === 'License ID',
-      )
-      expect((licenseId as { desc: string }).desc).toBe('8F3K-2M9Q-X7RD-4WPZ')
     })
 
     test('shows the code that was entered, not the id derived from it', () => {
       // What the user holds and would re-enter elsewhere is the code; the id
       // means nothing to them.
-      const items = proItems(activeManager(), 'TCP-AAAA-BBBB-CCCC-DDDD')
+      const items = proItems(activeManager(CODE), CODE)
 
       expect(names(items)).toContain('License code')
       expect(names(items)).not.toContain('License ID')
       expect(descs(items)).toContain('TCP-AAAA-BBBB-CCCC-DDDD')
+    })
+
+    test('shows nothing in place of a code this device may not use', () => {
+      // The code may still be in data.json — it has to be, other machines share
+      // it — but this device may no longer use it, so showing it here would be
+      // offering something that does nothing. The licence id used to stand in;
+      // the server no longer sends one, and it named nothing the user could act
+      // on. What is left is the way out.
+      const items = proItems(activeManager(), CODE)
+
+      expect(names(items)).not.toContain('License code')
+      expect(descs(items)).not.toContain('TCP-AAAA-BBBB-CCCC-DDDD')
+      expect(names(items)).not.toContain('License ID')
+      expect(names(items)).toContain('Sign out on this device')
     })
 
     test('drops the status and expiry rows', () => {
@@ -368,7 +411,7 @@ describe('Pro settings section', () => {
     })
 
     test('mounts the device list and disposes it on teardown', () => {
-      const { cleanup } = invokeRender(deviceItem(activeManager()))
+      const { cleanup } = invokeRender(deviceItem(activeManager(CODE)))
       expect(DeviceListView).toHaveBeenCalledTimes(1)
 
       // The framework tears the row down before replacing it, which is what
@@ -386,7 +429,7 @@ describe('Pro settings section', () => {
      * the row's own control element is what keeps the seats on screen.
      */
     test('mounts the device list into the row, not the group', () => {
-      const { setting, group } = invokeRender(deviceItem(activeManager()))
+      const { setting, group } = invokeRender(deviceItem(activeManager(CODE)))
 
       const container = DeviceListView.mock.calls[0][0] as HTMLElement
       expect(container).toBe(setting.controlEl)
@@ -403,14 +446,73 @@ describe('Pro settings section', () => {
     })
 
     test('does not offer the activation field again', () => {
-      expect(names(proItems(activeManager()))).not.toContain('License code')
+      // The row named for the code is the licence being displayed, not a form:
+      // it carries the code as its value and has nothing to type into.
+      const items = proItems(activeManager(CODE), CODE)
+      const row = items.find(
+        (item) => 'name' in item && item.name === 'License code',
+      )
+
+      expect(row).toBeDefined()
+      expect('render' in (row ?? {})).toBe(false)
+      expect((row as { desc: string }).desc).toBe(CODE)
     })
 
-    test('has no separate sign-out control', () => {
+    /**
+     * The token lives in device-local storage and the code in the synced vault
+     * settings, so a vault can be licensed while holding no code at all. Every
+     * request needs the code, so the seat list can only fail — and the active
+     * screen has no field to supply one. Without a way out, the device is stuck
+     * there until the token expires.
+     */
+    describe('and this vault holds no code', () => {
+      test('offers a way out instead of a seat list that cannot work', () => {
+        const items = proItems(activeManager())
+
+        expect(names(items)).toContain('Sign out on this device')
+        // The list needs the code for its every request, so all it could show
+        // is a permanent no_activation_code.
+        expect(headings(items)).not.toContain('Devices')
+      })
+
+      test('signs out on this device once confirmed', async () => {
+        const manager = fakeManager({
+          getState: () => ({ status: 'active', token: {}, license: ACTIVE_SUMMARY }),
+          isActive: () => true,
+          getLicenseSummary: () => ACTIVE_SUMMARY,
+          getStoredCode: () => undefined,
+          signOutLocally: jest.fn(),
+        })
+        showConfirmModal.mockResolvedValueOnce(true)
+
+        const { setting } = invokeRender(signOutItem(manager))
+        await setting.__buttons[0].__click()
+
+        expect(manager.signOutLocally).toHaveBeenCalledTimes(1)
+      })
+
+      test('keeps the license when the confirmation is declined', async () => {
+        const manager = fakeManager({
+          getState: () => ({ status: 'active', token: {}, license: ACTIVE_SUMMARY }),
+          isActive: () => true,
+          getLicenseSummary: () => ACTIVE_SUMMARY,
+          getStoredCode: () => undefined,
+          signOutLocally: jest.fn(),
+        })
+        showConfirmModal.mockResolvedValueOnce(false)
+
+        const { setting } = invokeRender(signOutItem(manager))
+        await setting.__buttons[0].__click()
+
+        expect(manager.signOutLocally).not.toHaveBeenCalled()
+      })
+    })
+
+    test('has no separate sign-out control while the code is usable', () => {
       // Releasing this device is done from the list like any other seat; a
       // second control that only cleared local state would just be confusing.
-      expect(names(proItems(activeManager()))).not.toContain(
-        'Deactivate on this device',
+      expect(names(proItems(activeManager(CODE), CODE))).not.toContain(
+        'Sign out on this device',
       )
     })
   })
@@ -472,5 +574,31 @@ describe('Pro settings section', () => {
     expect(descs(items).some((desc) => desc.includes('unexpected error'))).toBe(
       true,
     )
+  })
+})
+
+describe('when the Pro page is shown', () => {
+  // The page's items are built with the rest of the tab's definitions, long
+  // before anyone navigates into it. A row's render callback is the only thing
+  // that runs at the moment the page is actually drawn, which makes it the hook
+  // for "check whether this device is still licensed".
+  test('the activation form re-asks the server', () => {
+    const manager = fakeManager()
+    const row = codeItem(manager)
+    ;(manager.syncFromServer as jest.Mock).mockClear()
+
+    invokeRender(row)
+
+    expect(manager.syncFromServer).toHaveBeenCalled()
+  })
+
+  test('the seat list re-asks the server', () => {
+    const manager = activeManager(CODE)
+    const row = deviceItem(manager)
+    ;(manager.syncFromServer as jest.Mock).mockClear()
+
+    invokeRender(row)
+
+    expect(manager.syncFromServer).toHaveBeenCalled()
   })
 })

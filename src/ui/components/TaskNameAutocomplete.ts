@@ -1,8 +1,8 @@
 import { Notice, TFile, TFolder, App, TAbstractFile, EventRef } from 'obsidian'
 ;
-import { t } from '../../i18n';
-import type { TaskNameValidator } from '../../types';
-import type { TaskChuteView } from '../../features/core/views/TaskChuteView';
+import { t } from '@/i18n';
+import type { TaskNameValidator } from '@/types';
+import type { TaskChuteView } from '@/features/core/views/TaskChuteView';
 
 export interface TaskNameAutocompleteOptions {
   view?: TaskChuteView;
@@ -354,7 +354,7 @@ export class TaskNameAutocomplete {
       if (match.suggestion.type === 'project') {
         const badge = this.doc.win.createSpan();
         badge.className = 'suggestion-badge';
-        badge.textContent = t('addTask.suggestionTemplateBadge', 'Template');
+        badge.textContent = t('taskChuteView.addTask.suggestionTemplateBadge', 'Template');
         title.appendChild(badge);
       }
 

@@ -8,8 +8,8 @@
  * 4. No icon is rendered for tasks without reminder
  */
 
-import { ReminderIconRenderer } from '../../src/features/reminder/ui/ReminderIconRenderer';
-import type { TaskInstance } from '../../src/types';
+import { ReminderIconRenderer } from '@/features/reminder/ui/ReminderIconRenderer';
+import type { TaskInstance } from '@/types';
 
 // Mock createEl for testing
 const mockCreateEl = (tag: string, options?: Record<string, unknown>): HTMLElement => {

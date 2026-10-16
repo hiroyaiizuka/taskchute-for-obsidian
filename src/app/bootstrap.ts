@@ -6,7 +6,7 @@ import { TaskChuteViewController } from "./taskchute/TaskChuteViewController"
 import { createCommandRegistrar } from "../commands/registerTaskCommands"
 import type { CommandRegistrar } from "../types/Commands"
 import { RibbonManager } from "./ribbon/RibbonManager"
-import { LocaleCoordinator } from "./locale/LocaleCoordinator"
+import { initializeLocaleManager } from "../i18n"
 import { ensureRequiredFolders, initializeServices } from "./serviceFactory"
 import { DEFAULT_SETTINGS } from "../settings"
 import type { TaskChuteSettings } from "../types"
@@ -35,7 +35,9 @@ export async function prepareSettings(
   if (!settings.slotKeys) settings.slotKeys = {}
   if (typeof settings.useOrderBasedSort !== "boolean")
     settings.useOrderBasedSort = true
-  if (!settings.languageOverride) settings.languageOverride = "auto"
+  // Retired setting: the plugin now always follows Obsidian's language.
+  // Dropped so it stops being written back to data.json.
+  Reflect.deleteProperty(settings, "languageOverride")
   if (typeof settings.showTaskCreationAdvancedSettings !== "boolean") {
     settings.showTaskCreationAdvancedSettings = false
   }
@@ -50,9 +52,9 @@ export async function prepareSettings(
   if (typeof settings.aiTaskEnabled !== "boolean") {
     settings.aiTaskEnabled = false
   }
-  if (settings.aiTaskRunMode !== "terminal" && settings.aiTaskRunMode !== "headless") {
-    settings.aiTaskRunMode = "terminal"
-  }
+  // There is no run-mode setting any more: runs use the terminal where it can
+  // run and fall back to conversation mode elsewhere. Drop a stored choice.
+  delete settings.aiTaskRunMode
   if (!Number.isFinite(settings.aiTaskLogRetentionDays)) {
     settings.aiTaskLogRetentionDays = 30
   } else {
@@ -161,6 +163,11 @@ export async function bootstrapPlugin(
     plugin._log?.("warn", "[TaskChute] Failed to initialize license manager:", error)
   }
 
+  // Also before the settings tab, and for the same reason: that first read
+  // resolves every label through t(), so the locale has to be settled or the
+  // whole pane is captured in English no matter what Obsidian's language is.
+  initializeLocaleManager()
+
   try {
     plugin.addSettingTab(new TaskChuteSettingTab(plugin.app, plugin))
   } catch (error) {
@@ -186,13 +193,6 @@ export async function bootstrapPlugin(
     (icon, title, callback) => plugin.addRibbonIcon(icon, title, callback),
     () => viewController.activateView(),
   )
-  const localeCoordinator = new LocaleCoordinator({
-    commandRegistrar,
-    ribbonManager,
-    viewController,
-  })
-
-  localeCoordinator.initialize(plugin.settings.languageOverride ?? "auto")
   ribbonManager.initialize()
   commandRegistrar.initialize()
 
@@ -234,7 +234,6 @@ export async function bootstrapPlugin(
     viewController,
     commandRegistrar,
     ribbonManager,
-    localeCoordinator,
     reminderManager,
     aiTaskManager,
   })

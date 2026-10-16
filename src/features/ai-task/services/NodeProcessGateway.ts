@@ -20,8 +20,20 @@ import {
 } from './WorkspaceFileService'
 import { Platform } from 'obsidian'
 
-import { stableTimeoutSource } from '../../../utils/stableTimer'
+import { stableTimeoutSource } from '@/utils/stableTimer'
 import { parseDescendantSnapshot } from './process/parseDescendantSnapshot'
+import { isPtyPlatformSupported } from './ptyPlatform'
+import { encodeConPtyInputFrame } from './windows/ConPtyControlFrames'
+import {
+  buildConPtyHostEnv,
+  CONPTY_HOST_POWERSHELL_ARGS,
+  CONPTY_PROBE_INPUT,
+  CONPTY_PROBE_OK_MARKER,
+  getWindowsPowerShellPath,
+  MIN_CONPTY_WINDOWS_BUILD,
+  parseWindowsBuildNumber,
+} from './windows/ConPtyHostSource'
+import { buildWindowsCommandLine } from './windows/WindowsCommandLine'
 
 // Ambient declarations for the Electron renderer runtime (no @types/node in
 // the src build). These shadow nothing at runtime; they only inform tsc.
@@ -55,6 +67,8 @@ export interface SpawnProcessRequest {
   cwd?: string
   env?: Record<string, string | undefined>
   stdinMode?: StdinMode
+  /** Open stdio 3 and expose writeControl (the ConPTY host's input channel). */
+  controlPipe?: boolean
 }
 
 export interface ProcessLaunchError {
@@ -76,6 +90,8 @@ export interface SpawnedProcessHandle {
    * spawned with stdinMode 'pipe'; a safe no-op once the child has exited.
    */
   writeStdin?(data: string): void
+  /** Present ONLY with controlPipe; a safe no-op once the child has exited. */
+  writeControl?(data: Uint8Array): void
 }
 
 export interface ExecCaptureResult {
@@ -99,7 +115,15 @@ export interface PtyCommandRequest {
 export interface PtyCommand {
   command: string
   args: string[]
+  /** Wrapper env layered over the session env. */
+  env?: Record<string, string>
 }
+
+/** `script`: keys on stdin. `conpty`: keys and resizes as frames on stdio 3. */
+export type PtyTransport = 'script' | 'conpty'
+
+/** Includes PowerShell's Add-Type compile. */
+export const CONPTY_PROBE_TIMEOUT_MS = 30_000
 
 /** Thrown by buildPtyCommand on platforms without a `script` PTY wrapper */
 export class TerminalUnsupportedError extends Error {
@@ -116,8 +140,8 @@ export class TerminalUnsupportedError extends Error {
  * Marker the PTY wrapper prints to STDERR (followed by the child's exit
  * code) just before it force-kills its own process group. Needed because:
  * (1) `script` refuses a socketpair stdin (Node's 'pipe' stdio) with
- * "tcgetattr: Operation not supported on socket", so a `cat |` stage
- * interposes a REAL pipe; (2) `cat` never sees EOF while the plugin holds
+ * "tcgetattr: Operation not supported on socket", so a `cat |` stage (`dd |`
+ * on Linux) interposes a REAL pipe; (2) it never sees EOF while the plugin holds
  * stdin open, so after `script` exits the wrapper must `kill -9 0` to reap
  * the pipeline - which destroys the shell's exit status; the sentinel
  * carries the child's real code out on the (wrapper-only) stderr channel.
@@ -125,6 +149,9 @@ export class TerminalUnsupportedError extends Error {
  * codes, records the transcript, and survives SIGTERM group stops.
  */
 export const TERMINAL_EXIT_SENTINEL = '__TASKCHUTE_AI_EXIT__'
+
+/** What carries keystrokes into `script` on Linux; see buildPtyCommand. */
+export const LINUX_STDIN_PUMP = 'dd bs=65536'
 
 /**
  * Upper bound on the transcript bytes readAndDeleteFile loads into memory.
@@ -140,7 +167,12 @@ export const TRANSCRIPT_TRUNCATED_MARKER =
 
 export interface ProcessGateway {
   spawnProcess(request: SpawnProcessRequest): SpawnedProcessHandle
-  execCapture(command: string, args: string[], timeoutMs: number): Promise<ExecCaptureResult>
+  execCapture(
+    command: string,
+    args: string[],
+    timeoutMs: number,
+    envPatch?: Readonly<Record<string, string | undefined>>,
+  ): Promise<ExecCaptureResult>
   getBaseEnv(): Record<string, string | undefined>
   getShellPath(): string
   /**
@@ -155,12 +187,18 @@ export interface ProcessGateway {
    * a failed capture preserves the last successful value.
    */
   refreshLoginShellPath?(): Promise<void>
-  /** Whether buildPtyCommand can produce a PTY wrapper on this platform */
+  /** On Windows, false until ensurePtyCapability() has proven ConPTY. */
   isPtySupported(): boolean
+  /** Runs the Windows ConPTY probe once; a no-op elsewhere. Never rejects. */
+  ensurePtyCapability?(): Promise<void>
+  getPtyUnavailableReason?(): string | undefined
+  /** Absent means `script`. */
+  getPtyTransport?(): PtyTransport
+  getWindowsBuildNumber?(): number | null
   /**
-   * Wrap a binary invocation in the OS `script` utility so the child gets a
-   * real TTY (interactive TUIs render and accept input). Throws a typed
-   * TerminalUnsupportedError where no wrapper exists (win32).
+   * Wrap a binary invocation so the child gets a real TTY (interactive TUIs
+   * render and accept input): `script` on macOS/Linux, the ConPTY host on
+   * Windows. Throws a typed TerminalUnsupportedError where no wrapper exists.
    */
   buildPtyCommand(request: PtyCommandRequest): PtyCommand
   /** Best-effort resize of a live `script` PTY; false while its tty is unavailable */
@@ -179,7 +217,7 @@ interface NodeReadableLike {
 }
 
 interface NodeWritableLike {
-  write(data: string): boolean
+  write(data: string | Uint8Array): boolean
   on(event: 'error', listener: (error: unknown) => void): void
 }
 
@@ -188,6 +226,7 @@ interface NodeChildProcessLike {
   stdin: NodeWritableLike | null
   stdout: NodeReadableLike | null
   stderr: NodeReadableLike | null
+  stdio?: ReadonlyArray<unknown>
   on(event: 'close', listener: (code: number | null, signal: string | null) => void): void
   on(event: 'exit', listener: (code: number | null, signal: string | null) => void): void
   on(event: 'error', listener: (error: unknown) => void): void
@@ -203,7 +242,7 @@ interface ChildProcessModuleLike {
       env?: Record<string, string | undefined>
       detached?: boolean
       windowsHide?: boolean
-      stdio?: ['ignore' | 'pipe', 'pipe', 'pipe']
+      stdio?: Array<'ignore' | 'pipe'>
     },
   ): NodeChildProcessLike
   execFileSync?(
@@ -219,6 +258,8 @@ interface ChildProcessModuleLike {
 
 interface OsModuleLike {
   tmpdir(): string
+  release(): string
+  homedir(): string
 }
 
 interface FsModuleLike {
@@ -252,6 +293,8 @@ interface NodeFileHandleLike {
 
 interface NodeDirectoryEntryLike {
   name: string
+  isDirectory(): boolean
+  isFile(): boolean
 }
 
 interface NodeStatsLike {
@@ -306,6 +349,27 @@ function loadPathModule(): PathModuleLike {
   return require('path') as PathModuleLike
 }
 
+interface SqliteModuleLike {
+  DatabaseSync: new (path: string, options?: { readOnly?: boolean }) => {
+    prepare(sql: string): { all(...params: string[]): Array<Record<string, unknown>> }
+    close(): void
+  }
+}
+
+/** Node's built-in SQLite reader, or null on a runtime that does not have it. */
+function loadSqliteModule(): SqliteModuleLike | null {
+  if (!Platform.isDesktop) return null
+  try {
+    // eslint-disable-next-line import/no-nodejs-modules -- guarded by Platform.isDesktop above; reads an agent CLI's own session database, read-only
+    const loaded = require('node:sqlite') as Partial<SqliteModuleLike>
+    return typeof loaded.DatabaseSync === 'function' ? (loaded as SqliteModuleLike) : null
+  } catch {
+    return null
+  }
+}
+
+const SQLITE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/u
+
 function loadTextCodecModule(): TextCodecModuleLike {
   if (!Platform.isDesktop) {
     throw new Error(DESKTOP_ONLY_GATEWAY)
@@ -327,6 +391,15 @@ function decodeChunk(chunk: unknown): string {
     return (chunk as { toString(encoding: string): string }).toString('utf8')
   }
   return String(chunk)
+}
+
+function getControlStream(child: NodeChildProcessLike | null): NodeWritableLike | null {
+  const stream = child?.stdio?.[3]
+  if (stream === null || typeof stream !== 'object') return null
+  const candidate = stream as Partial<NodeWritableLike>
+  return typeof candidate.write === 'function' && typeof candidate.on === 'function'
+    ? (stream as NodeWritableLike)
+    : null
 }
 
 function toProcessLaunchError(error: unknown): ProcessLaunchError {
@@ -808,6 +881,9 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   private loginShellPathPrimed: Promise<void> | null = null
   private loginShellPathRefresh: Promise<void> | null = null
   private tempFileSequence = 0
+  /** The ConPTY probe runs once; its verdict is final for the session. */
+  private conPtyProbe: Promise<void> | null = null
+  private conPtyVerdict: { supported: boolean; reason?: string } | null = null
   /**
    * Only processes spawned directly by this renderer gateway are registered.
    * Broker-owned PTYs are spawned inside TerminalSessionBrokerSource and
@@ -970,7 +1046,9 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         // keep it attached and use the Windows tree-stop path instead.
         detached: this.getPlatform() !== 'win32',
         windowsHide: true,
-        stdio: [stdinMode, 'pipe', 'pipe'],
+        stdio: request.controlPipe
+          ? [stdinMode, 'pipe', 'pipe', 'pipe']
+          : [stdinMode, 'pipe', 'pipe'],
       })
     } catch (error) {
       launchError = toProcessLaunchError(error)
@@ -1021,9 +1099,22 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         // "write EPIPE" exception in the renderer, so swallow it here.
         child.stdin?.on('error', () => undefined)
       }
+      // Same async EPIPE race as stdin.
+      getControlStream(child)?.on('error', () => undefined)
     }
 
     const failedChild = child === null
+    const controlStream = request.controlPipe ? getControlStream(child) : null
+    const writeControl = request.controlPipe
+      ? (data: Uint8Array): void => {
+          if (controlStream === null || exited) return
+          try {
+            controlStream.write(data)
+          } catch {
+            // The pipe already closed; drop the frame.
+          }
+        }
+      : undefined
     const knownDescendantPids = new Map<number, string | null>()
     const writeStdin =
       stdinMode === 'pipe'
@@ -1040,6 +1131,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     return {
       pid: child?.pid,
       writeStdin,
+      ...(writeControl === undefined ? {} : { writeControl }),
       onStdout: (callback) => {
         stdoutCallbacks.push(callback)
       },
@@ -1163,9 +1255,15 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     }
   }
 
-  execCapture(command: string, args: string[], timeoutMs: number): Promise<ExecCaptureResult> {
+  execCapture(
+    command: string,
+    args: string[],
+    timeoutMs: number,
+    envPatch?: Readonly<Record<string, string | undefined>>,
+  ): Promise<ExecCaptureResult> {
     return new Promise((resolve) => {
-      const handle = this.spawnProcess({ command, args, env: this.getBaseEnv() })
+      const env = { ...this.getBaseEnv(), ...(envPatch ?? {}) }
+      const handle = this.spawnProcess({ command, args, env })
       let stdout = ''
       let stderr = ''
       let timedOut = false
@@ -1241,6 +1339,108 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       return (await loadFsModule().promises.stat(path)).isFile()
     } catch {
       return false
+    }
+  }
+
+  /** Names of the folders directly inside `path`; empty when it cannot be read. */
+  async listDirectoryNames(path: string): Promise<string[]> {
+    try {
+      const entries = await loadFsModule().promises.readdir(path, { withFileTypes: true })
+      return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)
+    } catch {
+      return []
+    }
+  }
+
+  /** The user's home folder (where the AI CLIs keep their sessions). */
+  getHomeDirectory(): string | undefined {
+    try {
+      return loadOsModule().homedir() || undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Files and folders directly inside `path`; empty when it cannot be read. */
+  async listEntries(path: string): Promise<Array<{ name: string; isFile: boolean; isDirectory: boolean }>> {
+    try {
+      const entries = await loadFsModule().promises.readdir(path, { withFileTypes: true })
+      return entries.map((entry) => ({ name: entry.name, isFile: entry.isFile(), isDirectory: entry.isDirectory() }))
+    } catch {
+      return []
+    }
+  }
+
+  /** Size and last change of a path, or null when it does not exist. */
+  async statPath(path: string): Promise<{ size: number; mtimeMs: number; isDirectory: boolean } | null> {
+    try {
+      const stats = await loadFsModule().promises.stat(path)
+      return { size: stats.size, mtimeMs: stats.mtimeMs, isDirectory: stats.isDirectory() }
+    } catch {
+      return null
+    }
+  }
+
+  /** Up to `length` bytes of a file from `position`, as UTF-8 (a cut character becomes U+FFFD). */
+  async readFileRange(path: string, position: number, length: number): Promise<string> {
+    const handle = await loadFsModule().promises.open(path, 'r')
+    try {
+      const buffer = new Uint8Array(Math.max(0, length))
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, Math.max(0, position))
+      return new TextDecoder('utf-8').decode(buffer.subarray(0, bytesRead))
+    } finally {
+      await handle.close()
+    }
+  }
+
+  /**
+   * The rows of a key/value table of a SQLite file, opened read-only: every
+   * row, or only those whose key is in `keys`. null when the file cannot be
+   * read that way (no SQLite in this runtime, not a database, no such table).
+   */
+  readSqliteTable(
+    path: string,
+    table: { name: string; key: string; value: string },
+    keys?: readonly string[],
+  ): Promise<Map<string, string | Uint8Array> | null> {
+    return Promise.resolve(this.readSqliteTableSync(path, table, keys))
+  }
+
+  private readSqliteTableSync(
+    path: string,
+    table: { name: string; key: string; value: string },
+    keys?: readonly string[],
+  ): Map<string, string | Uint8Array> | null {
+    const sqlite = loadSqliteModule()
+    if (!sqlite || ![table.name, table.key, table.value].every((name) => SQLITE_IDENTIFIER.test(name))) return null
+    if (keys && keys.length === 0) return new Map()
+    try {
+      const database = new sqlite.DatabaseSync(path, { readOnly: true })
+      try {
+        const where = keys ? ` WHERE ${table.key} IN (${keys.map(() => '?').join(', ')})` : ''
+        const rows = database
+          .prepare(`SELECT ${table.key} AS k, ${table.value} AS v FROM ${table.name}${where}`)
+          .all(...(keys ?? []))
+        const result = new Map<string, string | Uint8Array>()
+        for (const row of rows) {
+          const key = row['k']
+          const value = row['v']
+          if (typeof key !== 'string') continue
+          if (typeof value === 'string') {
+            result.set(key, value)
+          } else if (ArrayBuffer.isView(value)) {
+            // A copy in this realm's Uint8Array, whichever one SQLite handed over.
+            const bytes = new Uint8Array(value.byteLength)
+            bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength))
+            result.set(key, bytes)
+          }
+        }
+        return result
+      } finally {
+        database.close()
+      }
+    } catch {
+      return null
     }
   }
 
@@ -1408,13 +1608,124 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
 
   isPtySupported(): boolean {
     const platform = this.getPlatform()
-    return platform === 'darwin' || platform === 'linux'
+    if (!isPtyPlatformSupported(platform)) return false
+    if (platform !== 'win32') return true
+    return this.conPtyVerdict?.supported === true
+  }
+
+  getPtyTransport(): PtyTransport {
+    return this.getPlatform() === 'win32' ? 'conpty' : 'script'
+  }
+
+  getWindowsBuildNumber(): number | null {
+    if (this.getPlatform() !== 'win32') return null
+    try {
+      return parseWindowsBuildNumber(loadOsModule().release())
+    } catch {
+      return null
+    }
+  }
+
+  ensurePtyCapability(): Promise<void> {
+    if (this.getPlatform() !== 'win32') return Promise.resolve()
+    this.conPtyProbe ??= this.probeConPty().then((verdict) => {
+      this.conPtyVerdict = verdict
+    })
+    return this.conPtyProbe
+  }
+
+  getPtyUnavailableReason(): string | undefined {
+    return this.conPtyVerdict?.supported === false
+      ? this.conPtyVerdict.reason
+      : undefined
+  }
+
+  /**
+   * Run the host in probe mode: checks the build, PowerShell language mode,
+   * Add-Type, the control pipe, and output relayed through a pseudo console.
+   */
+  private probeConPty(): Promise<{ supported: boolean; reason?: string }> {
+    const build = this.getWindowsBuildNumber()
+    if (build === null || build < MIN_CONPTY_WINDOWS_BUILD) {
+      return Promise.resolve({
+        supported: false,
+        reason: `Windows build ${build ?? 'unknown'} has no ConPTY (needs ${MIN_CONPTY_WINDOWS_BUILD} or later)`,
+      })
+    }
+    return new Promise((resolve) => {
+      let settled = false
+      let stdout = ''
+      let stderr = ''
+      const settle = (verdict: { supported: boolean; reason?: string }): void => {
+        if (settled) return
+        settled = true
+        resolve(verdict)
+      }
+      try {
+        const env = { ...this.getBaseEnv(), ...buildConPtyHostEnv({ probe: true }) }
+        const handle = this.spawnProcess({
+          command: getWindowsPowerShellPath(env),
+          args: [...CONPTY_HOST_POWERSHELL_ARGS],
+          env,
+          controlPipe: true,
+        })
+        const timerId = stableTimeoutSource.setTimeout(() => {
+          settle({ supported: false, reason: 'the ConPTY probe timed out' })
+          handle.kill('SIGKILL')
+        }, CONPTY_PROBE_TIMEOUT_MS)
+        handle.onStdout((text) => {
+          if (stdout.length < 4096) stdout += text
+        })
+        handle.onStderr((text) => {
+          if (stderr.length < 4096) stderr += text
+        })
+        handle.onExit((code) => {
+          stableTimeoutSource.clearTimeout(timerId)
+          if (code === 0 && stdout.includes(CONPTY_PROBE_OK_MARKER)) {
+            settle({ supported: true })
+            return
+          }
+          const detail = stderr.trim().split(/\r?\n/u)[0] ?? ''
+          settle({
+            supported: false,
+            reason:
+              `the ConPTY probe exited with code ${code ?? 'unknown'}` +
+              (detail.length > 0 ? `: ${detail}` : ''),
+          })
+        })
+        handle.writeControl?.(encodeConPtyInputFrame(CONPTY_PROBE_INPUT))
+      } catch (error) {
+        settle({
+          supported: false,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+      }
+    })
   }
 
   buildPtyCommand(request: PtyCommandRequest): PtyCommand {
     const rows = sanitizeDimension(request.rows, 24)
     const cols = sanitizeDimension(request.cols, 80)
     const platform = this.getPlatform()
+
+    if (platform === 'win32') {
+      // Batch files would need cmd.exe; BinaryLocator resolves shims to node.exe.
+      if (/\.(?:bat|cmd)$/iu.test(request.binaryPath)) {
+        throw new Error(
+          `Terminal mode cannot launch a batch file directly: ${request.binaryPath}`,
+        )
+      }
+      return {
+        command: getWindowsPowerShellPath(process.env),
+        args: [...CONPTY_HOST_POWERSHELL_ARGS],
+        env: buildConPtyHostEnv({
+          commandLine: buildWindowsCommandLine(request.binaryPath, request.args),
+          cols,
+          rows,
+          transcriptPath: request.transcriptPath,
+        }),
+      }
+    }
     const sttyPreamble = `stty rows ${rows} cols ${cols} 2>/dev/null`
     const ptyPreamble =
       `tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; ${sttyPreamble}`
@@ -1425,8 +1736,8 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       'if [ "${TASKCHUTE_BROKER_WATCH_FD:-}" = "3" ]; then ' +
       '(IFS= read -r _ <&3; kill -9 0 2>/dev/null) & fi; '
     // See TERMINAL_EXIT_SENTINEL for why the wrapper looks like this.
-    const wrap = (scriptInvocation: string): string =>
-      `${brokerWatchdog}cat 2>/dev/null | { ${scriptInvocation}; st=$?; ` +
+    const wrap = (scriptInvocation: string, stdinPump: string): string =>
+      `${brokerWatchdog}${stdinPump} 2>/dev/null | { ${scriptInvocation}; st=$?; ` +
       `printf '${TERMINAL_EXIT_SENTINEL}%s\\n' "$st" >&2; kill -9 0 2>/dev/null; }`
 
     if (platform === 'darwin') {
@@ -1444,6 +1755,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
           wrap(
             `TASKCHUTE_AI_TTY_PATH="$0.tty" /usr/bin/script -q -F "$0" ` +
               `/bin/sh -c '${ptyPreamble}; ${ptySupervisor}' "$@"`,
+            'cat',
           ),
           request.transcriptPath,
           request.binaryPath,
@@ -1459,6 +1771,13 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       const execCommand = [request.binaryPath, ...request.args]
         .map(shellQuote)
         .join(' ')
+      // The stdin pump is `dd`, not `cat`: a `cat` that copies with splice(2)
+      // (uutils coreutils, the default on Ubuntu 25.10 and later) keeps the
+      // pipe locked while it waits for the next keystroke, and `script` then
+      // hangs in read() on that pipe — with the CLI's output stuck behind it.
+      // A CLI that queries the terminal at startup (Claude Code, Cursor)
+      // triggers it at once: the terminal's replies arrive back to back.
+      // `dd` reads and writes each chunk as it comes.
       return {
         command: '/bin/sh',
         args: [
@@ -1466,6 +1785,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
           wrap(
             `TASKCHUTE_AI_TTY_PATH="$0.tty" /usr/bin/script -qefc ` +
               `${shellQuote(`${ptyPreamble}; ${ptySupervisor.replace('"$0" "$@"', execCommand)}`)} "$0"`,
+            LINUX_STDIN_PUMP,
           ),
           request.transcriptPath,
           // Unused outer-shell positionals: the broker validates the real

@@ -8,7 +8,7 @@
  * for a feature that could no longer run. Both paths now call this.
  */
 import type { App } from 'obsidian'
-import { VIEW_TYPE_TASKCHUTE } from '../../types'
+import { VIEW_TYPE_TASKCHUTE } from '@/types'
 
 export function notifyAiTaskSettingsChanged(app: App): void {
   const workspace = app.workspace as {

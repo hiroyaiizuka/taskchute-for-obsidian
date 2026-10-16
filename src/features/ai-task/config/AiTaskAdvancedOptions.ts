@@ -1,6 +1,15 @@
 import type { AiTaskHost } from '../types'
+import { getAiAgent, mapAiAgents } from '../agents'
 
-export const CUSTOM_AI_MODEL_VALUE = '__custom__'
+/**
+ * The model IDs passed to a CLI as `--model`. The first character cannot be a
+ * hyphen, so an ID is never read as a flag.
+ */
+export const AI_MODEL_ID_SAFE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$/u
+
+export function isSafeAiModelId(modelId: string): boolean {
+  return AI_MODEL_ID_SAFE_PATTERN.test(modelId)
+}
 
 export interface AiModelPreset {
   id: string
@@ -16,40 +25,21 @@ export type AiReasoningBudget =
   | 'max'
 
 export interface AiReasoningModelOptions {
-  /**
-   * Persistent custom models carry their real ID instead of the legacy
-   * `__custom__` sentinel, so callers must be able to identify them without
-   * inferring capabilities from an unknown ID.
-   */
-  isCustomModel?: boolean
+  /** A model the shown list does not have (an older task's model). */
+  isUnlisted?: boolean
+  /** The efforts the CLI's own list gives for the model, when it gives them. */
+  levels?: readonly string[]
 }
 
-/**
- * Built-in model choices verified against the local CLIs and their official
- * model documentation on 2026-07-13. Custom remains available because model
- * catalogs and private-provider IDs can change independently of the plugin.
- */
-export const AI_MODEL_PRESETS: Record<AiTaskHost, readonly AiModelPreset[]> = {
-  claude: [
-    { id: 'claude-fable-5', label: 'Claude Fable 5' },
-    { id: 'claude-opus-4-8', label: 'Claude Opus 4.8' },
-    { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
-    { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
-  ],
-  codex: [
-    { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
-    { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra' },
-    { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna' },
-  ],
-}
+/** Built-in model choices of each agent (see `agents/`). */
+export const AI_MODEL_PRESETS: Record<AiTaskHost, readonly AiModelPreset[]> =
+  mapAiAgents((agent) => agent.models)
 
+/** Reasoning budgets each agent takes; empty when it has no effort option. */
 export const AI_REASONING_BUDGETS: Record<
   AiTaskHost,
   readonly AiReasoningBudget[]
-> = {
-  claude: ['low', 'medium', 'high', 'xhigh', 'max'],
-  codex: ['low', 'medium', 'high', 'xhigh', 'max'],
-}
+> = mapAiAgents((agent) => agent.reasoning?.budgets ?? [])
 
 export function getAvailableReasoningModes(
   host: AiTaskHost,
@@ -59,28 +49,11 @@ export function getAvailableReasoningModes(
   // "Default" resolves through the user's CLI configuration. It may point to
   // a model outside our preset capability table (for example Haiku or Luna),
   // so only promise explicit reasoning controls after a concrete model is
-  // selected. Custom remains separately conservative below.
+  // selected. An unlisted model stays conservative (see each agent).
   if (selectedModel === '') return ['automatic']
-
-  const isCustomModel =
-    options.isCustomModel === true || selectedModel === CUSTOM_AI_MODEL_VALUE
-
-  if (host === 'claude') {
-    // The current Claude Code docs do not list Haiku 4.5 as supporting
-    // effort. Custom remains permissive for ordinary effort because a private
-    // provider/model may support it, but does not advertise Ultracode.
-    if (selectedModel === 'claude-haiku-4-5') return ['automatic']
-    if (isCustomModel) {
-      return ['automatic', 'specified']
-    }
-    return ['automatic', 'specified', 'ultra']
-  }
-
-  // Codex 0.144.1's bundled catalog advertises Ultra for Sol and Terra, but
-  // not Luna. A custom provider/model is unknown, so do not promise Ultra.
-  return selectedModel === 'gpt-5.6-luna' || isCustomModel
-    ? ['automatic', 'specified']
-    : ['automatic', 'specified', 'ultra']
+  const reasoning = getAiAgent(host).reasoning
+  if (reasoning === null) return ['automatic']
+  return reasoning.modesFor(selectedModel, options.isUnlisted === true, options.levels)
 }
 
 export function buildReasoningArgs(
@@ -89,21 +62,10 @@ export function buildReasoningArgs(
   budget: string,
 ): string[] {
   if (mode === 'automatic') return []
-  if (mode === 'ultra') {
-    return host === 'claude'
-      ? ['--effort=ultracode']
-      : ['--config', 'model_reasoning_effort="ultra"']
-  }
+  const reasoning = getAiAgent(host).reasoning
+  if (reasoning === null) return []
+  if (mode === 'ultra') return reasoning.effortArgs(reasoning.ultraValue)
   if (mode !== 'specified') return []
-  if (!AI_REASONING_BUDGETS[host].some((candidate) => candidate === budget)) {
-    return []
-  }
-
-  if (host === 'claude') {
-    return [`--effort=${budget}`]
-  }
-
-  // Codex parses --config values as TOML. Keep the quotes inside this argv
-  // token so the effort is unambiguously a TOML string in both PTY and exec.
-  return ['--config', `model_reasoning_effort="${budget}"`]
+  if (!reasoning.budgets.some((candidate) => candidate === budget)) return []
+  return reasoning.effortArgs(budget)
 }

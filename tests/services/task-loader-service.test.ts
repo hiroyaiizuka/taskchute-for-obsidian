@@ -1,6 +1,6 @@
-import type { TaskChuteView } from '../../src/features/core/views/TaskChuteView';
-import { TaskLoaderService, isTaskFile } from '../../src/features/core/services/TaskLoaderService';
-import { SectionConfigService } from '../../src/services/SectionConfigService';
+import type { TaskChuteView } from '@/features/core/views/TaskChuteView';
+import { TaskLoaderService, isTaskFile } from '@/features/core/services/TaskLoaderService';
+import { SectionConfigService } from '@/services/SectionConfigService';
 import {
   createNonRoutineLoadContext,
   createRoutineLoadContext,

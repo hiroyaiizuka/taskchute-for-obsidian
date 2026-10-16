@@ -1,6 +1,6 @@
-import TaskOrderManager, { TaskOrderManagerOptions } from '../../src/features/core/services/TaskOrderManager';
-import DayStateStoreService from '../../src/services/DayStateStoreService';
-import { DayState, TaskData, TaskInstance } from '../../src/types';
+import TaskOrderManager, { TaskOrderManagerOptions } from '@/features/core/services/TaskOrderManager';
+import DayStateStoreService from '@/services/DayStateStoreService';
+import { DayState, TaskData, TaskInstance } from '@/types';
 
 describe('TaskOrderManager', () => {
   const createOptions = (overrides: Partial<TaskOrderManagerOptions> = {}) => {

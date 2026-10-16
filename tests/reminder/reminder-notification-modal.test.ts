@@ -4,8 +4,8 @@
 import {
   ReminderNotificationModal,
   ReminderNotificationModalOptions,
-} from '../../src/features/reminder/modals/ReminderNotificationModal';
-import { t } from '../../src/i18n';
+} from '@/features/reminder/modals/ReminderNotificationModal';
+import { t } from '@/i18n';
 
 // Mock Obsidian App and Modal
 const mockOpen = jest.fn();

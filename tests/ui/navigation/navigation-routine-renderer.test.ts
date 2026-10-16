@@ -1,4 +1,4 @@
-import NavigationRoutineRenderer, { RoutineTaskWithFile } from '../../../src/ui/navigation/NavigationRoutineRenderer'
+import NavigationRoutineRenderer, { RoutineTaskWithFile } from '@/ui/navigation/NavigationRoutineRenderer'
 
 function createTranslator(): (key: string, fallback: string, vars?: Record<string, string | number>) => string {
   return (_key, fallback, vars) => {

@@ -1,16 +1,16 @@
-import { t } from "../i18n";
+import { t, type TranslationKey } from "../i18n";
 import type { CommandHost, ViewActions, CommandRegistrar } from "../types/Commands";
 
 interface LocalizedCommandDefinition {
   id: string;
-  nameKey: string;
+  nameKey: TranslationKey;
   fallback: string;
   callback: () => void | Promise<void>;
 }
 
 interface ConditionalCommandDefinition {
   id: string;
-  nameKey: string;
+  nameKey: TranslationKey;
   fallback: string;
   checkCallback: (checking: boolean) => boolean | void;
 }
@@ -22,8 +22,6 @@ function isConditional(def: AnyCommandDefinition): def is ConditionalCommandDefi
 }
 
 class CommandRegistrarImpl implements CommandRegistrar {
-  private readonly allCommands: AnyCommandDefinition[] = [];
-
   constructor(
     private readonly host: CommandHost,
     private readonly view: ViewActions,
@@ -58,6 +56,21 @@ class CommandRegistrarImpl implements CommandRegistrar {
         nameKey: "commands.reorganizeIdle",
         fallback: "Reorganize idle tasks to current slot",
         callback: () => this.view.reorganizeIdleTasks(),
+      },
+      {
+        // No default hotkey (Obsidian's guidelines); users assign their own.
+        id: "leave-comment",
+        nameKey: "commands.leaveComment",
+        fallback: "Leave a comment",
+        callback: () => this.view.triggerLeaveComment(),
+      },
+      {
+        // Past agent sessions (LEV-320): the AI pane is hidden while nothing
+        // runs, so this is the way in when the pane is not on screen.
+        id: "open-session-history",
+        nameKey: "commands.openSessionHistory",
+        fallback: "Open AI session history",
+        callback: () => this.view.triggerOpenSessionHistory(),
       },
     ];
 
@@ -107,18 +120,6 @@ class CommandRegistrarImpl implements CommandRegistrar {
     definitions.forEach((definition) => this.registerLocalizedCommand(definition));
   }
 
-  relocalize(): void {
-    const baseId = this.host.manifest.id;
-    for (const def of this.allCommands) {
-      try {
-        this.host.app.commands.removeCommand(`${baseId}:${def.id}`);
-      } catch (error) {
-        console.warn("Failed to remove command for relocalization", error);
-      }
-      this.registerLocalizedCommand(def);
-    }
-  }
-
   private hasOwnBlockingModal(): boolean {
     // Every dialog is an Obsidian `Modal` now, so `.modal` covers them all —
     // including the comment, log and AI ones that the old overlay-class check
@@ -140,9 +141,6 @@ class CommandRegistrarImpl implements CommandRegistrar {
   }
 
   private registerLocalizedCommand(definition: AnyCommandDefinition): void {
-    if (!this.allCommands.includes(definition)) {
-      this.allCommands.push(definition);
-    }
     if (isConditional(definition)) {
       this.host.addCommand({
         id: definition.id,

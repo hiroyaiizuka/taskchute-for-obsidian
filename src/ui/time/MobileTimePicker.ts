@@ -119,7 +119,10 @@ export class MobileTimePicker implements TimePicker {
       'taskchute-mobile-time-picker-btn-reset',
     )
     applyIcon(resetBtn, 'rotate-ccw')
-    resetBtn.setAttribute('aria-label', 'Reset')
+    resetBtn.setAttribute(
+      'aria-label',
+      options.tv ? options.tv('forms.reset', 'Reset') : 'Reset',
+    )
     resetBtn.addEventListener('click', this.handleReset)
     buttonsContainer.appendChild(resetBtn)
 
@@ -318,7 +321,7 @@ export class MobileTimePicker implements TimePicker {
       const selectedMinutes = this.selectedHour * 60 + this.selectedMinute
       if (selectedMinutes > nowMinutes) {
         const message = this.options.tv
-          ? this.options.tv('forms.timeNotFuture', '未来の時刻は設定できません')
+          ? this.options.tv('forms.timeNotFuture', 'Time cannot be in the future')
           : 'Time cannot be in the future'
         new Notice(message)
         return

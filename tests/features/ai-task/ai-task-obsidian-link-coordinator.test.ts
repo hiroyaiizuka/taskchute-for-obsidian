@@ -2,8 +2,8 @@ import {
   AiTaskObsidianLinkCoordinator,
   resetAiTaskObsidianLinkRuntimeOwnershipForTests,
   type AiTaskObsidianLinkCoordinatorHost,
-} from '../../../src/features/ai-task/services/AiTaskObsidianLinkCoordinator'
-import type { TaskInstance } from '../../../src/types'
+} from '@/features/ai-task/services/AiTaskObsidianLinkCoordinator'
+import type { TaskInstance } from '@/types'
 
 interface InstanceOptions {
   instanceId: string

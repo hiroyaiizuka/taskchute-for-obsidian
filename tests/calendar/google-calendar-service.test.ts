@@ -1,5 +1,5 @@
-import { GoogleCalendarService } from "../../src/features/calendar/services/GoogleCalendarService"
-import type { TaskData, TaskInstance } from "../../src/types"
+import { GoogleCalendarService } from "@/features/calendar/services/GoogleCalendarService"
+import type { TaskData, TaskInstance } from "@/types"
 
 type InstanceOverrides = Omit<Partial<TaskInstance>, "task"> & {
   task?: Partial<TaskData>

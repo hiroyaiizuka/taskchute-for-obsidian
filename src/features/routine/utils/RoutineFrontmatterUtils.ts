@@ -1,4 +1,4 @@
-import type { RoutineFrontmatter } from '../../../types';
+import type { RoutineFrontmatter } from '@/types';
 import { RoutineService } from '../services/RoutineService';
 
 export interface RoutineFrontmatterMergeOptions {

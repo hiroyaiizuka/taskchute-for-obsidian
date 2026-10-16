@@ -5,10 +5,10 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { createContext, runInContext } from 'vm'
 
-import { OWNER_SENTINEL_PROBE_SOURCE } from '../../../../src/features/ai-task/services/broker-source/OwnerSentinelProbeSource'
-import { buildTerminalBrokerSource } from '../../../../src/features/ai-task/services/TerminalSessionBrokerSource'
-import { TERMINAL_SESSION_GUARD_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionGuardSource'
-import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '../../../../src/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
+import { OWNER_SENTINEL_PROBE_SOURCE } from '@/features/ai-task/services/broker-source/OwnerSentinelProbeSource'
+import { buildTerminalBrokerSource } from '@/features/ai-task/services/TerminalSessionBrokerSource'
+import { TERMINAL_SESSION_GUARD_SOURCE } from '@/features/ai-task/services/TerminalSessionGuardSource'
+import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
 
 /**
  * The one place the three programs branch on the host OS.

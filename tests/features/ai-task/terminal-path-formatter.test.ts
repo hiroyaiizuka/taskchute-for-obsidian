@@ -1,7 +1,7 @@
 import {
   WORKSPACE_PATH_DRAG_MIME,
   formatWorkspacePathForTerminal,
-} from '../../../src/features/ai-task/services/TerminalPathFormatter'
+} from '@/features/ai-task/services/TerminalPathFormatter'
 
 describe('formatWorkspacePathForTerminal', () => {
   test('exports a feature-specific drag MIME type', () => {

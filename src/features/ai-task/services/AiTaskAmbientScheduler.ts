@@ -3,7 +3,7 @@ import type { AiTaskAmbientScheduleStateStore } from './AiTaskAmbientScheduleSta
 import {
   stableTimerSource,
   type StableIntervalId,
-} from '../../../utils/stableTimer'
+} from '@/utils/stableTimer'
 
 export const AI_TASK_AMBIENT_CHECK_INTERVAL_MS = 60_000
 

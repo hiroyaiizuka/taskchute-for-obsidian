@@ -1,5 +1,5 @@
 import { normalizePath, TFile, TFolder } from 'obsidian'
-import type { TaskChutePluginLike } from '../../../types'
+import type { TaskChutePluginLike } from '@/types'
 import { LOG_BACKUP_FOLDER, LOG_BACKUP_LEGACY_FOLDER } from '../constants'
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000

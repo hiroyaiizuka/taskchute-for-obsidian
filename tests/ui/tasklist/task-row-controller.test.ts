@@ -1,5 +1,5 @@
-import TaskRowController, { TaskRowControllerHost } from '../../../src/ui/tasklist/TaskRowController'
-import type { TaskInstance } from '../../../src/types'
+import TaskRowController, { TaskRowControllerHost } from '@/ui/tasklist/TaskRowController'
+import type { TaskInstance } from '@/types'
 
 jest.mock('obsidian', () => {
   const actual = jest.requireActual('obsidian')

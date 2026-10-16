@@ -10,6 +10,9 @@
  */
 
 import type { AiTaskHost } from '../types'
+import { getAiAgent, type AiCliPathSettingKey } from '../agents'
+import type { WindowsInstallDirs } from '../agents/AiAgentDefinition'
+import { windowsJoin } from '../agents/windowsPaths'
 import {
   POSIX_INTERACTIVE_LOGIN_SHELL_FLAG,
   POSIX_LOGIN_SHELL_FLAG,
@@ -25,10 +28,8 @@ const PROBE_COMMAND = '/bin/test'
 const KNOWN_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin']
 const WINDOWS_PLATFORM = 'win32'
 
-export interface AiBinaryPathOverrides {
-  aiTaskClaudePath?: string
-  aiTaskCodexPath?: string
-}
+/** Manually chosen CLI paths, keyed by each agent's setting. */
+export type AiBinaryPathOverrides = Partial<Record<AiCliPathSettingKey, string>>
 
 /** Legacy package-backed shape accepted by AiTaskManager test doubles. */
 export interface AiBinaryLaunchSpec {
@@ -100,6 +101,8 @@ export interface BinaryLocatorGateway extends Pick<
 > {
   getPlatform(): string
   isFile(path: string): Promise<boolean>
+  /** Folder names inside `path`; only versioned installs need it. */
+  listDirectoryNames?(path: string): Promise<string[]>
 }
 
 export class AiBinaryNotFoundError extends Error {
@@ -121,17 +124,6 @@ function getEnvValue(
   const normalized = name.toLowerCase()
   const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === normalized)
   return key === undefined ? undefined : env[key]
-}
-
-function windowsJoin(root: string | undefined, ...parts: string[]): string {
-  if (root === undefined || root.length === 0) return ''
-  return [root, ...parts]
-    .map((part, index) =>
-      index === 0
-        ? part.replace(/[\\/]+$/u, '')
-        : part.replace(/^[\\/]+|[\\/]+$/gu, ''),
-    )
-    .join('\\')
 }
 
 function windowsDirname(path: string): string {
@@ -405,27 +397,28 @@ export class BinaryLocator {
     host: AiTaskHost,
     resolution: AiBinaryResolution,
   ): Promise<AiBinaryResolution> {
+    const command = getAiAgent(host).command
     if (typeof resolution !== 'string') return resolution
     const env = this.gateway.getBaseEnv()
     const home = env['HOME']?.replace(/\/+$/u, '')
     const candidates: string[] = []
     if (resolution.includes('/mise/installs/')) {
       const miseData = env['MISE_DATA_DIR']?.replace(/\/+$/u, '')
-      if (miseData) candidates.push(`${miseData}/shims/${host}`)
-      if (home) candidates.push(`${home}/.local/share/mise/shims/${host}`)
+      if (miseData) candidates.push(`${miseData}/shims/${command}`)
+      if (home) candidates.push(`${home}/.local/share/mise/shims/${command}`)
     }
     if (resolution.includes('/.asdf/installs/')) {
       const asdfData = env['ASDF_DATA_DIR']?.replace(/\/+$/u, '')
-      if (asdfData) candidates.push(`${asdfData}/shims/${host}`)
-      if (home) candidates.push(`${home}/.asdf/shims/${host}`)
+      if (asdfData) candidates.push(`${asdfData}/shims/${command}`)
+      if (home) candidates.push(`${home}/.asdf/shims/${command}`)
     }
     if (resolution.includes('/.volta/tools/')) {
       const voltaHome = env['VOLTA_HOME']?.replace(/\/+$/u, '')
-      if (voltaHome) candidates.push(`${voltaHome}/bin/${host}`)
-      if (home) candidates.push(`${home}/.volta/bin/${host}`)
+      if (voltaHome) candidates.push(`${voltaHome}/bin/${command}`)
+      if (home) candidates.push(`${home}/.volta/bin/${command}`)
     }
     if (resolution.includes('/Cellar/') || resolution.includes('/homebrew/Cellar/')) {
-      candidates.push(`/opt/homebrew/bin/${host}`, `/usr/local/bin/${host}`)
+      candidates.push(`/opt/homebrew/bin/${command}`, `/usr/local/bin/${command}`)
     }
     return (await this.probeExecutablePaths(candidates)) ?? resolution
   }
@@ -452,15 +445,15 @@ export class BinaryLocator {
   }
 
   private readOverride(host: AiTaskHost): string | undefined {
-    const overrides = this.getOverrides()
-    const value = host === 'claude' ? overrides.aiTaskClaudePath : overrides.aiTaskCodexPath
+    const value = this.getOverrides()[getAiAgent(host).pathSetting.key]
     const trimmed = value?.trim()
     return trimmed !== undefined && trimmed.length > 0 ? trimmed : undefined
   }
 
   private async detectViaShell(host: AiTaskHost): Promise<string | undefined> {
+    const binaryName = getAiAgent(host).command
     const command =
-      `resolved="$(command -v ${host} 2>/dev/null)" && ` +
+      `resolved="$(command -v ${binaryName} 2>/dev/null)" && ` +
       `printf '${POSIX_BINARY_PATH_MARKER}%s\\n' "$resolved"`
     for (const flag of [
       POSIX_INTERACTIVE_LOGIN_SHELL_FLAG,
@@ -495,6 +488,7 @@ export class BinaryLocator {
    * from an OS-launched Obsidian process whose original PATH is minimal.
    */
   private async detectViaPath(host: AiTaskHost): Promise<string | undefined> {
+    const command = getAiAgent(host).command
     const pathValue = this.gateway.getBaseEnv()['PATH']
     if (pathValue === undefined || pathValue.length === 0) return undefined
     const seen = new Set<string>()
@@ -503,18 +497,19 @@ export class BinaryLocator {
       const directory = rawDirectory.trim().replace(/\/+$/u, '')
       if (!directory.startsWith('/') || seen.has(directory)) continue
       seen.add(directory)
-      candidates.push(`${directory}/${host}`)
+      candidates.push(`${directory}/${command}`)
     }
     return await this.probeExecutablePaths(candidates)
   }
 
   private candidatePaths(host: AiTaskHost): string[] {
+    const command = getAiAgent(host).command
     const home = this.gateway.getBaseEnv()['HOME']?.trim()
     const dirs =
       home !== undefined && home.length > 0
         ? [`${home}/.local/bin`, ...KNOWN_BIN_DIRS]
         : [...KNOWN_BIN_DIRS]
-    return dirs.map((dir) => `${dir}/${host}`)
+    return dirs.map((dir) => `${dir}/${command}`)
   }
 
   private async probeKnownPaths(host: AiTaskHost): Promise<string | undefined> {
@@ -543,7 +538,7 @@ export class BinaryLocator {
     try {
       const result = await this.gateway.execCapture(
         'where.exe',
-        [host],
+        [getAiAgent(host).command],
         WHICH_TIMEOUT_MS,
       )
       for (const candidate of parseWindowsWhereOutput(result)) {
@@ -567,9 +562,10 @@ export class BinaryLocator {
     }
     if (/\.(?:cmd|bat)$/iu.test(candidate)) {
       const shimDirectory = windowsDirname(candidate)
-      return host === 'claude'
-        ? await this.resolveClaudePackageFromDirectory(shimDirectory)
-        : await this.resolveCodexPackageFromDirectory(shimDirectory)
+      return (
+        (await this.resolveVersionedInstall(host, shimDirectory)) ??
+        (await this.resolvePackageFromDirectory(host, shimDirectory))
+      )
     }
     if (/\.ps1$/iu.test(candidate)) return undefined
     // npm also installs extensionless POSIX shims on Windows. CreateProcess
@@ -578,137 +574,87 @@ export class BinaryLocator {
     return undefined
   }
 
+  private windowsInstallDirs(): WindowsInstallDirs {
+    const env = this.gateway.getBaseEnv()
+    return {
+      userProfile: getEnvValue(env, 'USERPROFILE')?.trim() ?? '',
+      localAppData: getEnvValue(env, 'LOCALAPPDATA')?.trim() ?? '',
+      appData: getEnvValue(env, 'APPDATA')?.trim() ?? '',
+      programFiles: getEnvValue(env, 'ProgramFiles')?.trim() ?? 'C:\\Program Files',
+      programFilesX86:
+        getEnvValue(env, 'ProgramFiles(x86)')?.trim() ?? 'C:\\Program Files (x86)',
+      architecture: (
+        getEnvValue(env, 'PROCESSOR_ARCHITEW6432') ??
+        getEnvValue(env, 'PROCESSOR_ARCHITECTURE') ??
+        ''
+      ).toLowerCase(),
+    }
+  }
+
   private async probeKnownWindowsPaths(
     host: AiTaskHost,
   ): Promise<AiBinaryResolution | undefined> {
+    const agent = getAiAgent(host)
     const env = this.gateway.getBaseEnv()
-    const userProfile = getEnvValue(env, 'USERPROFILE')?.trim()
-    const localAppData = getEnvValue(env, 'LOCALAPPDATA')?.trim()
-    const appData = getEnvValue(env, 'APPDATA')?.trim()
-    const programFiles = getEnvValue(env, 'ProgramFiles')?.trim() ?? 'C:\\Program Files'
-    const programFilesX86 =
-      getEnvValue(env, 'ProgramFiles(x86)')?.trim() ?? 'C:\\Program Files (x86)'
+    const dirs = this.windowsInstallDirs()
 
-    if (host === 'claude') {
-      const native = await this.firstExistingWindowsPath([
-        windowsJoin(userProfile, '.claude', 'local', 'claude.exe'),
-        windowsJoin(localAppData, 'Claude', 'claude.exe'),
-        windowsJoin(programFiles, 'Claude', 'claude.exe'),
-        windowsJoin(programFilesX86, 'Claude', 'claude.exe'),
-        windowsJoin(userProfile, '.local', 'bin', 'claude.exe'),
-        windowsJoin(userProfile, '.volta', 'bin', 'claude.exe'),
-        windowsJoin(userProfile, 'scoop', 'shims', 'claude.exe'),
-        windowsJoin(localAppData, 'pnpm', 'claude.exe'),
-      ])
-      if (native !== undefined) return native
+    const native = await this.firstExistingWindowsPath(agent.windows.nativeExecutables(dirs))
+    if (native !== undefined) return native
+    for (const root of agent.windows.versionedInstall?.roots(dirs) ?? []) {
+      const versioned = await this.resolveVersionedInstall(host, root)
+      if (versioned !== undefined) return versioned
     }
 
     const npmDirectories = dedupeWindowsPaths([
-      windowsJoin(appData, 'npm'),
-      windowsJoin(userProfile, 'AppData', 'Roaming', 'npm'),
+      windowsJoin(dirs.appData, 'npm'),
+      windowsJoin(dirs.userProfile, 'AppData', 'Roaming', 'npm'),
       getEnvValue(env, 'npm_config_prefix')?.trim() ?? '',
-      windowsJoin(programFiles, 'nodejs', 'node_global'),
-      windowsJoin(programFilesX86, 'nodejs', 'node_global'),
-      windowsJoin(userProfile, '.volta', 'tools', 'image', 'packages', host, 'lib'),
-      ...this.pnpmGlobalDirectories(localAppData, appData),
+      windowsJoin(dirs.programFiles, 'nodejs', 'node_global'),
+      windowsJoin(dirs.programFilesX86, 'nodejs', 'node_global'),
+      windowsJoin(dirs.userProfile, '.volta', 'tools', 'image', 'packages', agent.command, 'lib'),
+      ...this.pnpmGlobalDirectories(dirs.localAppData, dirs.appData),
     ])
     for (const directory of npmDirectories) {
-      const packaged =
-        host === 'claude'
-          ? await this.resolveClaudePackageFromDirectory(directory)
-          : await this.resolveCodexPackageFromDirectory(directory)
+      const packaged = await this.resolvePackageFromDirectory(host, directory)
       if (packaged !== undefined) return packaged
     }
     return undefined
   }
 
-  private async resolveClaudePackageFromDirectory(
-    npmDirectory: string,
+  /** The newest complete version inside an install that carries its own runtime. */
+  private async resolveVersionedInstall(
+    host: AiTaskHost,
+    root: string,
   ): Promise<AiBinaryLaunchSpec | undefined> {
-    if (npmDirectory.length === 0) return undefined
-    const entrypoint = await this.firstExistingWindowsPath([
-      windowsJoin(
-        npmDirectory,
-        'node_modules',
-        '@anthropic-ai',
-        'claude-code',
-        'cli-wrapper.cjs',
-      ),
-      windowsJoin(
-        npmDirectory,
-        'node_modules',
-        '@anthropic-ai',
-        'claude-code',
-        'cli.js',
-      ),
-    ])
-    return entrypoint === undefined
-      ? undefined
-      : await this.wrapWindowsNodeEntrypoint(entrypoint)
+    const install = getAiAgent(host).windows.versionedInstall
+    if (install === undefined || root.length === 0) return undefined
+    if (this.gateway.listDirectoryNames === undefined) return undefined
+    const versionsFolder = install.versionsFolder(root)
+    const names = await this.gateway.listDirectoryNames(versionsFolder)
+    for (const name of install.newestFirst(names)) {
+      const { executable, entrypoint } = install.launch(windowsJoin(versionsFolder, name))
+      if (
+        (await this.firstExistingWindowsPath([executable])) !== undefined &&
+        (await this.firstExistingWindowsPath([entrypoint])) !== undefined
+      ) {
+        return { binaryPath: executable, argsPrefix: [entrypoint] }
+      }
+    }
+    return undefined
   }
 
-  private async resolveCodexPackageFromDirectory(
+  /** The agent's package payload under an npm-style folder: a native .exe, or a JS entrypoint run by node. */
+  private async resolvePackageFromDirectory(
+    host: AiTaskHost,
     npmDirectory: string,
   ): Promise<AiBinaryResolution | undefined> {
     if (npmDirectory.length === 0) return undefined
-    const native = await this.firstExistingWindowsPath(
-      this.codexNativeCandidates(npmDirectory),
+    const entrypoint = await this.firstExistingWindowsPath(
+      getAiAgent(host).windows.packageEntrypoints(npmDirectory, this.windowsInstallDirs()),
     )
-    if (native !== undefined) return native
-    const nodeEntrypoint = await this.firstExistingWindowsPath([
-      windowsJoin(
-        npmDirectory,
-        'node_modules',
-        '@openai',
-        'codex',
-        'bin',
-        'codex.js',
-      ),
-    ])
-    return nodeEntrypoint === undefined
-      ? undefined
-      : await this.wrapWindowsNodeEntrypoint(nodeEntrypoint)
-  }
-
-  private codexNativeCandidates(npmDirectory: string): string[] {
-    const env = this.gateway.getBaseEnv()
-    const architecture = (
-      getEnvValue(env, 'PROCESSOR_ARCHITEW6432') ??
-      getEnvValue(env, 'PROCESSOR_ARCHITECTURE') ??
-      ''
-    ).toLowerCase()
-    const targets = [
-      { packageName: 'codex-win32-x64', target: 'x86_64-pc-windows-msvc' },
-      { packageName: 'codex-win32-arm64', target: 'aarch64-pc-windows-msvc' },
-    ]
-    if (architecture.includes('arm64')) targets.reverse()
-
-    const packageRoot = windowsJoin(npmDirectory, 'node_modules', '@openai', 'codex')
-    const candidates: string[] = []
-    for (const target of targets) {
-      const roots = [
-        packageRoot,
-        windowsJoin(
-          npmDirectory,
-          'node_modules',
-          '@openai',
-          target.packageName,
-        ),
-        windowsJoin(
-          packageRoot,
-          'node_modules',
-          '@openai',
-          target.packageName,
-        ),
-      ]
-      for (const root of roots) {
-        candidates.push(
-          windowsJoin(root, 'vendor', target.target, 'bin', 'codex.exe'),
-          windowsJoin(root, 'vendor', target.target, 'codex', 'codex.exe'),
-        )
-      }
-    }
-    return dedupeWindowsPaths(candidates)
+    if (entrypoint === undefined) return undefined
+    if (/\.exe$/iu.test(entrypoint)) return entrypoint
+    return await this.wrapWindowsNodeEntrypoint(entrypoint)
   }
 
   private async wrapWindowsNodeEntrypoint(

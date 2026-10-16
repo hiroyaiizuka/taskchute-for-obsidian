@@ -5,11 +5,10 @@
  * field is Japanese prose and would leak into an English UI. The server text is
  * kept only as a last resort for a code this build does not recognize.
  *
- * Every message carries its code. The prose is what the user acts on, but the
- * code is what support asks for and what a bug report has to contain, and a
- * failure that reaches the screen without one leaves both sides guessing.
+ * Every message carries its code — the prose is what the user acts on, but the
+ * code is what support asks for and what a bug report has to contain.
  */
-import { t } from '../../../i18n'
+import { t, type TranslationKey } from '@/i18n'
 import type { ActivationFailure } from '../services/LicenseManager'
 import type { LicenseApiFailure } from '../services/LicenseApiClient'
 
@@ -19,6 +18,10 @@ const FALLBACKS: Record<string, string> = {
   license_revoked: 'This license has been revoked. Please contact support.',
   license_expired: 'This license has expired. Please renew it to keep using AI tasks.',
   license_suspended: 'This license is suspended. Please contact support.',
+  stale_secret:
+    'This device is no longer the one registered to your license. Enter your activation code again to use it here.',
+  reset_limit_reached:
+    'This license has been re-registered on too many devices recently. Please contact support.',
   device_limit_reached:
     'You have reached the maximum number of devices. Release one to activate this device.',
   device_not_found: 'That device is no longer registered.',
@@ -29,12 +32,14 @@ const FALLBACKS: Record<string, string> = {
   internal: 'The license service returned an unexpected error. Try again later.',
   network: 'Could not reach the license service. Check your connection and try again.',
   malformed: 'The license request was rejected. Please report this as a bug.',
+  no_activation_code: 'Enter your activation code first.',
 }
 
 /** Codes for the failures the client itself decides, which have no server code. */
 const CLIENT_CODES = {
   network: 'network_unreachable',
   malformed: 'bad_request',
+  noCode: 'no_activation_code',
   untrustedToken: 'untrusted_token',
 } as const
 
@@ -45,13 +50,14 @@ function formatRetryAt(retryAfterAt: number | undefined): string {
 }
 
 function messageForCode(code: string, vars?: Record<string, string>): string {
-  return t(`license.errors.${code}`, FALLBACKS[code] ?? FALLBACKS['internal'], vars)
+  // `code` comes from the server, so an unknown one is expected here; the
+  // lookup misses and the fallback below is what the user sees.
+  return t(`license.errors.${code}` as TranslationKey, FALLBACKS[code] ?? FALLBACKS['internal'], vars)
 }
 
 /**
- * The message the user reads, with the code that identifies the failure.
- *
- * The code goes last and in parentheses so it never gets in the way of the
+ * The message the user reads, with the code that identifies the failure. The
+ * code goes last and in parentheses so it never gets in the way of the
  * instruction, which is the part most users need.
  */
 function withCode(message: string, code: string): string {
@@ -65,6 +71,7 @@ function withCode(message: string, code: string): string {
 export function apiFailureCode(failure: LicenseApiFailure): string {
   if (failure.kind === 'network') return CLIENT_CODES.network
   if (failure.kind === 'malformed') return `${CLIENT_CODES.malformed}_${failure.status}`
+  if (failure.kind === 'no-code') return CLIENT_CODES.noCode
 
   return failure.code
 }
@@ -89,8 +96,10 @@ export function describeApiFailure(failure: LicenseApiFailure): string {
 function apiFailureMessage(failure: LicenseApiFailure): string {
   if (failure.kind === 'network') return messageForCode('network')
   if (failure.kind === 'malformed') return messageForCode('malformed')
+  // Not a bug to report: the user simply has nothing entered to act with.
+  if (failure.kind === 'no-code') return messageForCode(CLIENT_CODES.noCode)
 
-  if (failure.code === 'deactivation_limit_reached') {
+  if (failure.code === 'deactivation_limit_reached' || failure.code === 'reset_limit_reached') {
     return messageForCode(failure.code, { retryAt: formatRetryAt(failure.details?.retry_after_at) })
   }
 

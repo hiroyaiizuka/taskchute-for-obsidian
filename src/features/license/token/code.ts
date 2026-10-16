@@ -31,11 +31,9 @@ export function formatActivationCode(raw: string): string {
 /**
  * Reduce a code the user typed or pasted to its comparable form.
  *
- * Absorbs surrounding whitespace, lowercase, omitted hyphens and an omitted
- * prefix. Following Crockford, `I` / `L` read as `1` and `O` as `0`.
- *
- * Returns null when the input cannot be a code at all; callers treat that as a
- * typo rather than as a rejected license.
+ * Absorbs whitespace, lowercase, omitted hyphens and an omitted prefix;
+ * following Crockford, `I` / `L` read as `1` and `O` as `0`. Null means the
+ * input cannot be a code at all, which callers treat as a typo.
  */
 export function normalizeCode(input: string): string | null {
   const compact = input.trim().toUpperCase().replace(/[\s-]/g, '')

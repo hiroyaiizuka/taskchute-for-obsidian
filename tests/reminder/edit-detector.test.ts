@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { EditDetector } from '../../src/features/reminder/services/EditDetector';
+import { EditDetector } from '@/features/reminder/services/EditDetector';
 
 describe('EditDetector', () => {
   beforeEach(() => {

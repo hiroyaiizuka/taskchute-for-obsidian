@@ -1,5 +1,5 @@
 import { App } from 'obsidian'
-import { showConfirmModal } from '../../../src/ui/modals/ConfirmModal'
+import { showConfirmModal } from '@/ui/modals/ConfirmModal'
 
 jest.mock('obsidian', () => {
   class MockApp {}

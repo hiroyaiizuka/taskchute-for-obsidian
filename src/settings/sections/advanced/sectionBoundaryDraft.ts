@@ -1,5 +1,5 @@
-import type { SectionBoundary } from "../../../types"
-import { SectionConfigService } from "../../../services/SectionConfigService"
+import type { SectionBoundary } from "@/types"
+import { SectionConfigService } from "@/services/SectionConfigService"
 
 const TIME_PATTERN = /^(\d{1,2}):(\d{2})$/
 

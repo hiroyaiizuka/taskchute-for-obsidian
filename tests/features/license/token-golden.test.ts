@@ -11,13 +11,13 @@ import {
   GOLDEN_PAYLOAD,
   GOLDEN_PUBLIC_KEY,
   GOLDEN_TOKEN,
-} from '../../../src/features/license/token/goldenVector'
-import { decodeBase64Url, utf8Decode } from '../../../src/features/license/token/primitives'
+} from '@/features/license/token/goldenVector'
+import { decodeBase64Url, utf8Decode } from '@/features/license/token/primitives'
 import {
   parseTokenPayload,
   TOKEN_KEY_ORDER,
   verifyToken,
-} from '../../../src/features/license/token/token'
+} from '@/features/license/token/token'
 
 const PRODUCT_ID = 'taskchute-plus'
 

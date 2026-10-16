@@ -1,7 +1,7 @@
 import AccentContrastController, {
   TASK_ACCENT_PROPERTY,
-} from '../../../src/ui/tasklist/AccentContrastController'
-import { contrastRatio, parseRgbFunction, rgbToOklch } from '../../../src/utils/color'
+} from '@/ui/tasklist/AccentContrastController'
+import { contrastRatio, parseRgbFunction, rgbToOklch } from '@/utils/color'
 
 /**
  * jsdom never resolves `var()`, so stand in for the browser: the probe span the

@@ -1,13 +1,13 @@
 import { Notice } from "obsidian"
-import { t } from "../../../i18n"
-import { showConfirmModal } from "../../../ui/modals/ConfirmModal"
+import { t } from "@/i18n"
+import { showConfirmModal } from "@/ui/modals/ConfirmModal"
 import {
   applySectionCustomization,
   isDefaultBoundaries,
   isUnchangedBoundaries,
   validateBoundaries,
-} from "../../services/sectionCustomizationService"
-import type { SectionContext, SectionModule } from "../../types"
+} from "@/settings/services/sectionCustomizationService"
+import type { SectionContext, SectionModule } from "@/settings/types"
 import {
   SectionBoundaryDraft,
   parseBoundary,

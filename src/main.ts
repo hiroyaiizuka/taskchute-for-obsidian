@@ -4,7 +4,6 @@ import type { TaskChuteSettings } from "./types"
 import type { PathService } from "./services/PathService"
 import type { RoutineAliasService } from "./features/routine/services/RoutineAliasService"
 import type DayStatePersistenceService from "./services/DayStatePersistenceService"
-import type { LocaleCoordinatorHandle } from "./app/context/PluginContext"
 import type { TaskChuteViewController } from "./app/taskchute/TaskChuteViewController"
 import type { ReminderSystemManager } from "./features/reminder/services/ReminderSystemManager"
 import type { AiTaskManager } from "./features/ai-task/services/AiTaskManager"
@@ -35,7 +34,6 @@ export default class TaskChutePlusPlugin extends Plugin {
   dayStateService!: DayStatePersistenceService
   globalTimerInterval?: ReturnType<Window['setInterval']> | null
   private viewController!: TaskChuteViewController
-  private localeCoordinator?: LocaleCoordinatorHandle
   /** Reminder manager for notification scheduling (exposed for TaskChuteView) */
   reminderManager?: ReminderSystemManager
   /** AI task run manager (present only when enabled on desktop and licensed) */
@@ -56,8 +54,11 @@ export default class TaskChutePlusPlugin extends Plugin {
   readonly aiTaskManagersPendingDisposal =
     getSharedAiTaskManagersPendingDisposal(this.app)
 
-  // Simple logger/notification wrapper
-  _log(level: keyof Console | undefined, ...args: unknown[]): void {
+  // Simple logger/notification wrapper.
+  // `level` stays as wide as PluginLogFn declares it: only "warn" and "error"
+  // are acted on, nothing indexes console[level], and narrowing it here would
+  // make the plugin unassignable to the host interfaces that take `this`.
+  _log(level?: string, ...args: unknown[]): void {
     try {
       if (level === "warn") {
         console.warn(...args)
@@ -87,7 +88,6 @@ export default class TaskChutePlusPlugin extends Plugin {
 
     const context: PluginContext = await bootstrapPlugin(this)
     this.viewController = context.viewController
-    this.localeCoordinator = context.localeCoordinator
     this.reminderManager = context.reminderManager
     registerAiTaskAppShutdownCleanup(this)
     const ambientScheduler = createAiTaskAmbientScheduler(
@@ -133,17 +133,14 @@ export default class TaskChutePlusPlugin extends Plugin {
       }),
     )
 
+    // One call: the seat check and the token refresh have to happen in that
+    // order, and syncFromServer is what guarantees it. Renewing first would
+    // re-register this device id and hand back a seat released elsewhere before
+    // anything had the chance to notice it was gone.
     const refresh = () => {
-      void manager
-        .refreshIfNeeded()
-        .catch((error) => {
-          this._log('warn', '[License] Refresh failed', error)
-        })
-        // A seat released from another machine leaves this device's token valid
-        // for the rest of its life, so the refresh alone would never notice.
-        // Runs after it so a token just renewed is checked against the list it
-        // renewed from, not the one before.
-        .then(() => checkSeatRegistration(this))
+      void checkSeatRegistration(this).catch((error) => {
+        this._log('warn', '[License] Refresh failed', error)
+      })
     }
 
     this.app.workspace.onLayoutReady(refresh)
@@ -160,8 +157,6 @@ export default class TaskChutePlusPlugin extends Plugin {
       window.clearInterval(this.globalTimerInterval)
       this.globalTimerInterval = null
     }
-
-    this.localeCoordinator?.dispose()
 
     // Dispose reminder system
     this.reminderManager?.dispose()

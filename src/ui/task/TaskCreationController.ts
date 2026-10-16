@@ -1,6 +1,6 @@
 import { App, Notice } from 'obsidian'
 import type { TFile } from "obsidian"
-import { t } from "../../i18n"
+import { t, type ScopedKey, type ScopedTranslator } from "@/i18n"
 import {
   TaskNameAutocomplete,
   TaskNameSelectionDetail,
@@ -10,49 +10,55 @@ import { createNameModal } from "../components/NameModal"
 import type {
   CreateTaskFileAiTaskOptions,
   TaskCreationService,
-} from "../../features/core/services/TaskCreationService"
-import type { TaskReuseService } from "../../features/core/services/TaskReuseService"
-import { normalizeReminderTime } from "../../features/reminder/services/ReminderFrontmatterService"
-import { isAiTaskFeatureAvailable } from "../../features/ai-task/availability"
-import type { AiTaskHost } from "../../features/ai-task/types"
-import { buildTerminalArgs } from "../../features/ai-task/services/TerminalArguments"
+} from "@/features/core/services/TaskCreationService"
+import type { TaskReuseService } from "@/features/core/services/TaskReuseService"
+import { normalizeReminderTime } from "@/features/reminder/services/ReminderFrontmatterService"
+import { isAiTaskFeatureAvailable } from "@/features/ai-task/availability"
+import {
+  formatAiTaskAmbientDateKey,
+  getSharedAiTaskAmbientScheduleStateStore,
+  resolveAiTaskAmbientIdentity,
+} from "@/features/ai-task/services/AiTaskAmbientScheduleStateStore"
+import { extractTaskIdFromFrontmatter } from "@/services/TaskIdManager"
+import type { AiTaskHost } from "@/features/ai-task/types"
+import { getAiAgent, listAiAgents } from "@/features/ai-task/agents"
+import { buildTerminalArgs } from "@/features/ai-task/services/TerminalArguments"
 import type {
   AiTaskEditService,
   AiTaskEditValue,
-} from "../../features/ai-task/services/AiTaskEditService"
+} from "@/features/ai-task/services/AiTaskEditService"
 import {
-  AI_MODEL_PRESETS,
   AI_REASONING_BUDGETS,
+  isSafeAiModelId,
   buildReasoningArgs,
   getAvailableReasoningModes,
   type AiReasoningBudget,
   type AiReasoningMode,
-} from "../../features/ai-task/config/AiTaskAdvancedOptions"
+} from "@/features/ai-task/config/AiTaskAdvancedOptions"
 import {
   AI_EXEC_MODE_VARIANTS,
+  DEFAULT_AI_EXEC_MODE,
   decodeAiTaskArgs,
-} from "../../features/ai-task/config/AiTaskArgsCodec"
+} from "@/features/ai-task/config/AiTaskArgsCodec"
 import type {
   TaskChutePluginLike,
   TaskNameValidator,
   DeletedInstance,
   TaskInstance,
-} from "../../types"
-import { addMinutesToTime } from "../../utils/date"
+} from "@/types"
+import { addMinutesToTime } from "@/utils/date"
 import {
   WorkingDirectoryHistory,
   normalizeDirectoryPath,
   normalizeDirectoryPathForComparison,
-} from "../../features/ai-task/services/WorkingDirectoryHistory"
-import { ElectronDirectoryPicker } from "../../features/ai-task/services/ElectronDirectoryPicker"
-import { WorkingDirectorySelectController } from "../../features/ai-task/ui/WorkingDirectorySelectController"
-import {
-  AI_MODEL_ID_SAFE_PATTERN,
-  AiCustomModelStore,
-} from "../../features/ai-task/models/AiCustomModelStore"
-import { AiModelSelectController } from "../../features/ai-task/ui/AiModelSelectController"
-import type { Recipe, RecipeService } from "../../features/recipe/services/RecipeService"
-import { normalizeRecipeReference } from "../../features/recipe/services/RecipeService"
+} from "@/features/ai-task/services/WorkingDirectoryHistory"
+import { ElectronDirectoryPicker } from "@/features/ai-task/services/ElectronDirectoryPicker"
+import { WorkingDirectorySelectController } from "@/features/ai-task/ui/WorkingDirectorySelectController"
+import { AiModelCatalog } from "@/features/ai-task/models/AiModelCatalog"
+import { AiModelSelectController } from "@/features/ai-task/ui/AiModelSelectController"
+import { AiTrustFolderControl } from "@/features/ai-task/ui/AiTrustFolderControl"
+import type { Recipe, RecipeService } from "@/features/recipe/services/RecipeService"
+import { normalizeRecipeReference } from "@/features/recipe/services/RecipeService"
 
 export interface DeletedTaskRestoreCandidate {
   entry: DeletedInstance
@@ -72,11 +78,7 @@ interface TaskCreationAdvancedOptions {
 }
 
 export interface TaskCreationControllerHost {
-  tv: (
-    key: string,
-    fallback: string,
-    vars?: Record<string, string | number>,
-  ) => string
+  tv: ScopedTranslator<"taskChuteView">
   getTaskNameValidator: () => TaskNameValidator
   taskCreationService: TaskCreationService
   aiTaskEditService: AiTaskEditService
@@ -112,28 +114,6 @@ type CreationMode = "reuse" | "copy"
 /** Human vs AI task selector state of the add-task modal (U3) */
 type TaskType = "human" | "ai"
 
-/** Main-agent cards of the AI mode (only hosts TCO can actually run) */
-const AI_AGENT_CARDS: ReadonlyArray<{
-  host: AiTaskHost
-  icon: string
-  labelKey: string
-  labelFallback: string
-}> = [
-  {
-    host: "claude",
-    // Reference parity: main-agents.ts gives Claude Code the 👑 icon.
-    icon: "👑",
-    labelKey: "addTask.aiAgentClaude",
-    labelFallback: "Claude Code",
-  },
-  {
-    host: "codex",
-    icon: "📜",
-    labelKey: "addTask.aiAgentCodex",
-    labelFallback: "Codex",
-  },
-]
-
 /** Longest prompt head shown inside the live command preview */
 const AI_PREVIEW_PROMPT_HEAD_LIMIT = 40
 
@@ -168,6 +148,13 @@ interface AiTaskControlsInitialValue {
   scheduledTime?: string
   recipePath?: string
   lockTaskType?: boolean
+  /** The type selected when the modal opens; defaults to AI when there is an initial value. */
+  initialType?: TaskType
+}
+
+/** Opening the edit modal to change a task's type (#182): what it is now. */
+interface TypeChangeOptions {
+  currentType: TaskType
 }
 
 export default class TaskCreationController {
@@ -208,20 +195,58 @@ export default class TaskCreationController {
     }
   }
 
-  private showTaskModal(editTarget?: AiTaskEditValue): void {
+  /**
+   * ⚙️ → "Change task type" (#182): the edit modal with the human/AI selector
+   * shown, opened on the task's current type. A running task cannot change,
+   * since its timer and its AI run move together.
+   */
+  async showChangeTaskTypeModal(inst: TaskInstance): Promise<void> {
+    const file = inst.task.file
+    if (inst.state === "running") {
+      new Notice(
+        this.host.tv(
+          "changeType.runningNotice",
+          "Stop the task before changing its type.",
+        ),
+      )
+      return
+    }
+    if (!file) {
+      new Notice(this.host.tv("changeType.failed", "Could not change the task type."))
+      return
+    }
+    try {
+      const frontmatter = inst.task.frontmatter ?? {}
+      const target = await this.host.aiTaskEditService.loadForTypeChange(
+        file,
+        frontmatter,
+        inst.task.displayTitle ?? inst.task.name,
+      )
+      this.showTaskModal(target, {
+        currentType: frontmatter["ai_task"] === true ? "ai" : "human",
+      })
+    } catch (error) {
+      console.error("[TaskCreationController] Failed to load the task for a type change", error)
+      new Notice(this.host.tv("changeType.failed", "Could not change the task type."))
+    }
+  }
+
+  private showTaskModal(editTarget?: AiTaskEditValue, typeChange?: TypeChangeOptions): void {
     const context = this.host.getDocumentContext?.()
     const doc = context?.doc ?? document
     const win = context?.win ?? window
 
     const modal = createNameModal({
-      title: editTarget
+      title: typeChange && editTarget
+        ? this.host.tv("changeType.title", 'Change the type of "{title}"', { title: editTarget.taskName })
+        : editTarget
         ? this.host.tv("aiTask.editTitle", "Edit AI task settings")
         : this.host.tv("addTask.title", "Add new task"),
       label: this.host.tv("addTask.nameLabel", "Task name:"),
       placeholder: this.host.tv("addTask.namePlaceholder", "Enter task name"),
       submitText: this.host.tv("buttons.save", "Save"),
       cancelText: t("common.cancel", "Cancel"),
-      closeLabel: this.host.tv("common.close", "Close"),
+      closeLabel: t("common.close", "Close"),
       app: this.host.app,
     })
 
@@ -232,6 +257,9 @@ export default class TaskCreationController {
       nameInput.readOnly = true
       nameInput.classList.add("task-name-input--readonly")
     }
+    // Changing the type does not touch the name: the title already says
+    // which task it is, so the (read-only) name field stays out of the way.
+    if (typeChange) nameGroup.classList.add("task-name-group", "hidden")
 
     const modeGroup = doc.win.createDiv()
     modeGroup.className = "task-mode-group hidden"
@@ -314,7 +342,8 @@ export default class TaskCreationController {
           prompt: editTarget.prompt,
           scheduledTime: editTarget.scheduledTime,
           recipePath: editTarget.recipePath,
-          lockTaskType: true,
+          lockTaskType: !typeChange,
+          initialType: typeChange?.currentType ?? "ai",
         }
         : undefined,
     )
@@ -473,6 +502,23 @@ export default class TaskCreationController {
             return
           }
           saveButton.disabled = true
+          if (typeChange && !aiControls.isAiMode()) {
+            try {
+              if (typeChange.currentType === "ai") {
+                await this.host.aiTaskEditService.convertToHuman(editTarget.file)
+                await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
+                new Notice(
+                  this.host.tv("changeType.toHuman", "Changed to a human task"),
+                )
+              }
+              close()
+            } catch (error) {
+              console.error("[TaskCreationController] Failed to change the task type", error)
+              saveButton.disabled = false
+              new Notice(this.host.tv("changeType.failed", "Could not change the task type."))
+            }
+            return
+          }
           try {
             await this.host.aiTaskEditService.save(
               editTarget.file,
@@ -480,9 +526,14 @@ export default class TaskCreationController {
               aiControls.getAiTaskOptions(),
             )
             aiControls.commit()
+            if (typeChange?.currentType === "human") {
+              this.skipAmbientRunToday(editTarget.file)
+            }
             await this.host.reloadTasksAndRestore({ runBoundaryCheck: true })
             new Notice(
-              this.host.tv("aiTask.editSaved", "AI task settings saved"),
+              typeChange?.currentType === "human"
+                ? this.host.tv("changeType.toAi", "Changed to an AI task")
+                : this.host.tv("aiTask.editSaved", "AI task settings saved"),
             )
             close()
           } catch (error) {
@@ -703,6 +754,25 @@ export default class TaskCreationController {
   }
 
   /**
+   * A task switched to AI today does not start on its own today, even when
+   * its start time has passed: saving should not set an AI run going behind
+   * the user's back. It starts by itself from its next due day; today it can
+   * still be started with ▶️. Marks today as already run for the scheduler.
+   */
+  private skipAmbientRunToday(file: TFile): void {
+    const frontmatter = this.host.app.metadataCache.getFileCache(file)?.frontmatter
+    const identity = resolveAiTaskAmbientIdentity({
+      taskId: frontmatter ? extractTaskIdFromFrontmatter(frontmatter) : undefined,
+      path: file.path,
+    })
+    if (!identity) return
+    getSharedAiTaskAmbientScheduleStateStore(this.host.plugin.app).markExecuted(
+      identity,
+      formatAiTaskAmbientDateKey(new Date()),
+    )
+  }
+
+  /**
    * Build the human/AI task-type selector and the AI-mode section of the
    * add-task modal (U3, ports the reference QuestCreateModal). Returns null
    * unless the AI Task feature is enabled on desktop — the human modal is
@@ -723,35 +793,33 @@ export default class TaskCreationController {
   ): AiTaskControls | null {
     if (!isAiTaskFeatureAvailable(this.host.plugin)) return null
 
-    let taskType: TaskType = initialValue ? "ai" : "human"
+    let taskType: TaskType = initialValue?.initialType ?? (initialValue ? "ai" : "human")
     let selectedHost: AiTaskHost = initialValue?.host ?? "claude"
     let reuseActive = false
     const storageApp = this.host.plugin.app as unknown as {
       loadLocalStorage?: (key: string) => unknown
       saveLocalStorage?: (key: string, value: unknown) => void
     }
-    const customModelStore = new AiCustomModelStore({
-      loadLocalStorage: (key) => storageApp.loadLocalStorage?.(key),
-      saveLocalStorage: (key, value) =>
-        storageApp.saveLocalStorage?.(key, value),
-    })
-    const decodedInitialArgs = initialValue
+    // Without a running AI feature (tests), the built-in lists only.
+    const modelCatalog =
+      this.host.plugin.aiTaskManager?.getModelCatalog() ?? new AiModelCatalog(storageApp)
+    // A human task turning into an AI task has no AI settings yet: it starts
+    // like a new one. Only a task that already was AI is read back.
+    const decodedInitialArgs = initialValue && initialValue.initialType !== "human"
       ? decodeAiTaskArgs(
         initialValue.host,
         initialValue.args,
-        (modelId) =>
-          AI_MODEL_PRESETS[initialValue.host].some(
-            (model) => model.id === modelId,
-          ) || customModelStore.hasModelId(initialValue.host, modelId),
+        // Any model the note names stays selected, listed or not.
+        isSafeAiModelId,
       )
       : null
     let passthroughArgs = [...(decodedInitialArgs?.passthroughArgs ?? [])]
-    const initialModelIsCustom = Boolean(
-      decodedInitialArgs?.modelId &&
-        customModelStore
-          .getCustomModels(selectedHost)
-          .some((model) => model.id === decodedInitialArgs.modelId),
-    )
+    // The execution-mode tokens as the note has them, kept until the mode is
+    // changed, so saving an untouched task writes back exactly what it had.
+    let keptExecMode: { id: string; tokens: readonly string[] } | null =
+      decodedInitialArgs
+        ? { id: decodedInitialArgs.execModeId, tokens: decodedInitialArgs.execModeTokens }
+        : null
 
     // --- Task-type selector -------------------------------------------------
     const typeGroup = doc.win.createDiv()
@@ -804,21 +872,21 @@ export default class TaskCreationController {
     agentGrid.className = "ai-task-agent-grid"
     agentField.appendChild(agentGrid)
     const agentCards = new Map<AiTaskHost, HTMLButtonElement>()
-    for (const cardDef of AI_AGENT_CARDS) {
+    for (const agent of listAiAgents()) {
       const card = doc.win.createEl("button")
       card.type = "button"
       card.className = "ai-task-agent-card"
-      card.dataset.aiHost = cardDef.host
+      card.dataset.aiHost = agent.id
       const icon = doc.win.createSpan()
       icon.className = "ai-task-agent-icon"
-      icon.textContent = cardDef.icon
+      icon.textContent = agent.icon
       const name = doc.win.createSpan()
       name.className = "ai-task-agent-name"
-      name.textContent = this.host.tv(cardDef.labelKey, cardDef.labelFallback)
+      name.textContent = this.host.tv(agent.label.key, agent.label.fallback)
       card.appendChild(icon)
       card.appendChild(name)
       agentGrid.appendChild(card)
-      agentCards.set(cardDef.host, card)
+      agentCards.set(agent.id, card)
     }
 
     // Prompt textarea + live command preview.
@@ -858,7 +926,7 @@ export default class TaskCreationController {
       this.host.recipeService
     ) {
       const recipeField = buildField(
-        this.host.tv("addTask.aiRecipeLabel", "レシピ（任意）"),
+        this.host.tv("addTask.aiRecipeLabel", "Recipe (optional)"),
       )
       recipeSelect = doc.win.createEl("select")
       recipeSelect.className = "form-input ai-task-recipe-select"
@@ -866,7 +934,7 @@ export default class TaskCreationController {
       noneOption.value = ""
       noneOption.textContent = this.host.tv(
         "addTask.aiRecipeNone",
-        "レシピなし",
+        "No recipe",
       )
       recipeSelect.appendChild(noneOption)
       let pendingInitialOption: HTMLOptionElement | null = null
@@ -883,7 +951,7 @@ export default class TaskCreationController {
       disclosure.className = "ai-task-field-description"
       disclosure.textContent = this.host.tv(
         "addTask.aiRecipeDisclosure",
-        "選択したレシピの完了基準・手順・品質基準・制約は、実行時にClaude Code/Codexへ送信されます。秘密情報を含めないでください。",
+        "The selected recipe's definition of done, steps, quality checks, and constraints are sent to the selected CLI at run time; don't include secrets.",
       )
       recipeField.appendChild(disclosure)
 
@@ -892,7 +960,7 @@ export default class TaskCreationController {
       const detailsSummary = doc.win.createEl("summary")
       detailsSummary.textContent = this.host.tv(
         "addTask.aiRecipePreview",
-        "内容を確認",
+        "Review recipe content",
       )
       recipeDetails.appendChild(detailsSummary)
       const detailsBody = doc.win.createEl("pre")
@@ -907,16 +975,16 @@ export default class TaskCreationController {
         detailsBody.textContent = recipe
           ? [
               recipe.goal
-                ? `${this.host.tv("recipes.manager.goalLabel", "完了基準")}\n${recipe.goal}`
+                ? `${t("recipes.manager.goalLabel", "Definition of done")}\n${recipe.goal}`
                 : "",
               recipe.steps.length > 0
-                ? `${this.host.tv("recipes.manager.stepsLabel", "手順チェックリスト")}\n${recipe.steps.map((item) => `- ${item.text}`).join("\n")}`
+                ? `${t("recipes.manager.stepsLabel", "Steps")}\n${recipe.steps.map((item) => `- ${item.text}`).join("\n")}`
                 : "",
               recipe.qualityChecks.length > 0
-                ? `${this.host.tv("recipes.manager.qualityChecksLabel", "品質基準チェックリスト")}\n${recipe.qualityChecks.map((item) => `- ${item.text}`).join("\n")}`
+                ? `${t("recipes.manager.qualityChecksLabel", "Quality checks")}\n${recipe.qualityChecks.map((item) => `- ${item.text}`).join("\n")}`
                 : "",
               recipe.constraints.length > 0
-                ? `${this.host.tv("recipes.manager.constraintsLabel", "制約・ルール")}\n${recipe.constraints.map((item) => `- ${item.text}`).join("\n")}`
+                ? `${t("recipes.manager.constraintsLabel", "Constraints and rules")}\n${recipe.constraints.map((item) => `- ${item.text}`).join("\n")}`
                 : "",
             ].filter(Boolean).join("\n\n")
           : ""
@@ -933,11 +1001,11 @@ export default class TaskCreationController {
           option.value = recipe.path
           const summaryParts = [
             recipe.goal.trim().length > 0
-              ? this.host.tv("addTask.aiRecipeHasGoal", "ゴールあり")
+              ? this.host.tv("addTask.aiRecipeHasGoal", "Has definition of done")
               : null,
-            `${this.host.tv("recipes.manager.stepsLabel", "手順")} ${recipe.steps.length}`,
-            `${this.host.tv("recipes.manager.qualityChecksLabel", "品質")} ${recipe.qualityChecks.length}`,
-            `${this.host.tv("recipes.manager.constraintsLabel", "制約")} ${recipe.constraints.length}`,
+            `${t("recipes.manager.stepsLabel", "Steps")} ${recipe.steps.length}`,
+            `${t("recipes.manager.qualityChecksLabel", "Quality checks")} ${recipe.qualityChecks.length}`,
+            `${t("recipes.manager.constraintsLabel", "Constraints and rules")} ${recipe.constraints.length}`,
           ].filter((value): value is string => value !== null)
           option.textContent = `${recipe.title} — ${summaryParts.join(" / ")}`
           recipeSelect.appendChild(option)
@@ -948,7 +1016,7 @@ export default class TaskCreationController {
         ) {
           const broken = doc.win.createEl("option")
           broken.value = initialRecipePath
-          broken.textContent = `${initialRecipePath} (${this.host.tv("addTask.aiRecipeMissing", "見つかりません")})`
+          broken.textContent = `${initialRecipePath} (${this.host.tv("addTask.aiRecipeMissing", "Not found")})`
           recipeSelect.appendChild(broken)
         }
         recipeSelect.value = initialRecipePath ?? ""
@@ -999,6 +1067,13 @@ export default class TaskCreationController {
     const execModeSelect = doc.win.createEl("select")
     execModeSelect.className = "form-input ai-task-exec-mode"
     execModeField.appendChild(execModeSelect)
+    const trustControl = new AiTrustFolderControl({
+      doc,
+      tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
+      storage: storageApp,
+      onChange: () => refreshPreview(),
+    })
+    execModeField.appendChild(trustControl.root)
 
     const modelField = buildAdvancedField(
       this.withTrailingColon(this.host.tv("addTask.aiModelLabel", "AI model")),
@@ -1008,40 +1083,47 @@ export default class TaskCreationController {
       doc,
       host: selectedHost,
       modelId: decodedInitialArgs?.modelId || null,
-      isCustom: initialModelIsCustom,
-      store: customModelStore,
+      catalog: modelCatalog,
       labels: {
         openMenu: this.host.tv("addTask.aiModelOpen", "Choose AI model"),
         defaultModel: this.host.tv(
           "addTask.aiModelPlaceholder",
           "Default model",
         ),
-        defaultDescription: this.host.tv(
-          "addTask.aiModelDefaultDescription",
-          "Use the model configured by the CLI",
+        defaultDecidedBy: (host) =>
+          host === "claude"
+            ? this.host.tv("addTask.aiModelDefaultByClaude", "Claude Code picks one for your plan")
+            : host === "codex"
+              ? this.host.tv("addTask.aiModelDefaultByCodex", "Codex decides")
+              : this.host.tv("addTask.aiModelDefaultByCursor", "Cursor decides"),
+        refresh: this.host.tv("addTask.aiModelRefresh", "Get the latest models"),
+        refreshing: this.host.tv("addTask.aiModelRefreshing", "Getting…"),
+        fetchedAt: (time) =>
+          this.host.tv("addTask.aiModelFetchedAt", "Got at {time}", { time }),
+        neverFetched: this.host.tv(
+          "addTask.aiModelNeverFetched",
+          "Not fetched yet",
         ),
-        builtInModels: this.host.tv(
-          "addTask.aiModelBuiltIn",
-          "Available models",
+        fetching: this.host.tv(
+          "addTask.aiModelFetching",
+          "Getting the latest list… you can still choose",
         ),
-        customModels: this.host.tv(
-          "addTask.aiModelCustomModels",
-          "Custom models",
-        ),
-        addCustomModel: this.host.tv(
-          "addTask.aiModelAddCustom",
-          "Add custom model",
-        ),
-        editCustomModel: this.host.tv(
-          "addTask.aiModelEditCustom",
-          "Edit custom model",
-        ),
-        deleteCustomModel: this.host.tv(
-          "addTask.aiModelDeleteCustom",
-          "Delete custom model",
+        fetchFailed: (hasPrevious) =>
+          hasPrevious
+            ? this.host.tv(
+              "addTask.aiModelFetchFailed",
+              "Could not get the list. Showing the previous one.",
+            )
+            : this.host.tv(
+              "addTask.aiModelFetchFailedBuiltIn",
+              "Could not get the list. Showing the built-in one.",
+            ),
+        newBadge: this.host.tv("addTask.aiModelNew", "New"),
+        alwaysNewest: this.host.tv(
+          "addTask.aiModelAlwaysNewest",
+          "Each always runs its newest version. No list to get.",
         ),
       },
-      customModelModalLabels: this.buildCustomModelModalLabels(),
       onChange: () => {
         passthroughArgs = this.removeModelArgs(passthroughArgs)
         rebuildReasoningModeOptions()
@@ -1132,6 +1214,7 @@ export default class TaskCreationController {
 
     // --- Behavior -----------------------------------------------------------
     const currentVariantTokens = (): readonly string[] => {
+      if (keptExecMode && keptExecMode.id === execModeSelect.value) return keptExecMode.tokens
       const variants = AI_EXEC_MODE_VARIANTS[selectedHost]
       const selected = variants.find((variant) => variant.id === execModeSelect.value)
       return selected?.tokens ?? []
@@ -1139,8 +1222,13 @@ export default class TaskCreationController {
 
     const buildArgs = (): string[] => {
       const args = [...currentVariantTokens()]
+      // Offered in auto mode; a note that already had it keeps it while its mode is untouched.
+      const trustArgs = getAiAgent(selectedHost).trustFolderArgs ?? []
+      if (trustControl.isChecked() && (execModeSelect.value === "auto" || keptExecMode !== null)) {
+        args.push(...trustArgs)
+      }
       const model = modelSelect.getValue().modelId ?? ""
-      if (model.length > 0 && AI_MODEL_ID_SAFE_PATTERN.test(model)) {
+      if (model.length > 0 && isSafeAiModelId(model)) {
         args.push(`--model=${model}`)
       }
       args.push(
@@ -1155,9 +1243,11 @@ export default class TaskCreationController {
     }
 
     const refreshPreview = () => {
+      trustControl.update(selectedHost, execModeSelect.value)
       const baseArgs = buildArgs()
       const sanitizedPrompt = promptInput.value.replace(/\r?\n+/g, " ").trim()
-      let text = [selectedHost as string, ...baseArgs].join(" ")
+      const command = getAiAgent(selectedHost).command
+      let text = [command, ...baseArgs].join(" ")
       if (sanitizedPrompt.length > 0) {
         const head =
           sanitizedPrompt.length > AI_PREVIEW_PROMPT_HEAD_LIMIT
@@ -1165,7 +1255,7 @@ export default class TaskCreationController {
             : sanitizedPrompt
         const previewArgs = buildTerminalArgs(baseArgs, head)
         text = [
-          selectedHost as string,
+          command,
           ...previewArgs.slice(0, -1),
           quotePreviewPrompt(previewArgs[previewArgs.length - 1]),
         ].join(" ")
@@ -1183,13 +1273,13 @@ export default class TaskCreationController {
         option.textContent = this.host.tv(variant.labelKey, variant.labelFallback)
         execModeSelect.appendChild(option)
       }
-      execModeSelect.value = "default"
+      execModeSelect.value = DEFAULT_AI_EXEC_MODE
     }
 
     const reasoningBudgetLabel = (budget: AiReasoningBudget): string => {
       const definitions: Record<
         AiReasoningBudget,
-        { key: string; fallback: string }
+        { key: ScopedKey<"taskChuteView">; fallback: string }
       > = {
         low: { key: "addTask.aiReasoningLow", fallback: "Low" },
         medium: { key: "addTask.aiReasoningMedium", fallback: "Medium" },
@@ -1201,6 +1291,11 @@ export default class TaskCreationController {
       return this.host.tv(definition.key, definition.fallback)
     }
 
+    const ultraLabel = (): string => {
+      const label = getAiAgent(selectedHost).reasoning?.ultraLabel
+      return label ? this.host.tv(label.key, label.fallback) : ""
+    }
+
     const reasoningModeLabels = (): Record<AiReasoningMode, string> => ({
       automatic: this.host.tv(
         "addTask.aiReasoningModeAutomatic",
@@ -1210,14 +1305,7 @@ export default class TaskCreationController {
         "addTask.aiReasoningModeSpecified",
         "Specify budget",
       ),
-      ultra: this.host.tv(
-        selectedHost === "claude"
-          ? "addTask.aiReasoningModeClaudeUltra"
-          : "addTask.aiReasoningModeCodexUltra",
-        selectedHost === "claude"
-          ? "Ultracode (parallel workflow)"
-          : "Ultra (parallel delegation)",
-      ),
+      ultra: ultraLabel(),
     })
 
     const appendReasoningModeOption = (mode: AiReasoningMode) => {
@@ -1234,7 +1322,12 @@ export default class TaskCreationController {
       const modes = getAvailableReasoningModes(
         selectedHost,
         selectedModel.modelId ?? "",
-        { isCustomModel: selectedModel.isCustom },
+        {
+          isUnlisted: selectedModel.isUnlisted,
+          ...(selectedModel.reasoningLevels
+            ? { levels: selectedModel.reasoningLevels }
+            : {}),
+        },
       )
       for (const mode of modes) {
         appendReasoningModeOption(mode)
@@ -1244,6 +1337,11 @@ export default class TaskCreationController {
           ? previousMode
           : "automatic"
     }
+
+    // A list fetched while the dialog is open can change what efforts the model takes.
+    const stopWatchingModels = modelCatalog.subscribe((host) => {
+      if (host === selectedHost) rebuildReasoningModeOptions()
+    })
 
     const rebuildReasoningBudgetOptions = () => {
       reasoningBudgetSelect.replaceChildren()
@@ -1277,6 +1375,8 @@ export default class TaskCreationController {
       rebuildExecModeOptions()
       if (hostChanged) {
         passthroughArgs = []
+        keptExecMode = null
+        trustControl.setChecked(false)
         modelSelect.setHost(nextHost)
       }
       rebuildReasoningModeOptions(false)
@@ -1322,12 +1422,16 @@ export default class TaskCreationController {
       refreshPreview()
     })
     reasoningBudgetSelect.addEventListener("change", refreshPreview)
-    execModeSelect.addEventListener("change", refreshPreview)
+    execModeSelect.addEventListener("change", () => {
+      keptExecMode = null
+      refreshPreview()
+    })
 
-    selectTaskType(initialValue ? "ai" : "human")
+    selectTaskType(initialValue?.initialType ?? (initialValue ? "ai" : "human"))
     selectHost(initialValue?.host ?? "claude")
     if (decodedInitialArgs) {
       execModeSelect.value = decodedInitialArgs.execModeId
+      trustControl.setChecked(decodedInitialArgs.trustFolder)
       const modeAvailable = Array.from(reasoningModeSelect.options).some(
         (option) => option.value === decodedInitialArgs.reasoningMode,
       )
@@ -1377,6 +1481,7 @@ export default class TaskCreationController {
       },
       destroy: () => {
         recipeLoadDisposed = true
+        stopWatchingModels()
         modelSelect.destroy()
         workingDirectorySelect.destroy()
       },
@@ -1403,23 +1508,20 @@ export default class TaskCreationController {
     args: readonly string[],
     host: AiTaskHost,
   ): string[] {
+    const reasoning = getAiAgent(host).reasoning
+    if (reasoning === null) return [...args]
     const retained: string[] = []
     for (let index = 0; index < args.length; index += 1) {
-      const token = args[index]
-      if (host === "claude" && token.startsWith("--effort=")) continue
-      if (
-        host === "codex" &&
-        token === "--config" &&
-        index + 1 < args.length &&
-        /^model_reasoning_effort=/u.test(args[index + 1])
-      ) {
-        index += 1
+      const effort = reasoning.effortAt(args, index)
+      if (effort) {
+        index += effort.length - 1
         continue
       }
-      retained.push(token)
+      retained.push(args[index])
     }
     return retained
   }
+
 
   private resolveVaultWorkingDirectory(): string {
     const adapter = this.host.plugin.app.vault?.adapter as unknown as {
@@ -1430,74 +1532,6 @@ export default class TaskCreationController {
       return typeof value === "string" ? value : ""
     } catch {
       return ""
-    }
-  }
-
-  private buildCustomModelModalLabels() {
-    return {
-      addTitle: this.host.tv(
-        "addTask.aiCustomModelAddTitle",
-        "Add custom model",
-      ),
-      editTitle: this.host.tv(
-        "addTask.aiCustomModelEditTitle",
-        "Edit custom model",
-      ),
-      claudeAgent: "Claude Code",
-      codexAgent: "Codex",
-      modelId: this.host.tv("addTask.aiCustomModelId", "Model ID"),
-      modelIdPlaceholder: this.host.tv(
-        "addTask.aiCustomModelIdPlaceholder",
-        "provider/model-name",
-      ),
-      modelIdHelp: this.host.tv(
-        "addTask.aiCustomModelIdHelp",
-        "Passed to the CLI as --model=<id>",
-      ),
-      displayName: this.host.tv(
-        "addTask.aiCustomModelDisplayName",
-        "Display name",
-      ),
-      displayNamePlaceholder: this.host.tv(
-        "addTask.aiCustomModelDisplayNamePlaceholder",
-        "My custom model",
-      ),
-      description: this.host.tv(
-        "addTask.aiCustomModelDescription",
-        "Description",
-      ),
-      descriptionPlaceholder: this.host.tv(
-        "addTask.aiCustomModelDescriptionPlaceholder",
-        "Optional description",
-      ),
-      commandPreview: this.host.tv(
-        "addTask.aiCustomModelCommandPreview",
-        "Command preview",
-      ),
-      cancel: t("common.cancel", "Cancel"),
-      add: this.host.tv("addTask.aiCustomModelAdd", "Add"),
-      save: this.host.tv("buttons.save", "Save"),
-      close: this.host.tv("common.close", "Close"),
-      invalidId: this.host.tv(
-        "addTask.aiCustomModelInvalidId",
-        "Use 1-100 characters: letters, numbers, dot, underscore, colon, slash, or hyphen; start with a letter or number.",
-      ),
-      duplicateId: this.host.tv(
-        "addTask.aiCustomModelDuplicateId",
-        "This model ID already exists.",
-      ),
-      invalidLabel: this.host.tv(
-        "addTask.aiCustomModelInvalidLabel",
-        "Enter a display name.",
-      ),
-      invalidDescription: this.host.tv(
-        "addTask.aiCustomModelInvalidDescription",
-        "The description is invalid.",
-      ),
-      modelNotFound: this.host.tv(
-        "addTask.aiCustomModelNotFound",
-        "The custom model no longer exists.",
-      ),
     }
   }
 

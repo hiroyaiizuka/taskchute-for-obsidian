@@ -1,7 +1,7 @@
 import { App, Notice } from "obsidian"
-import { t } from "../../i18n"
-import { createAiTaskManager } from "../../features/ai-task"
-import { disposeAiTaskManagerTracked } from "../../features/ai-task/registerProcessCleanup"
+import { t } from "@/i18n"
+import { createAiTaskManager } from "@/features/ai-task"
+import { disposeAiTaskManagerTracked } from "@/features/ai-task/registerProcessCleanup"
 import type { PluginWithSettings } from "../pluginWithSettings"
 import { notifyAiTaskSettingsChanged } from "./viewNotifications"
 

@@ -12,19 +12,19 @@ import { TFile } from 'obsidian'
 import {
   AiTaskManager,
   type AiTaskManagerDeps,
-} from '../../../src/features/ai-task/services/AiTaskManager'
+} from '@/features/ai-task/services/AiTaskManager'
 import type {
   AiDispatcher,
   AiRunCallbacks,
   AiRunExitOutcome,
   AiRunRequest,
-} from '../../../src/features/ai-task/services/dispatchers/Dispatcher'
+} from '@/features/ai-task/services/dispatchers/Dispatcher'
 import type {
   AiTerminalDispatcher,
   TerminalRunCallbacks,
   TerminalRunRequest,
-} from '../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
-import type { AiRunRecord } from '../../../src/features/ai-task/types'
+} from '@/features/ai-task/services/dispatchers/TerminalDispatcher'
+import type { AiRunRecord } from '@/features/ai-task/types'
 
 function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
@@ -130,7 +130,7 @@ function createHarness(options: HarnessOptions = {}) {
         getFileCache: jest.fn(() => ({ frontmatter: { ai_task: true } })),
       },
     },
-    dispatchers: { claude: headless, codex: headless },
+    dispatchers: { claude: headless, codex: headless, cursor: headless },
     binaryLocator: { resolve: jest.fn(async () => '/bin/claude') },
     logWriter: { writeRunLog, writeTerminalRunLog, pruneOldLogs },
     terminal: {

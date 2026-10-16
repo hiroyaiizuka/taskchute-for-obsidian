@@ -2,7 +2,7 @@ import {
   EXACT_PROMPT_END_MARKER,
   EXACT_PROMPT_START_MARKER,
   extractPromptSection,
-} from '../../../src/features/ai-task/services/PromptExtractor'
+} from '@/features/ai-task/services/PromptExtractor'
 
 describe('extractPromptSection', () => {
   test('extracts the body under "## Prompt" until end of file', () => {

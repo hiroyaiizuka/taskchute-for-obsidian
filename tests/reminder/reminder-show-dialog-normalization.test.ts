@@ -5,7 +5,7 @@
  * before passing to ReminderSettingsModal.
  */
 
-import { normalizeReminderTime } from '../../src/features/reminder/services/ReminderFrontmatterService';
+import { normalizeReminderTime } from '@/features/reminder/services/ReminderFrontmatterService';
 
 describe('showReminderSettingsDialog currentTime normalization', () => {
   it('should normalize numeric reminder_time (595) to "09:55" for modal', () => {

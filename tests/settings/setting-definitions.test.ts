@@ -9,8 +9,8 @@
  */
 import { mockApp } from 'obsidian'
 import type { SettingDefinitionItem } from 'obsidian'
-import { TaskChuteSettingTab } from '../../src/settings/SettingsTab'
-import { DEFAULT_SETTINGS } from '../../src/settings/defaults'
+import { TaskChuteSettingTab } from '@/settings/SettingsTab'
+import { DEFAULT_SETTINGS } from '@/settings/defaults'
 import { flatten } from './definitionHelpers'
 
 function createTab(): TaskChuteSettingTab {

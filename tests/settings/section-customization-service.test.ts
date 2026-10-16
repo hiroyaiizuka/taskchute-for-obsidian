@@ -1,6 +1,6 @@
 import { mockApp } from 'obsidian';
-import { applySectionCustomization } from '../../src/settings/services/sectionCustomizationService';
-import type { PluginWithSettings } from '../../src/settings/pluginWithSettings';
+import { applySectionCustomization } from '@/settings/services/sectionCustomizationService';
+import type { PluginWithSettings } from '@/settings/pluginWithSettings';
 
 function createPlugin(slotKeys: Record<string, string>) {
   return {

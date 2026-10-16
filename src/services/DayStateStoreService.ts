@@ -1,4 +1,5 @@
-import { DayState, DeletedInstance, HiddenRoutine, DayStateServiceAPI, RecipeProgressEntry } from '../types';
+import { DayComment, DayState, DeletedInstance, HiddenRoutine, DayStateServiceAPI, RecipeProgressEntry } from '../types';
+import { generateCommentId, visibleComments } from './dayState/comments';
 import { renamePathsInDayState } from './dayState/pathRename';
 import { getEffectiveDeletedAt, isDeleted as isDeletedEntry, isHidden as isHiddenEntry, isLegacyDeletionEntry } from './dayState/conflictResolver';
 
@@ -322,6 +323,82 @@ export class DayStateStoreService {
     this.persistAsync(dateKey);
   }
 
+  /**
+   * The day's comments (no `instanceId`) or one instance's, newest first,
+   * without deleted ones. Reads only a day already loaded: it never caches an
+   * empty state, which would hide the stored one from a later `ensure`.
+   */
+  getComments(options: { instanceId?: string; dateKey?: string } = {}): DayComment[] {
+    const key = options.dateKey ?? this.options.getCurrentDateString();
+    return visibleComments(this.cache.get(key)?.comments, options.instanceId);
+  }
+
+  /**
+   * Adds a comment to a day, loading the day first so the write never
+   * replaces a stored day with an empty one.
+   */
+  async addCommentTo(dateKey: string, input: { text: string; instanceId?: string; at?: number }): Promise<DayComment | null> {
+    await this.ensure(dateKey);
+    return this.addComment(input, dateKey);
+  }
+
+  /** Adds a comment; returns it, or null when the text is blank. */
+  addComment(input: { text: string; instanceId?: string; at?: number }, dateKey?: string): DayComment | null {
+    const text = input.text.trim();
+    if (!text) return null;
+    const now = Date.now();
+    const comment: DayComment = { id: generateCommentId(), at: input.at ?? now, text, updatedAt: now };
+    if (input.instanceId) comment.instanceId = input.instanceId;
+    const state = this.getStateFor(dateKey);
+    state.comments = [...(state.comments ?? []), comment];
+    this.persistAsync(dateKey);
+    return comment;
+  }
+
+  /** Rewrites a comment's text. Blank text deletes it (and returns the deleted comment). */
+  updateComment(id: string, text: string, dateKey?: string): DayComment | null {
+    const trimmed = text.trim();
+    if (!trimmed) return this.deleteComment(id, dateKey);
+    return this.changeComment(id, dateKey, (comment, now) =>
+      comment.text === trimmed ? null : { ...comment, text: trimmed, updatedAt: now },
+    );
+  }
+
+  /** Deletes a comment, keeping a tombstone so other devices drop it too. Returns it for undo. */
+  deleteComment(id: string, dateKey?: string): DayComment | null {
+    return this.changeComment(id, dateKey, (comment, now) =>
+      comment.deletedAt !== undefined ? null : { ...comment, deletedAt: now, updatedAt: now },
+    );
+  }
+
+  /** Brings back a deleted comment (the undo of `deleteComment`). */
+  restoreComment(id: string, dateKey?: string): DayComment | null {
+    return this.changeComment(id, dateKey, (comment, now) => {
+      if (comment.deletedAt === undefined) return null;
+      const restored: DayComment = { ...comment, updatedAt: now };
+      delete restored.deletedAt;
+      return restored;
+    });
+  }
+
+  private changeComment(
+    id: string,
+    dateKey: string | undefined,
+    change: (comment: DayComment, now: number) => DayComment | null,
+  ): DayComment | null {
+    const state = this.getStateFor(dateKey);
+    const comments = state.comments ?? [];
+    const index = comments.findIndex((comment) => comment.id === id);
+    if (index < 0) return null;
+    // Keep updatedAt moving forward even if this device's clock is behind the last write.
+    const now = Math.max(Date.now(), comments[index].updatedAt + 1);
+    const next = change(comments[index], now);
+    if (!next) return null;
+    state.comments = comments.map((comment, i) => (i === index ? next : comment));
+    this.persistAsync(dateKey);
+    return next;
+  }
+
   isDeleted(target: { taskId?: string; instanceId?: string; path?: string; dateKey?: string }): boolean {
     const { taskId, instanceId, path } = target;
     const deleted = this.getDeleted(target.dateKey);
@@ -396,6 +473,9 @@ export class DayStateStoreService {
     };
     if (state.recipeProgress && Object.keys(state.recipeProgress).length > 0) {
       normalized.recipeProgress = state.recipeProgress;
+    }
+    if (state.comments && state.comments.length > 0) {
+      normalized.comments = state.comments;
     }
     return normalized;
   }

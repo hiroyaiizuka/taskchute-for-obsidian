@@ -1,5 +1,5 @@
-import type { TaskInstance } from '../../../types'
-import { resolveTaskDisplayTitle } from '../../../utils/taskDisplayTitle'
+import type { TaskInstance } from '@/types'
+import { resolveTaskDisplayTitle } from '@/utils/taskDisplayTitle'
 import { readAiTaskConfig } from './AiTaskFrontmatterReader'
 import {
   matchesObsidianTaskTitle,

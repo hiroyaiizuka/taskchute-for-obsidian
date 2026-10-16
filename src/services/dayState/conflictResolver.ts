@@ -7,7 +7,7 @@
  * - 復元は restoredAt タイムスタンプで記録
  * - マージ時は max(deletedAt, restoredAt) で勝敗決定
  */
-import type { DeletedInstance, DuplicatedInstance, HiddenRoutine, RecipeProgressEntry, SlotOverrideEntry } from '../../types'
+import type { DeletedInstance, DuplicatedInstance, HiddenRoutine, RecipeProgressEntry, SlotOverrideEntry } from '@/types'
 
 export interface ConflictResolution<T> {
   merged: T[]

@@ -1,5 +1,5 @@
-import DayStateStoreService from '../../src/services/DayStateStoreService';
-import { DayState } from '../../src/types';
+import DayStateStoreService from '@/services/DayStateStoreService';
+import { DayState } from '@/types';
 
 describe('DayStateStoreService', () => {
   function createState(overrides: Partial<DayState> = {}): DayState {

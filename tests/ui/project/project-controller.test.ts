@@ -1,9 +1,9 @@
-import ProjectController from '../../../src/ui/project/ProjectController'
-import { TaskChutePluginLike, TaskData, TaskInstance } from '../../../src/types'
-import ProjectSettingsModal from '../../../src/ui/modals/ProjectSettingsModal'
+import ProjectController from '@/ui/project/ProjectController'
+import { TaskChutePluginLike, TaskData, TaskInstance } from '@/types'
+import ProjectSettingsModal from '@/ui/modals/ProjectSettingsModal'
 import { TFile } from 'obsidian'
 
-jest.mock('../../../src/ui/modals/ProjectSettingsModal', () => {
+jest.mock('@/ui/modals/ProjectSettingsModal', () => {
   return {
     __esModule: true,
     default: jest.fn().mockImplementation(() => ({

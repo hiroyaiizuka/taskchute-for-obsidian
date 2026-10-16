@@ -1,12 +1,13 @@
 import TaskSettingsTooltipController, {
   type TaskSettingsTooltipHost,
-} from '../../../src/ui/task/TaskSettingsTooltipController'
+} from '@/ui/task/TaskSettingsTooltipController'
 import TaskTimeController, {
   type TaskTimeControllerHost,
-} from '../../../src/ui/time/TaskTimeController'
-import type { TaskData, TaskInstance } from '../../../src/types'
+} from '@/ui/time/TaskTimeController'
+import type { TaskData, TaskInstance } from '@/types'
 import { Notice } from 'obsidian'
-import { SectionConfigService } from '../../../src/services/SectionConfigService'
+import { t } from '@/i18n'
+import { SectionConfigService } from '@/services/SectionConfigService'
 
 /** Test overrides may supply a partial task; the runtime shape stays as written. */
 type InstanceOverrides = Omit<Partial<TaskInstance>, 'task'> & {
@@ -70,7 +71,7 @@ describe('TaskSettingsTooltipController', () => {
   })
 
   const createHost = (overrides: Partial<TaskSettingsTooltipHost> = {}): TaskSettingsTooltipHost => ({
-    tv: (_key, fallback) => fallback,
+    tv: (key, fallback, vars) => t(`taskChuteView.${key}`, fallback, vars),
     resetTaskToIdle: jest.fn().mockResolvedValue(undefined),
     showScheduledTimeEditModal: jest.fn().mockResolvedValue(undefined),
     showTaskMoveDatePicker: jest.fn(),
@@ -116,7 +117,7 @@ const createTimeController = () => {
   const saveRunningTasksState = jest.fn().mockResolvedValue(undefined)
   const removeTaskLog = jest.fn().mockResolvedValue(undefined)
   const host: TaskTimeControllerHost = {
-    tv: (_key, fallback) => fallback,
+    tv: (key, fallback, vars) => t(`taskChuteView.${key}`, fallback, vars),
     app: {
       vault: {
         getAbstractFileByPath: jest.fn(() => null),
@@ -219,6 +220,72 @@ const createTimeController = () => {
     expect(host.resetTaskToIdle).not.toHaveBeenCalled()
   })
 
+  describe('dismissal', () => {
+    function open(): { controller: TaskSettingsTooltipController; anchor: HTMLElement } {
+      const controller = new TaskSettingsTooltipController(createHost())
+      const anchor = document.createElement('button')
+      document.body.appendChild(anchor)
+      controller.show(createInstance(), anchor)
+      return { controller, anchor }
+    }
+
+    function pointerdownOn(target: EventTarget): void {
+      target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    }
+
+    test('the menu carries no close button -- tapping away is the way out', () => {
+      open()
+
+      const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
+      expect(tooltip).toBeTruthy()
+      expect(tooltip.querySelector('.tooltip-close-button')).toBeNull()
+      expect(tooltip.querySelector('.tooltip-header')).toBeNull()
+    })
+
+    test('a pointer press outside closes it, one inside does not', () => {
+      open()
+
+      const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
+      pointerdownOn(tooltip)
+      expect(document.querySelector('.task-settings-tooltip')).not.toBeNull()
+
+      pointerdownOn(document.body)
+      expect(document.querySelector('.task-settings-tooltip')).toBeNull()
+    })
+
+    test('pressing the anchor again leaves the reopen to the anchor itself', () => {
+      const { anchor } = open()
+
+      pointerdownOn(anchor)
+
+      expect(document.querySelector('.task-settings-tooltip')).not.toBeNull()
+    })
+
+    test('Escape closes it', () => {
+      open()
+
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+
+      expect(document.querySelector('.task-settings-tooltip')).toBeNull()
+    })
+
+    test('a dismissed menu leaves no document listeners behind', () => {
+      const { controller, anchor } = open()
+      const remove = jest.spyOn(document, 'removeEventListener')
+      try {
+        // Reopening tears the previous menu down rather than stacking a second
+        // set of listeners on the document.
+        controller.show(createInstance(), anchor)
+
+        expect(remove).toHaveBeenCalledWith('pointerdown', expect.any(Function))
+        expect(remove).toHaveBeenCalledWith('keydown', expect.any(Function))
+        expect(document.querySelectorAll('.task-settings-tooltip')).toHaveLength(1)
+      } finally {
+        remove.mockRestore()
+      }
+    })
+  })
+
   test('move action opens date picker and tooltip cleans up on outside click', () => {
     jest.useFakeTimers()
     const host = createHost()
@@ -311,7 +378,7 @@ const createTimeController = () => {
       controller.show(instance, anchor)
 
       const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
-      expect(tooltip.textContent).not.toContain('レシピ')
+      expect(tooltip.textContent).not.toMatch(/recipe/i)
     })
 
     test('shows set recipe when linked recipe is no longer available', () => {
@@ -333,9 +400,9 @@ const createTimeController = () => {
 
       controller.show(instance, anchor)
 
-      expect(queryTooltipItem('レシピを設定')).toBeTruthy()
+      expect(queryTooltipItem('Set recipe')).toBeTruthy()
       const tooltip = document.querySelector('.task-settings-tooltip') as HTMLElement
-      expect(tooltip.textContent).not.toContain('レシピを変更')
+      expect(tooltip.textContent).not.toContain('Change or remove recipe')
     })
 
     test('shows change recipe when linked recipe is available', () => {
@@ -357,7 +424,7 @@ const createTimeController = () => {
 
       controller.show(instance, anchor)
 
-      expect(queryTooltipItem('レシピを変更')).toBeTruthy()
+      expect(queryTooltipItem('Change or remove recipe')).toBeTruthy()
     })
   })
 
@@ -406,7 +473,7 @@ const createTimeController = () => {
         toJSON: () => ({}),
       } as DOMRect),
     })
-    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+    const rectSpy = jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
       if (this.classList.contains('task-settings-tooltip')) {
         return {
           top: 0,
@@ -477,5 +544,43 @@ const createTimeController = () => {
     expect(instance.state).toBe('idle')
     expect(instance.startTime).toBeUndefined()
     expect(document.querySelector('.task-settings-tooltip')).toBeNull()
+  })
+
+  describe('change task type (#182)', () => {
+    const items = () => Array.from(document.querySelectorAll<HTMLElement>('.task-settings-tooltip .tooltip-item'))
+    const changeItem = () => items().find((item) => item.textContent?.includes('Change task type') || item.textContent?.includes('種別を変更'))
+
+    test('is offered where the AI Task feature is available, and opens the modal', () => {
+      const showChangeTaskTypeModal = jest.fn()
+      const controller = new TaskSettingsTooltipController(
+        createHost({ showChangeTaskTypeModal, isAiTaskFeatureEnabled: () => true }),
+      )
+      const instance = createInstance({ state: 'idle' })
+      controller.show(instance, document.body.appendChild(document.createElement('button')))
+      const item = changeItem()
+      expect(item).toBeDefined()
+      item!.click()
+      expect(showChangeTaskTypeModal).toHaveBeenCalledWith(instance)
+    })
+
+    test('is disabled while the task runs', () => {
+      const showChangeTaskTypeModal = jest.fn()
+      const controller = new TaskSettingsTooltipController(
+        createHost({ showChangeTaskTypeModal, isAiTaskFeatureEnabled: () => true }),
+      )
+      controller.show(createInstance({ state: 'running' }), document.body.appendChild(document.createElement('button')))
+      const item = changeItem()!
+      expect(item.classList.contains('disabled')).toBe(true)
+      item.click()
+      expect(showChangeTaskTypeModal).not.toHaveBeenCalled()
+    })
+
+    test('is not shown without the AI Task feature', () => {
+      const controller = new TaskSettingsTooltipController(
+        createHost({ showChangeTaskTypeModal: jest.fn(), isAiTaskFeatureEnabled: () => false }),
+      )
+      controller.show(createInstance({ state: 'idle' }), document.body.appendChild(document.createElement('button')))
+      expect(changeItem()).toBeUndefined()
+    })
   })
 })

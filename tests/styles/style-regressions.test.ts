@@ -69,6 +69,14 @@ const lastPaintingRuleIndex = (css: string, selectorStart: string): number => {
   return found
 }
 
+/** Resolves one of the `--tc-z-*` stacking tokens back to its number. */
+const layerToken = (css: string, token: string): number => {
+  const match = new RegExp(`^\\s*${token}:\\s*(-?\\d+);`, 'm').exec(css)
+  expect(match).not.toBeNull()
+
+  return Number((match as RegExpExecArray)[1])
+}
+
 describe('style regressions', () => {
   test('AI runs participates in vertical layout so the task list remains scrollable', () => {
     const css = styles()
@@ -103,9 +111,13 @@ describe('style regressions', () => {
     expect(dragging).toMatch(/color-mix\(in srgb, var\(--interactive-accent\)/)
     expect(dragging).not.toMatch(/background:\s*var\(--interactive-accent\);/)
     // The handle sits inside the container so it inherits --visible; it must
-    // still disappear when the pane is collapsed to its header row.
+    // still disappear when the pane is collapsed to its header row. It keeps
+    // its 6px box while doing so, so the collapsed header is separated from
+    // the task list by the same gap it has while expanded — `display: none`
+    // would close that gap and butt the header against the last task row.
     const collapsed = readRule(css, '.ai-pane-container--collapsed .ai-pane-resizer {')
-    expect(collapsed).toMatch(/display:\s*none;/)
+    expect(collapsed).toMatch(/visibility:\s*hidden;/)
+    expect(collapsed).not.toMatch(/display:\s*none;/)
   })
 
   test('a drag-resized AI pane height beats the terminal share but loses to expanded', () => {
@@ -166,9 +178,28 @@ describe('style regressions', () => {
     )
     expect(splitIcon).toMatch(/width:\s*14px;/)
     expect(splitIcon).toMatch(/height:\s*14px;/)
-    const expand = readRule(css, '.ai-run-pane button.ai-run-pane__expand {')
-    expect(expand).toMatch(/min-height:\s*0;/)
-    expect(expand).toMatch(/background-color:\s*transparent;/)
+  })
+
+  test("the pane's icon-only buttons are bare squares without a frame", () => {
+    const rule = readRule(styles(), '.ai-run-pane button.ai-run-pane__collapse,')
+    for (const name of [
+      'ai-run-pane__expand',
+      'ai-run-pane__sidebar-toggle',
+      'ai-run-pane__sidebar-files',
+      'ai-run-pane__sidebar-history',
+      'ai-session-history__refresh',
+      'ai-session-history__archived',
+      'ai-session-history__resume',
+      'ai-session-history__archive',
+    ]) {
+      expect(rule).toContain(`.ai-run-pane button.${name}`)
+    }
+    expect(rule).toMatch(/width:\s*24px;/)
+    expect(rule).toMatch(/height:\s*24px;/)
+    expect(rule).toMatch(/min-height:\s*0;/)
+    expect(rule).toMatch(/border:\s*none;/)
+    expect(rule).toMatch(/box-shadow:\s*none;/)
+    expect(rule).toMatch(/background-color:\s*transparent;/)
   })
 
   test('Obsidian-linked AI task icon keeps space from the task title', () => {
@@ -335,6 +366,39 @@ describe('style regressions', () => {
     expect(hiddenRule).toMatch(/display:\s*none;/)
   })
 
+  // #105: a bare `.is-hidden { display: none }` also matched Obsidian's own
+  // `.is-hidden` elements and broke switching between stacked tabs. Every
+  // rule has to pin `is-hidden` to one of the plugin's own classes.
+  test('never styles is-hidden on its own', () => {
+    const css = styles().replace(/\/\*[\s\S]*?\*\//g, '')
+    const preludes = [...css.matchAll(/([^{}]+)\{/g)].map((match) => match[1])
+    const bare = preludes
+      .flatMap((prelude) => prelude.split(','))
+      .map((selector) => selector.trim())
+      .filter((selector) => /(?:^|[\s>+~])\.is-hidden(?![\w-])/.test(selector))
+
+    expect(bare).toEqual([])
+  })
+
+  test('hides the elements the plugin marks is-hidden', () => {
+    const css = styles()
+
+    // The idle task row hides its arrow and end time.
+    const timeRule = readRule(css, '.task-time-arrow.is-hidden')
+    expect(timeRule).toContain('.task-time-stop.is-hidden')
+    expect(timeRule).toMatch(/display:\s*none;/)
+
+    // RoutineController's inline form uses these group classes.
+    const routineRule = readRule(css, '.routine-form__weekly.is-hidden')
+    expect(routineRule).toContain('.routine-weekly-group.is-hidden')
+    expect(routineRule).toContain('.routine-monthly-group.is-hidden')
+
+    // CalendarExportModal toggles the recurrence setting's info block.
+    expect(readRule(css, '.taskchute-calendar-export-modal .setting-item-info.is-hidden')).toMatch(
+      /display:\s*none;/,
+    )
+  })
+
   test('routine edit monthly heading stays hidden over generic form labels', () => {
     const css = styles()
     const lastFormLabelRuleIndex = css.lastIndexOf('.form-label {')
@@ -356,7 +420,24 @@ describe('style regressions', () => {
     expect(weekdayRule).toMatch(/row-gap:\s*var\(--heatmap-week-gap\);/)
   })
 
-  test('touch devices keep the no-comment button override stronger than hover', () => {
+  test('the comment button stays visible whenever it can be clicked', () => {
+    const css = styles()
+
+    // A pointer device no longer waits for row hover to reveal it, and a done
+    // task without a comment is as clickable as one with a comment.
+    const baseRule = readRule(css, '.comment-button {')
+    expect(baseRule).toMatch(/opacity:\s*0\.6;/)
+
+    const noCommentRule = readRule(css, '.comment-button.no-comment {')
+    expect(noCommentRule).toMatch(/opacity:\s*0\.6;/)
+    expect(noCommentRule).toMatch(/visibility:\s*visible;/)
+
+    // What is not clickable is still hidden, so visible means pressable.
+    const disabledRule = readRule(css, '.comment-button.disabled {')
+    expect(disabledRule).toMatch(/visibility:\s*hidden;/)
+  })
+
+  test('touch devices keep the no-comment button visible over a sticky hover', () => {
     const mobileNoCommentRule = readRuleAfter(
       styles(),
       '.comment-button.no-comment,',
@@ -364,7 +445,7 @@ describe('style regressions', () => {
     )
 
     expect(mobileNoCommentRule).toContain('.task-item:hover .comment-button.no-comment:not(:active)')
-    expect(mobileNoCommentRule).toMatch(/opacity:\s*0;/)
+    expect(mobileNoCommentRule).toMatch(/opacity:\s*0\.6;/)
     expect(mobileNoCommentRule).toMatch(/visibility:\s*visible;/)
     expect(mobileNoCommentRule).not.toContain('!important')
 
@@ -374,7 +455,7 @@ describe('style regressions', () => {
       '@media (hover: none)',
     )
 
-    expect(mobileNoCommentActiveRule).toMatch(/opacity:\s*0\.8;/)
+    expect(mobileNoCommentActiveRule).toMatch(/opacity:\s*1;/)
     expect(mobileNoCommentActiveRule).toContain('.task-item:hover .comment-button.no-comment:active')
     expect(mobileNoCommentActiveRule).not.toContain('!important')
   })
@@ -488,12 +569,82 @@ describe('style regressions', () => {
     expect(css).not.toMatch(/:is\([^{}]*::(?:before|after)[^{}]*\)\s*\{/)
   })
 
+  test('form fields shrink to the dialog gutter instead of overflowing it', () => {
+    // WebKit gives a form control an intrinsic minimum width that outranks
+    // `width: 100%`, so inside the modal's padding the field grew past the
+    // gutter on iOS. `time` was the last type still carrying the native
+    // appearance that supplies that width.
+    const fieldRule = readRule(styles(), '.form-input {');
+    expect(fieldRule).toMatch(/min-width:\s*0;/);
+    expect(fieldRule).toMatch(/max-width:\s*100%;/);
+    expect(fieldRule).toMatch(/box-sizing:\s*border-box;/);
+
+    const timeRule = readRule(styles(), '.form-input[type="time"] {');
+    expect(timeRule).toMatch(/appearance:\s*none;/);
+    expect(timeRule).toMatch(/-webkit-appearance:\s*none;/);
+  });
+
+  test('the drag grip claims the whole gesture instead of sharing it', () => {
+    // `manipulation` leaves the browser free to take a vertical pan, which on
+    // iOS scrolls the list out from under the grip so the pointer drag never
+    // starts. The grip is deliberately absent from the shared rule below.
+    const gripRule = readRule(styles(), '.drag-handle {')
+
+    expect(gripRule).toMatch(/touch-action:\s*none;/)
+    expect(gripRule).toMatch(/user-select:\s*none;/)
+
+    const touchActionRule = readRule(styles(), '.taskchute-container button,')
+    expect(touchActionRule).not.toContain('drag-handle')
+  })
+
+  test('the recipe grips claim the whole gesture too', () => {
+    // The recipe checklists reorder on Pointer Events for the same reason the
+    // task list does, so their grips need the same gesture ownership.
+    const gripRule = readRule(styles(), '.recipe-list-drag-handle,')
+
+    expect(gripRule).toMatch(/touch-action:\s*none;/)
+    expect(gripRule).toMatch(/user-select:\s*none;/)
+    expect(gripRule).toMatch(/-webkit-touch-callout:\s*none;/)
+  })
+
+  test('the recipe drop indicator is an accent line on the landing edge', () => {
+    // A background wash said "something lands here" without saying where.
+    // The rows are rounded, so a border or an inset shadow on the row itself
+    // bends the line around the corner radius. The indicator is its own
+    // zero-height element instead.
+    const css = styles()
+    const before = readRule(css, '.recipe-run-step--drop-before::after {')
+    const after = readRule(css, '.recipe-run-step--drop-after::after {')
+
+    for (const line of [before, after]) {
+      expect(line).toMatch(/position:\s*absolute;/)
+      expect(line).toMatch(/height:\s*0;/)
+      expect(line).toMatch(/border-top:\s*2px solid var\(--interactive-accent\);/)
+    }
+    expect(before).toMatch(/top:\s*0;/)
+    expect(after).toMatch(/bottom:\s*0;/)
+  })
+
+  test('the recipe reorder ghost stays out of its own hit test', () => {
+    // `elementFromPoint` has to report the row underneath, not the clone that
+    // is following the pointer.
+    const ghostRule = readRule(styles(), '.recipe-reorder-drag-ghost {')
+
+    expect(ghostRule).toMatch(/position:\s*fixed;/)
+    expect(ghostRule).toMatch(/pointer-events:\s*none;/)
+    // The run popover sits on --tc-z-popover; anything lower hides the ghost
+    // behind the list it was dragged out of.
+    expect(ghostRule).toMatch(/z-index:\s*var\(--tc-z-drag-ghost\);/)
+    expect(layerToken(styles(), '--tc-z-drag-ghost')).toBeGreaterThan(
+      layerToken(styles(), '--tc-z-popover'),
+    )
+  })
+
   test('mobile touch-action covers non-button tap targets', () => {
     const touchActionRule = readRule(styles(), '.taskchute-container button,')
 
     expect(touchActionRule).toContain('.taskchute-container .task-time-start.editable')
     expect(touchActionRule).toContain('.taskchute-container .task-time-stop.editable')
-    expect(touchActionRule).toContain('.taskchute-container .drag-handle')
     expect(touchActionRule).toContain('.taskchute-container .taskchute-project-button')
     expect(touchActionRule).toContain('.taskchute-tooltip .tooltip-item')
     // Every migrated dialog carries `.taskchute-modal`, so one selector covers
@@ -508,7 +659,6 @@ describe('style regressions', () => {
     expect(touchActionRule).toContain('[class~="taskchute-button-secondary"]')
     expect(touchActionRule).toContain('[class~="taskchute-nav-button"]')
     expect(touchActionRule).toContain('[class~="task-button"]')
-    expect(touchActionRule).toContain('[class~="tooltip-close-button"]')
     expect(touchActionRule).toContain('[class~="modal-close-button"]')
     expect(touchActionRule).toMatch(/touch-action:\s*manipulation;/)
   })
@@ -759,44 +909,35 @@ describe('style regressions', () => {
     expect(stacked).toMatch(/flex-direction:\s*column;/)
   })
 
-  test('the header drops to two rows only on a phone-width leaf', () => {
+  test('the date label keeps a fixed box so the nav controls never move', () => {
     const css = styles()
-    const query = '@container taskchute-view (max-width: 380px)'
-    expect(css).toContain(query)
 
-    // Drawer and add stay at the corners of the top row; the date navigator
-    // takes the full width of the second one, arrows at its edges.
-    const bar = readRuleAfter(css, '.top-bar-container {', query)
-    expect(bar).toMatch(/grid-template-rows:\s*repeat\(2, 30px\);/)
+    // The label holds a box wide enough for the longest date string it ever
+    // shows, so neither arrow nor the calendar glyph slides as the date
+    // changes -- "Today (9/2 Wed)" and "9/3 Thu" occupy the same width.
+    const label = readRule(css, '.date-nav-label {')
+    expect(label).toMatch(/flex:\s*0 1 150px;/)
+    expect(label).toMatch(/width:\s*150px;/)
+    expect(label).toMatch(/text-align:\s*center;/)
 
-    const nav = readRuleAfter(
-      css,
-      '.top-bar-container > .date-nav-container.compact {',
-      query,
-    )
-    expect(nav).toMatch(/grid-row:\s*2;/)
-    expect(nav).toMatch(/grid-column:\s*1 \/ -1;/)
-    expect(nav).toMatch(/justify-content:\s*space-between;/)
-
-    // No width to spare: the label gives up its fixed 150px box and truncates
-    // rather than pushing the next-day arrow off the edge of the leaf.
-    const label = readRuleAfter(
-      css,
-      '.top-bar-container > .date-nav-container.compact .date-nav-label {',
-      query,
-    )
-    expect(label).toMatch(/text-overflow:\s*ellipsis;/)
+    // Below the ~338px the row needs for that box, the label is the one thing
+    // allowed to give: it truncates rather than pushing an arrow off the edge.
     expect(label).toMatch(/min-width:\s*0;/)
-    // An ellipsis does nothing to a flex container, which is what the label is
-    // at every other width.
+    expect(label).toMatch(/text-overflow:\s*ellipsis;/)
+    // An ellipsis does nothing to a flex container, which this used to be.
     expect(label).toMatch(/display:\s*block;/)
 
-    // `.date-nav-container.compact` sets its own column and centring later in
-    // the sheet, so the narrow rule has to outrank it rather than merely
-    // follow it -- hence the `.top-bar-container >` qualifier above.
-    expect(css.indexOf('\n.date-nav-container.compact {')).toBeGreaterThan(
-      css.indexOf(query),
-    )
+    // No width-keyed exception left: the phone rule that used to shrink the
+    // label to its text is gone, along with the two-row header and the hidden
+    // calendar glyph it belonged to.
+    expect(css).not.toContain('@container taskchute-view (max-width: 380px)')
+    expect(css).not.toMatch(/\.calendar-btn\s*\{[^}]*display:\s*none/)
+
+    // The compact variant only tunes the type; anything it said about the box
+    // would override the rule above on source order.
+    const compact = readRule(css, '.date-nav-container.compact .date-nav-label {')
+    expect(compact).not.toMatch(/width:/)
+    expect(compact).not.toMatch(/flex:/)
   })
 
   test('the move calendar keeps its arrows and Today button compact on mobile', () => {

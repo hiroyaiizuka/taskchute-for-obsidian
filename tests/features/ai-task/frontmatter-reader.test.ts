@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import { readAiTaskConfig } from '../../../src/features/ai-task/services/AiTaskFrontmatterReader'
+import { readAiTaskConfig } from '@/features/ai-task/services/AiTaskFrontmatterReader'
 
 function deepFreeze<T>(value: T): T {
   if (value !== null && typeof value === 'object') {

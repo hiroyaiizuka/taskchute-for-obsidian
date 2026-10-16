@@ -3,12 +3,12 @@ import {
   disposeAiTaskManagerTracked,
   getSharedAiTaskManagersPendingDisposal,
   registerAiTaskAppShutdownCleanup,
-} from '../../../src/features/ai-task/registerProcessCleanup'
-import type { AiTaskManager } from '../../../src/features/ai-task/services/AiTaskManager'
+} from '@/features/ai-task/registerProcessCleanup'
+import type { AiTaskManager } from '@/features/ai-task/services/AiTaskManager'
 import {
   forgetRetainedAiTaskManager,
   retainAiTaskManager,
-} from '../../../src/features/ai-task/services/AiTaskRuntimeLease'
+} from '@/features/ai-task/services/AiTaskRuntimeLease'
 
 type CleanupHost = Parameters<typeof registerAiTaskAppShutdownCleanup>[0]
 

@@ -7,7 +7,7 @@ import {
   relativeLuminance,
   rgbToOklch,
   type Rgb,
-} from '../../src/utils/color'
+} from '@/utils/color'
 
 const WHITE: Rgb = { r: 255, g: 255, b: 255 }
 const BLACK: Rgb = { r: 0, g: 0, b: 0 }

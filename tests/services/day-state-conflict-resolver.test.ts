@@ -11,8 +11,8 @@ import {
   mergeSlotOverrides,
   getEffectiveDeletedAt,
   isDeleted,
-} from '../../src/services/dayState/conflictResolver'
-import type { DeletedInstance, HiddenRoutine, SlotOverrideEntry } from '../../src/types'
+} from '@/services/dayState/conflictResolver'
+import type { DeletedInstance, HiddenRoutine, SlotOverrideEntry } from '@/types'
 
 describe('getEffectiveDeletedAt', () => {
   test('returns deletedAt when present', () => {

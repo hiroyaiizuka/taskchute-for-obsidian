@@ -5,20 +5,20 @@ import {
   AiTaskManager,
   INTERRUPTED_RUN_ERROR_MESSAGE,
   type AiTaskManagerDeps,
-} from '../../../src/features/ai-task/services/AiTaskManager'
+} from '@/features/ai-task/services/AiTaskManager'
 import {
   AI_RUN_SESSION_SAVE_IDLE_DELAY_MS,
   AiRunSessionStateStore,
   type AiRunSessionSnapshot,
-} from '../../../src/features/ai-task/services/AiRunSessionStateStore'
+} from '@/features/ai-task/services/AiRunSessionStateStore'
 import type {
   AiRunCallbacks,
   AiRunRequest,
-} from '../../../src/features/ai-task/services/dispatchers/Dispatcher'
+} from '@/features/ai-task/services/dispatchers/Dispatcher'
 import type {
   TerminalRunCallbacks,
   TerminalRunHandle,
-} from '../../../src/features/ai-task/services/dispatchers/TerminalDispatcher'
+} from '@/features/ai-task/services/dispatchers/TerminalDispatcher'
 
 function restoredSnapshot(
   overrides: Partial<AiRunSessionSnapshot> = {},
@@ -62,6 +62,7 @@ function createDeps(
     dispatchers: {
       claude: { start: jest.fn(() => ({ pid: 1, stop: jest.fn() })) },
       codex: { start: jest.fn(() => ({ pid: 2, stop: jest.fn() })) },
+      cursor: { start: jest.fn(() => ({ pid: 3, stop: jest.fn() })) },
     },
     binaryLocator: { resolve: jest.fn(async () => '/bin/claude') },
     logWriter: {
@@ -642,7 +643,7 @@ describe('AiTaskManager persisted session restore', () => {
     deps.app.metadataCache.getFileCache = jest.fn(() => ({
       frontmatter: { ai_task: true },
     }))
-    deps.dispatchers = { claude: dispatcher, codex: dispatcher }
+    deps.dispatchers = { claude: dispatcher, codex: dispatcher, cursor: dispatcher }
     deps.timer = {
       setTimeout: jest.fn(() => 1),
       clearTimeout: jest.fn(),

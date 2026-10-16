@@ -1,4 +1,4 @@
-import { createFileEditorAdapter } from '../../../src/features/ai-task/ui/FileEditorAdapter'
+import { createFileEditorAdapter } from '@/features/ai-task/ui/FileEditorAdapter'
 
 describe('FileEditorAdapter CodeMirror boundary', () => {
   beforeEach(() => document.body.replaceChildren())

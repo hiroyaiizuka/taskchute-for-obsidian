@@ -1,8 +1,8 @@
 import { TFile } from 'obsidian'
 
-import { ProjectBoardService } from '../../src/services/projects'
-import { ProjectFolderUnsetError } from '../../src/types'
-import type { TaskChutePluginLike } from '../../src/types'
+import { ProjectBoardService } from '@/services/projects'
+import { ProjectFolderUnsetError } from '@/types'
+import type { TaskChutePluginLike } from '@/types'
 
 function createTFile(path: string): TFile {
   const file = new TFile()

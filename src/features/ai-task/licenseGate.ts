@@ -17,10 +17,39 @@ export interface AiTaskLicenseGateHost extends AiTaskPluginLike {
 }
 
 /**
+ * One run at a time per plugin.
+ *
+ * Two callers watch the same state — the license listener in main.ts and the
+ * settings screen, which has to await its own call before redrawing — so a
+ * single activation or release starts both. Overlapping runs share the
+ * pending-disposal set and the manager slot: one can drain the set and build a
+ * runtime while the other is still tearing that very runtime down. Queued
+ * instead, the second sees the finished result of the first and agrees with it.
+ */
+const inFlight = new WeakMap<AiTaskLicenseGateHost, Promise<boolean>>()
+
+/**
  * Create or dispose the manager so it matches the current gates. Returns true
  * when a manager is running afterwards.
  */
 export async function syncAiTaskManagerToLicense(
+  plugin: AiTaskLicenseGateHost,
+): Promise<boolean> {
+  // Chained off the previous run whatever its outcome: a rejection must not
+  // wedge the queue, and the state each run reads is current when it starts.
+  const previous = inFlight.get(plugin) ?? Promise.resolve(false)
+  const run = previous
+    .catch(() => false)
+    .then(() => applyAiTaskLicenseGate(plugin))
+    .finally(() => {
+      if (inFlight.get(plugin) === run) inFlight.delete(plugin)
+    })
+  inFlight.set(plugin, run)
+
+  return run
+}
+
+async function applyAiTaskLicenseGate(
   plugin: AiTaskLicenseGateHost,
 ): Promise<boolean> {
   if (!isAiTaskLicensed(plugin)) {

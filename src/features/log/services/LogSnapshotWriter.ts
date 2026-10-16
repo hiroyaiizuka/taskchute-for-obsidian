@@ -1,9 +1,10 @@
 import { normalizePath, TFile } from 'obsidian'
-import type { TaskChutePluginLike } from '../../../types'
-import type { TaskLogSnapshot, TaskLogSnapshotMeta } from '../../../types/ExecutionLog'
-import { SnapshotConflictError, SnapshotCorruptedError, LegacySnapshotError } from '../../../types/ExecutionLog'
-import { LOG_BACKUP_FOLDER, LEGACY_REVISION } from '../constants'
-import { parseTaskLogSnapshot } from '../../../utils/executionLogUtils'
+import type { TaskChutePluginLike } from '@/types'
+import type { TaskLogSnapshot, TaskLogSnapshotMeta } from '@/types/ExecutionLog'
+import { SnapshotConflictError, SnapshotCorruptedError, LegacySnapshotError } from '@/types/ExecutionLog'
+import { LEGACY_REVISION } from '../constants'
+import { type BackupClaim, claimBackup, dayStatePath, readIfExists, writeMonthBackupSet } from './MonthBackupSet'
+import { parseTaskLogSnapshot } from '@/utils/executionLogUtils'
 
 export interface SnapshotWriteOptions {
   existingFile?: TFile | null
@@ -128,25 +129,21 @@ export class LogSnapshotWriter {
   async write(monthKey: string, snapshot: TaskLogSnapshot, options?: SnapshotWriteOptions): Promise<void> {
     const logBase = this.plugin.pathManager.getLogDataPath()
     const logPath = normalizePath(`${logBase}/${monthKey}-tasks.json`)
-    const shouldBackup = this.shouldWriteBackup(snapshot.meta, options?.forceBackup)
 
     const existingFile =
       options?.existingFile ?? this.plugin.app.vault.getAbstractFileByPath(logPath)
     if (existingFile && existingFile instanceof TFile) {
       const previousRaw =
         options?.previousRaw ?? (await this.safeRead(existingFile)) ?? null
-      const willBackup = shouldBackup && !!previousRaw
-      if (willBackup) {
+      const claim = previousRaw ? this.claimBackup(monthKey, snapshot.meta, options?.forceBackup) : null
+      if (claim) {
         this.markBackupTimestamp(snapshot)
       }
       const payload = JSON.stringify(snapshot, null, 2)
-      await this.writeWithBackup(
-        existingFile,
-        payload,
-        monthKey,
-        previousRaw,
-        shouldBackup,
-      )
+      if (claim && previousRaw) {
+        await this.writeBackup(monthKey, previousRaw, claim)
+      }
+      await this.plugin.app.vault.modify(existingFile, payload)
       return
     }
 
@@ -164,63 +161,31 @@ export class LogSnapshotWriter {
     }
   }
 
-  private async writeWithBackup(
-    file: TFile,
-    payload: string,
-    monthKey: string,
-    previousRaw: string | null,
-    shouldBackup: boolean,
-  ): Promise<void> {
-    if (shouldBackup && previousRaw) {
-      await this.writeBackup(monthKey, previousRaw)
-    }
-    await this.plugin.app.vault.modify(file, payload)
-  }
-
-  private async writeBackup(monthKey: string, contents: string): Promise<void> {
+  /**
+   * Backs up the month as a set: the execution log as it was before this
+   * write, and the month's day state (comments and the rest) as it is now.
+   */
+  private async writeBackup(monthKey: string, contents: string, claim: BackupClaim): Promise<void> {
     try {
-      const logBase = this.plugin.pathManager.getLogDataPath()
-      const backupRoot = normalizePath(`${logBase}/${LOG_BACKUP_FOLDER}`)
-      await this.plugin.pathManager.ensureFolderExists(backupRoot)
-      const monthFolder = normalizePath(`${backupRoot}/${monthKey}`)
-      await this.plugin.pathManager.ensureFolderExists(monthFolder)
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const backupPath = normalizePath(`${monthFolder}/${timestamp}.json`)
-      const adapter = this.plugin.app.vault.adapter
-      if (adapter && typeof adapter.write === 'function') {
-        await adapter.write(backupPath, contents)
-      }
-      // ensure legacy folder is kept for backwards compatibility if it already exists
+      const state = await readIfExists(this.plugin, dayStatePath(this.plugin, monthKey))
+      await writeMonthBackupSet(this.plugin, monthKey, { tasks: contents, state })
     } catch (error) {
+      claim.release()
       console.warn('[LogSnapshotWriter] Failed to write backup', error)
     }
   }
 
-  private shouldWriteBackup(meta?: TaskLogSnapshotMeta, force = false): boolean {
-    if (force) {
-      return true
-    }
-    const intervalMillis = this.getBackupIntervalMillis()
-    if (intervalMillis <= 0) {
-      return true
-    }
-    const lastBackupAt = meta?.lastBackupAt
-    if (!lastBackupAt) {
-      return true
-    }
-    const last = Date.parse(lastBackupAt)
-    if (Number.isNaN(last)) {
-      return true
-    }
-    return Date.now() - last >= intervalMillis
-  }
-
-  private getBackupIntervalMillis(): number {
-    const hours = this.plugin.settings.backupIntervalHours ?? 2
-    if (!Number.isFinite(hours) || hours <= 0) {
-      return 0
-    }
-    return hours * 60 * 60 * 1000
+  /**
+   * Claims a backup set when one is due. The interval is shared with the day
+   * state's backups (`claimBackup`); this log's own `lastBackupAt` also counts,
+   * since it travels with the file to other devices.
+   */
+  private claimBackup(monthKey: string, meta?: TaskLogSnapshotMeta, force = false): BackupClaim | null {
+    const recorded = meta?.lastBackupAt ? Date.parse(meta.lastBackupAt) : Number.NaN
+    return claimBackup(this.plugin, monthKey, {
+      force,
+      knownLast: Number.isNaN(recorded) ? null : recorded,
+    })
   }
 
   private markBackupTimestamp(snapshot: TaskLogSnapshot): void {

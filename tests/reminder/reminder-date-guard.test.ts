@@ -11,8 +11,8 @@
  * 3. Editing reminders on non-today dates does not affect today's schedule
  */
 
-import { ReminderSystemManager } from '../../src/features/reminder/services/ReminderSystemManager';
-import type { TaskChuteSettings } from '../../src/types';
+import { ReminderSystemManager } from '@/features/reminder/services/ReminderSystemManager';
+import type { TaskChuteSettings } from '@/types';
 import type { App } from 'obsidian';
 
 // Mock createEl for testing

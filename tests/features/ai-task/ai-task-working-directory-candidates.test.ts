@@ -1,7 +1,7 @@
 import type { App } from 'obsidian'
 import { TFile } from 'obsidian'
 
-import { collectAiTaskWorkingDirectoryCandidates } from '../../../src/features/ai-task/services/AiTaskWorkingDirectoryCandidates'
+import { collectAiTaskWorkingDirectoryCandidates } from '@/features/ai-task/services/AiTaskWorkingDirectoryCandidates'
 
 function file(path: string): TFile {
   const candidate = new TFile()

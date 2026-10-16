@@ -2,7 +2,7 @@ import { TFile } from 'obsidian'
 import {
   TaskRecipeAssignmentError,
   TaskRecipeAssignmentService,
-} from '../../src/features/recipe/services/TaskRecipeAssignmentService'
+} from '@/features/recipe/services/TaskRecipeAssignmentService'
 
 function file(path: string): TFile {
   const result = new TFile()
