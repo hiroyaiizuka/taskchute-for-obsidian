@@ -35,8 +35,16 @@ const OVERLAY_CSS = `
     background: rgba(239, 68, 68, .55); border: 2px solid #ef4444; transition: transform .12s;
   }
   #tc-rec-dot.is-down { transform: scale(.6); }
-  /* Obsidian lays itself out above the caption bar instead of under it. */
+  /* Obsidian lays itself out above the caption bar instead of under it, and
+     so do its dialogs (on a phone a picker's field sits at the very bottom). */
   .app-container { height: calc(100% - ${CAPTION_HEIGHT}px) !important; }
+  .modal-container { bottom: ${CAPTION_HEIGHT}px !important; height: auto !important; }
+  .is-phone .modal-container .prompt { bottom: 0 !important; height: auto !important; }
+  /* A phone-wide window: two shorter lines still fit the bar. */
+  @media (max-width: 600px) {
+    #tc-rec-caption { padding: 10px 14px; font-size: 15px; }
+    #tc-rec-caption small { font-size: 12px; }
+  }
 `
 
 export interface Chapter {
@@ -54,6 +62,11 @@ export interface CaptionOptions {
    * your own where the caption reads badly aloud, or false for silence.
    */
   say?: string | false
+}
+
+export interface StartOptions extends CaptionOptions {
+  /** The window's content size; a phone-sized one for a scenario recorded in mobile emulation. */
+  size?: { width: number; height: number }
 }
 
 export interface RecordingResult {
@@ -108,7 +121,7 @@ export class Recorder {
   }
 
   /** Sizes the window, draws the overlay and starts the screencast. */
-  async start(title: string, options: CaptionOptions = {}): Promise<void> {
+  async start(title: string, options: StartOptions = {}): Promise<void> {
     if (this.started) throw new Error("The recording has already started.")
     const { page } = this
 
@@ -129,7 +142,7 @@ export class Recorder {
         else if (win?.setSize) win.setSize(width, height)
         else window.resizeTo(width, height)
       },
-      [VIDEO_WIDTH, VIDEO_HEIGHT] as const,
+      [options.size?.width ?? VIDEO_WIDTH, options.size?.height ?? VIDEO_HEIGHT] as const,
     )
     await sleep(600)
 

@@ -457,7 +457,81 @@ class Modal {
   onClose() {}
 }
 
+/**
+ * Obsidian's SuggestModal, enough to drive one: an input, a result list that
+ * follows it, Enter or a click choosing (after the modal closes, as Obsidian
+ * does), and the empty-state text when there is nothing to show.
+ */
+class SuggestModal extends Modal {
+  constructor(app) {
+    super(app)
+    const doc = this.modalEl.ownerDocument
+    this.modalEl.addClass?.('prompt')
+    this.inputEl = el(doc, 'input', 'prompt-input')
+    this.resultContainerEl = el(doc, 'div', 'prompt-results')
+    this.instructionsEl = el(doc, 'div', 'prompt-instructions')
+    this.modalEl.replaceChildren(this.inputEl, this.resultContainerEl, this.instructionsEl)
+    this.emptyStateText = 'No results found.'
+    this.limit = 50
+    this.suggestions = []
+    this.inputEl.addEventListener('input', () => {
+      void this.updateSuggestions()
+    })
+    this.inputEl.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') this.close()
+      if (event.key === 'Enter' && !event.isComposing && this.suggestions[0] !== undefined) {
+        this.selectSuggestion(this.suggestions[0], event)
+      }
+    })
+  }
+
+  setPlaceholder(placeholder) {
+    this.inputEl.placeholder = placeholder
+  }
+
+  setInstructions(instructions) {
+    this.instructions = instructions
+  }
+
+  open() {
+    super.open()
+    return this.updateSuggestions()
+  }
+
+  async updateSuggestions() {
+    this.suggestions = (await this.getSuggestions(this.inputEl.value)).slice(0, this.limit)
+    this.resultContainerEl.replaceChildren()
+    const doc = this.resultContainerEl.ownerDocument
+    if (this.suggestions.length === 0) {
+      const empty = el(doc, 'div', 'suggestion-empty')
+      empty.textContent = this.emptyStateText
+      this.resultContainerEl.appendChild(empty)
+      return
+    }
+    this.suggestions.forEach((value) => {
+      const item = el(doc, 'div', 'suggestion-item')
+      this.renderSuggestion(value, item)
+      item.addEventListener('click', (event) => this.selectSuggestion(value, event))
+      this.resultContainerEl.appendChild(item)
+    })
+  }
+
+  selectSuggestion(value, evt) {
+    this.close()
+    this.onChooseSuggestion(value, evt)
+  }
+
+  getSuggestions() {
+    return []
+  }
+
+  renderSuggestion() {}
+
+  onChooseSuggestion() {}
+}
+
 module.exports = {
+  SuggestModal,
   ButtonComponent,
   DropdownComponent,
   ExtraButtonComponent,
