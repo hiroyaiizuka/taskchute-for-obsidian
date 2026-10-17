@@ -264,4 +264,43 @@ describe('TaskCompletionController', () => {
       saveSpy.mockRestore()
     }
   })
+
+  test('lists the comments written while the task ran between the ratings and the notes, each deletable (LEV-347)', async () => {
+    const { host } = createHost()
+    const comments = [
+      { id: 'c1', at: new Date('2025-10-09T08:05:00').getTime(), text: 'Outline done' },
+      { id: 'c2', at: new Date('2025-10-09T08:20:00').getTime(), text: 'Asked for review' },
+    ]
+    host.getRunningComments = () => comments
+    host.deleteRunningComment = jest.fn((_inst, id: string, redraw: () => void) => {
+      comments.splice(comments.findIndex((c) => c.id === id), 1)
+      redraw()
+    })
+    const controller = new TaskCompletionController(host)
+    const inst = {
+      instanceId: 'inst-3',
+      state: 'done',
+      task: { path: 'TASKS/sample.md', name: 'sample' },
+    } as unknown as TaskInstance
+
+    await controller.showTaskCompletionModal(inst)
+    const recap = document.querySelector<HTMLElement>('.taskchute-comment-recap')!
+    expect(recap).not.toBeNull()
+    // Under the energy rating, above the notes.
+    expect(recap.previousElementSibling?.textContent).toContain('Energy:')
+    expect(recap.nextElementSibling?.querySelector('textarea')).not.toBeNull()
+    expect(Array.from(recap.querySelectorAll('.taskchute-comment-text')).map((n) => n.textContent)).toEqual([
+      'Outline done',
+      'Asked for review',
+    ])
+    // Not rewritten here: no editor opens, only a delete button per comment.
+    recap.querySelector<HTMLElement>('.taskchute-comment-text')!.click()
+    expect(document.querySelector('.taskchute-comment-editor')).toBeNull()
+
+    recap.querySelector<HTMLButtonElement>('.taskchute-comment-delete')!.click()
+    expect(host.deleteRunningComment).toHaveBeenCalledWith(inst, 'c1', expect.any(Function))
+    expect(Array.from(recap.querySelectorAll('.taskchute-comment-text')).map((n) => n.textContent)).toEqual([
+      'Asked for review',
+    ])
+  })
 })

@@ -107,8 +107,11 @@ export class Recorder {
     return Math.max(0, wall - this.startedAt - this.pausedTotal)
   }
 
-  /** Sizes the window, draws the overlay and starts the screencast. */
-  async start(title: string, options: CaptionOptions = {}): Promise<void> {
+  /**
+   * Sizes the window (1280×800 unless `size` says otherwise, e.g. a phone's
+   * 390×844 for a mobile recording), draws the overlay and starts the screencast.
+   */
+  async start(title: string, options: CaptionOptions & { size?: { width: number; height: number } } = {}): Promise<void> {
     if (this.started) throw new Error("The recording has already started.")
     const { page } = this
 
@@ -129,7 +132,7 @@ export class Recorder {
         else if (win?.setSize) win.setSize(width, height)
         else window.resizeTo(width, height)
       },
-      [VIDEO_WIDTH, VIDEO_HEIGHT] as const,
+      [options.size?.width ?? VIDEO_WIDTH, options.size?.height ?? VIDEO_HEIGHT] as const,
     )
     await sleep(600)
 

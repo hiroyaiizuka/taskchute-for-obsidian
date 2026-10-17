@@ -1,3 +1,6 @@
+import { setIcon } from 'obsidian'
+import type { DayComment } from '@/types'
+
 /** Attribute naming the textareas that keep focus across a re-render. */
 export const FOCUS_ATTR = 'data-tc-comment-focus'
 /** Attribute on the clocks inside an open input, kept current by a ticker. */
@@ -10,6 +13,29 @@ export function formatCommentTime(at: number): string {
   return `${h}:${m}`
 }
 
+export interface CommentItemOptions {
+  deleteLabel: string
+  /** Comments cannot be rewritten, only deleted (LEV-346, LEV-347). */
+  onDelete: (comment: DayComment) => void
+}
+
+/** One comment: time, text, and a button that deletes it. */
+export function createCommentItem(list: HTMLElement, comment: DayComment, options: CommentItemOptions): HTMLLIElement {
+  const item = list.createEl('li')
+  item.createEl('time', { text: formatCommentTime(comment.at) })
+  item.createSpan({ cls: 'taskchute-comment-text', text: comment.text })
+  const remove = item.createEl('button', {
+    cls: 'clickable-icon taskchute-comment-delete',
+    attr: { type: 'button', 'aria-label': options.deleteLabel, title: options.deleteLabel },
+  })
+  setIcon(remove, 'x')
+  remove.addEventListener('click', (event) => {
+    event.stopPropagation()
+    options.onDelete(comment)
+  })
+  return item
+}
+
 export interface CommentTextareaOptions {
   cls: string
   focusKey: string
@@ -20,6 +46,8 @@ export interface CommentTextareaOptions {
   onInput?: (value: string) => void
   /** Enter (not while composing with an IME); Shift+Enter is a new line. */
   onSubmit: (value: string) => void
+  /** false makes Enter a new line too (phones: there is no Shift, and a button adds). */
+  submitOnEnter?: boolean
   onEscape?: () => void
 }
 
@@ -48,6 +76,7 @@ export function createCommentTextarea(parent: HTMLElement, options: CommentTexta
       options.onEscape()
       return
     }
+    if (options.submitOnEnter === false) return
     if (event.key !== 'Enter' || event.isComposing || event.shiftKey) return
     event.preventDefault()
     options.onSubmit(textarea.value)

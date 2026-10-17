@@ -9,16 +9,14 @@ export interface CommentModalOptions {
   placeholder?: string
   submitText: string
   cancelText: string
-  deleteText?: string
   /** Return false to keep the modal open (e.g. blank text). */
   onSubmit: (text: string) => boolean | void
-  onDelete?: () => void
   /** Every keystroke, so an unsent draft survives closing the modal. */
   onDraft?: (text: string) => void
 }
 
 /**
- * On a phone, adding and rewriting a comment happen here instead of in place:
+ * On a phone, adding a comment to a running task happens here instead of in place:
  * the in-place input is too cramped once the keyboard is up.
  */
 export class CommentModal extends Modal {
@@ -36,19 +34,7 @@ export class CommentModal extends Modal {
     if (options.placeholder) textarea.placeholder = options.placeholder
     textarea.addEventListener('input', () => options.onDraft?.(textarea.value))
 
-    const buttons: ModalFooterButtonSpec[] = []
-    if (options.onDelete && options.deleteText) {
-      buttons.push({
-        text: options.deleteText,
-        role: 'secondary',
-        cls: 'taskchute-comment-entry-modal__delete',
-        onClick: () => {
-          options.onDelete?.()
-          this.close()
-        },
-      })
-    }
-    buttons.push(
+    const buttons: ModalFooterButtonSpec[] = [
       { text: options.cancelText, role: 'cancel', onClick: () => this.close() },
       {
         text: options.submitText,
@@ -57,7 +43,7 @@ export class CommentModal extends Modal {
           if (options.onSubmit(textarea.value) !== false) this.close()
         },
       },
-    )
+    ]
     createModalFooter(this.contentEl, buttons)
     window.setTimeout(() => {
       textarea.focus()

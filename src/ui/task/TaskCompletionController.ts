@@ -3,7 +3,7 @@ import { t, type ScopedKey, type ScopedTranslator } from '@/i18n'
 import { createModalFooter } from '../components/modalFooter'
 import { ProjectNoteSyncService } from '@/features/project/services/ProjectNoteSyncService'
 import type { DayComment, TaskInstance, PathManagerLike } from '@/types'
-import { formatCommentTime } from '@/features/comments/ui/commentDom'
+import { createCommentItem } from '@/features/comments/ui/commentDom'
 import type { TaskLogEntry } from '@/types/ExecutionLog'
 import { parseTaskLogSnapshot } from '@/utils/executionLogUtils'
 
@@ -18,8 +18,13 @@ export interface TaskCompletionControllerHost {
     pathManager: Pick<PathManagerLike, 'getLogDataPath' | 'ensureFolderExists' | 'getProjectFolderPath' | 'getTaskFolderPath' | 'getReviewDataPath' | 'getLogYearPath' | 'ensureYearFolder' | 'validatePath'>
   }
   appendCommentDelta?: (dateKey: string, entry: TaskLogEntry) => Promise<void>
-  /** Comments written while the task ran (#181), shown read-only at the top. */
+  /** Comments written while the task ran (#181), listed under the ratings. */
   getRunningComments?: (inst: TaskInstance) => DayComment[]
+  /**
+   * Deletes one of them (they cannot be rewritten, LEV-347); `redraw` redraws
+   * the list, on delete and on undo.
+   */
+  deleteRunningComment?: (inst: TaskInstance, id: string, redraw: () => void) => void
 }
 
 /**
@@ -55,8 +60,6 @@ export default class TaskCompletionController {
           }),
     )
 
-    this.renderRunningComments(contentEl, inst)
-
     if (inst.state === 'done' && typeof inst.actualTime === 'number') {
       const duration = this.formatDuration(inst.actualTime)
       const timeSetting = new Setting(contentEl).setName(
@@ -89,6 +92,8 @@ export default class TaskCompletionController {
       fallback: 'Energy:',
       initial: this.convertToFiveScale(existingComment?.energyLevel ?? 0),
     })
+
+    this.renderRunningComments(contentEl, inst)
 
     let commentInput!: HTMLTextAreaElement
     new Setting(contentEl)
@@ -325,21 +330,31 @@ export default class TaskCompletionController {
     }
   }
 
-  /** The comments written while the task ran, read-only; nothing when there are none. */
+  /**
+   * The comments written while the task ran, between the ratings and the
+   * notes (LEV-347); nothing when there are none. They are not rewritten
+   * here either, only deleted.
+   */
   private renderRunningComments(contentEl: HTMLElement, inst: TaskInstance): void {
-    const comments = this.host.getRunningComments?.(inst) ?? []
-    if (comments.length === 0) return
+    if ((this.host.getRunningComments?.(inst) ?? []).length === 0) return
     const recap = contentEl.createDiv({ cls: 'taskchute-comment-recap' })
-    recap.createDiv({
-      cls: 'taskchute-comment-recap__title',
-      text: this.host.tv('comments.recapTitle', 'Comments while working'),
-    })
-    const list = recap.createEl('ul', { cls: 'taskchute-comment-list is-readonly' })
-    for (const comment of comments) {
-      const item = list.createEl('li')
-      item.createEl('time', { text: formatCommentTime(comment.at) })
-      item.createSpan({ cls: 'taskchute-comment-text', text: comment.text })
+    const draw = () => {
+      recap.empty()
+      const comments = this.host.getRunningComments?.(inst) ?? []
+      recap.toggleAttribute('hidden', comments.length === 0)
+      recap.createDiv({
+        cls: 'taskchute-comment-recap__title',
+        text: this.host.tv('comments.recapTitle', 'Comments while working'),
+      })
+      const list = recap.createEl('ul', { cls: 'taskchute-comment-list' })
+      for (const comment of comments) {
+        createCommentItem(list, comment, {
+          deleteLabel: this.host.tv('comments.deleteLabel', 'Delete this comment'),
+          onDelete: () => this.host.deleteRunningComment?.(inst, comment.id, draw),
+        })
+      }
     }
+    draw()
   }
 
   private toTimeString(date?: Date): string {

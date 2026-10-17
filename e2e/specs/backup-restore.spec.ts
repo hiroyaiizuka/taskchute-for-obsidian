@@ -37,15 +37,38 @@ async function enableDayComments(page: Page) {
   }, "taskchute-plus")
 }
 
-async function addDayComment(page: Page, text: string) {
-  const input = page.locator(".taskchute-day-comments textarea")
-  await input.click()
-  await input.fill(text)
-  await input.press("Enter")
-  await expect(page.locator(".taskchute-day-comments .taskchute-comment-text", { hasText: text })).toBeVisible()
+const dayWindow = (page: Page) => page.locator(".taskchute-day-comments-window")
+
+/** Opens the day's comments from the button at the bottom right, if not open already. */
+async function openDayComments(page: Page) {
+  if (await dayWindow(page).isVisible()) return
+  await page.locator(".taskchute-day-comments-button").click()
+  await expect(dayWindow(page)).toBeVisible()
 }
 
-const dayCommentTexts = (page: Page) => page.locator(".taskchute-day-comments .taskchute-comment-text")
+/** Closes the window, which covers the right end of some rows. */
+async function closeDayComments(page: Page) {
+  if (!(await dayWindow(page).isVisible())) return
+  await dayWindow(page).locator(".taskchute-day-comments-window__close").click()
+  await expect(dayWindow(page)).toHaveCount(0)
+}
+
+async function addDayComment(page: Page, text: string) {
+  await openDayComments(page)
+  const input = dayWindow(page).locator(".taskchute-day-comments-window__input textarea")
+  await input.fill(text)
+  await input.press("Enter")
+  await expect(dayWindow(page).locator(".taskchute-comment-text", { hasText: text })).toBeVisible()
+  await closeDayComments(page)
+}
+
+const dayCommentTexts = (page: Page) => dayWindow(page).locator(".taskchute-comment-text")
+
+async function expectDayComments(page: Page, texts: string[]) {
+  await openDayComments(page)
+  await expect(dayCommentTexts(page)).toHaveText(texts)
+  await closeDayComments(page)
+}
 const rowsOf = (page: Page, taskPath: string) =>
   page.locator(`.taskchute-view-root .task-item[data-task-path="${taskPath}"]`)
 
@@ -135,25 +158,26 @@ test("restoring a backup brings the day's comments back to that moment", async (
     expect.stringMatching(/Z\.state\.json$/u),
   ])
 
-  // Change things after the backup: edit the first comment, add a third.
-  await dayCommentTexts(page).filter({ hasText: "Plan the week" }).click()
-  const editor = page.locator(".taskchute-day-comments .taskchute-comment-editor textarea")
-  // The editor takes focus (caret at the end) a frame after it opens; type only after that.
-  await expect(editor).toBeFocused()
-  await editor.fill("Plan the month")
-  await page.locator(".taskchute-day-comments .taskchute-comment-editor").getByRole("button", { name: "Save" }).click()
+  // Change things after the backup: delete the first comment (comments are
+  // deleted, not rewritten), add a third.
+  await openDayComments(page)
+  await dayWindow(page)
+    .locator(".taskchute-comment-list > li", { hasText: "Plan the week" })
+    .locator(".taskchute-comment-delete")
+    .click()
+  await expect(dayCommentTexts(page)).toHaveText(["Call the bank"])
   await addDayComment(page, "Book the flight")
-  await expect.poll(() => readDayComments(vaultDir, today).sort()).toEqual(["Book the flight", "Call the bank", "Plan the month"])
+  await expect.poll(() => readDayComments(vaultDir, today).sort()).toEqual(["Book the flight", "Call the bank"])
 
   await restoreNewestBackup(page)
 
   // The open view shows the day as it was when the backup was taken.
-  await expect(dayCommentTexts(page)).toHaveText(["Plan the week"])
+  await expectDayComments(page, ["Plan the week"])
   expect(readDayComments(vaultDir, today)).toEqual(["Plan the week"])
   // And it stays that way after a fresh load.
   await page.evaluate(() => window.app.workspace.detachLeavesOfType("taskchute-view"))
   await openTaskChute(page)
-  await expect(dayCommentTexts(page)).toHaveText(["Plan the week"])
+  await expectDayComments(page, ["Plan the week"])
 })
 
 test("restoring a backup taken before a routine was deleted for today brings it back", async ({ obsidian }) => {
@@ -174,7 +198,7 @@ test("restoring a backup taken before a routine was deleted for today brings it 
 
   await restoreNewestBackup(page)
   await expect(rowsOf(page, routinePath)).toHaveCount(1)
-  await expect(dayCommentTexts(page)).toHaveText(["Plan the week"])
+  await expectDayComments(page, ["Plan the week"])
 })
 
 test("restoring a backup taken after a routine was deleted for today keeps it deleted", async ({ obsidian }) => {
@@ -206,7 +230,7 @@ test("restoring a backup taken after a routine was deleted for today keeps it de
 
   // Deleted for today again; the comment written after the backup is gone.
   await expect(rowsOf(page, routinePath)).toHaveCount(0)
-  await expect(dayCommentTexts(page)).toHaveText(["Plan the week"])
+  await expectDayComments(page, ["Plan the week"])
   await page.evaluate(() => window.app.workspace.detachLeavesOfType("taskchute-view"))
   await openTaskChute(page)
   await expect(rowsOf(page, routinePath)).toHaveCount(0)
