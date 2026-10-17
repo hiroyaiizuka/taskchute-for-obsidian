@@ -422,10 +422,10 @@ describe('AiRunPaneController split panels', () => {
       setParentHeight(500)
 
       // cols: (1000 total - 180 sidebar - 16 horizontal inset) / 8 px cells
-      // rows: (500 * 0.4 pane share - 64 vertical chrome) / 17 px cells —
-      // the vertical inset must cover the pane header (~26px), the panel
-      // tab strip (27px incl. border), and the pane borders.
-      expect(controller.computeTerminalSize()).toEqual({ cols: 100, rows: 8 })
+      // rows: (500 * 0.5 pane share - 56 vertical chrome) / 17 px cells —
+      // the vertical inset must cover the pane header (25px incl. border),
+      // the panel tab strip (27px incl. border), and the pane borders.
+      expect(controller.computeTerminalSize()).toEqual({ cols: 100, rows: 11 })
     })
 
     test('a split spawns the shell with the sidebar-excluded per-panel size', () => {
@@ -441,7 +441,7 @@ describe('AiRunPaneController split panels', () => {
       expect(panels()).toHaveLength(2)
       expect(manager.startShellSession).toHaveBeenCalledWith({
         cols: 38, // (320 panel - 16 horizontal inset) / 8 px cells
-        rows: 8,
+        rows: 11,
         name: 'Terminal',
         parentRunId: 'run-a',
       })

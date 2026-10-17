@@ -21,9 +21,13 @@ const run = promisify(execFile)
 const README = "# 引っ越しメモ\n\n- 10月20日に引っ越す\n- 電気・ガス・水道の手続きを10月15日までに済ませる\n- 郵便の転送届を出す\n"
 const PLATYPUS_ASK = "カモノハシを一言で説明して"
 const MOVE_ASK = "README.md を読んで、引っ越しまでにやることを3行でまとめて"
+/** Said only halfway through the move session: found by full-text search alone. */
+const MIDDLE_WORD = "粗大ごみ"
+const MOVE_MIDDLE = `${MIDDLE_WORD}の出し方も、自治体の一般的な流れで2行で教えて`
+const MOVE_LAST = "ありがとう。今日はここまでにします"
 const CURSOR_ASK = "README.md の内容を英語に訳して"
 const CODEX_ASK = "README.md を読んで、手続きの締め切りだけを教えて"
-const FOLLOW_UP = "さっきのまとめを1行にして"
+const FOLLOW_UP = "最初にまとめてもらったことを1行にして"
 
 /**
  * Removes the sessions an earlier recording left for this vault. The vault is
@@ -80,6 +84,18 @@ async function locate(command: string): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+/** The id of the newest Claude Code session of this vault. */
+function latestClaudeSession(vault: string): string {
+  const project = path.join(os.homedir(), ".claude", "projects", vault.replace(/[^a-zA-Z0-9]/g, "-"))
+  const newest = fs
+    .readdirSync(project)
+    .filter((name) => name.endsWith(".jsonl"))
+    .map((name) => ({ name, mtime: fs.statSync(path.join(project, name)).mtimeMs }))
+    .sort((left, right) => right.mtime - left.mtime)[0]
+  if (!newest) throw new Error(`No Claude Code session was written in ${project}.`)
+  return newest.name.slice(0, -".jsonl".length)
 }
 
 /** Runs a real CLI once in the vault, headless, so it leaves a session behind. */
@@ -151,6 +167,11 @@ test("session-history", async ({ obsidian, recorder }) => {
   if (codexPath) await seed(vault, codexPath, ["exec", "--skip-git-repo-check", CODEX_ASK])
   await seed(vault, claudePath, ["-p", PLATYPUS_ASK])
   await seed(vault, claudePath, ["-p", MOVE_ASK])
+  // Two more turns in the same session, so its middle says something its
+  // title and its first and last messages do not.
+  const moveId = latestClaudeSession(vault)
+  await seed(vault, claudePath, ["-p", "--resume", moveId, MOVE_MIDDLE])
+  await seed(vault, claudePath, ["-p", "--resume", moveId, MOVE_LAST])
   const others = [...(codexPath ? ["codex"] : []), ...(cursorPath ? ["cursor"] : [])]
   const all = ["claude", "claude", ...others]
   const agentNames = ["Claude Code", ...(codexPath ? ["Codex"] : []), ...(cursorPath ? ["Cursor"] : [])].join("・")
@@ -197,15 +218,21 @@ test("session-history", async ({ obsidian, recorder }) => {
   // Cursor's chat is read from its own store: the title is what was asked.
   if (cursorPath) await expect(rows(page).nth(all.length - 1).locator(".ai-session-history__title")).toContainText("英語に訳して")
 
-  await recorder.chapter("③ 検索する：「カモノハシ」", {
-    sub: "タイトルと最初・最後のやり取りに、その単語を含むものだけ残る",
+  await recorder.chapter(`③ 会話の全文から検索する：「${MIDDLE_WORD}」`, {
+    sub: "タイトルにも最初・最後のやり取りにもない言葉でも見つかる。見つかった前後の文が出る",
+    say: `会話の全文から検索します。${MIDDLE_WORD}は、会話の途中でだけ話した言葉です。タイトルにも最初と最後のやり取りにもありませんが、見つかって、その前後の文が出ます。`,
   })
   const search = view(page).locator(".ai-session-history__search")
   await recorder.click(search)
-  await search.pressSequentially("カモノハシ", { delay: 110 })
+  await search.pressSequentially(MIDDLE_WORD, { delay: 110 })
   await expect.poll(() => rows(page).count()).toBe(1)
-  await expect(rows(page).first()).toContainText("カモノハシ")
-  await recorder.pause(1500)
+  const found = rows(page).first()
+  await expect(found).toHaveAttribute("data-session-host", "claude")
+  // Not in the title: the match came from the middle of the conversation.
+  await expect(found.locator(".ai-session-history__title")).not.toContainText(MIDDLE_WORD)
+  await expect(found.locator(".ai-session-history__snippet")).toContainText(MIDDLE_WORD)
+  await recorder.hover(found)
+  await recorder.pause(2500)
   await search.fill("")
   await expect.poll(() => rows(page).count()).toBe(all.length)
 
@@ -254,16 +281,22 @@ test("session-history", async ({ obsidian, recorder }) => {
   await expect.poll(() => terminalText(page), { timeout: 40_000 }).toContain("3行でまとめて")
   await recorder.pause(2500)
 
-  await recorder.chapter("⑦ 続けて話しかける：「さっきのまとめを1行にして」", {
+  await recorder.chapter(`⑦ 続けて話しかける：「${FOLLOW_UP}」`, {
     sub: "前の会話を覚えていて、その続きとして答える",
   })
   await recorder.click(page.locator(".ai-run-pane .xterm").last())
-  const before = (await terminalText(page)).length
   await page.keyboard.type(FOLLOW_UP, { delay: 90 })
   await page.keyboard.press("Enter")
-  // The answer draws on the first exchange: the move, which the follow-up does not name.
-  await expect
-    .poll(async () => (await terminalText(page)).slice(before).replace(FOLLOW_UP, ""), { timeout: 90_000 })
-    .toMatch(/引っ越|10月/)
+  // The reply, after the follow-up as shown on screen (a "●" line), draws on
+  // the first exchange: the move, which the follow-up does not name. A full
+  // redraw also repeats the earlier conversation, so only text after the
+  // follow-up counts.
+  const asked = FOLLOW_UP.replace(/\s+/g, "")
+  const reply = async () => {
+    const text = await terminalText(page)
+    const at = text.lastIndexOf(asked)
+    return at < 0 ? "" : text.slice(at + asked.length)
+  }
+  await expect.poll(reply, { timeout: 120_000 }).toMatch(/●[^●❯]*(引っ越|10月|電気|水道|転送)/)
   await recorder.pause(4000)
 })

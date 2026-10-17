@@ -39,8 +39,10 @@ export async function encodeVideo(options: {
   end: number
   clips: NarrationClip[]
   output: string
+  /** The picture size; frames from a window of another size are fitted into it. */
+  size?: { width: number; height: number }
 }): Promise<void> {
-  const { framesDir, frames, end, clips, output } = options
+  const { framesDir, frames, end, clips, output, size } = options
   if (frames.length === 0) throw new Error("Nothing was recorded: the screencast sent no frames.")
 
   const lines = ["ffconcat version 1.0"]
@@ -57,7 +59,12 @@ export async function encodeVideo(options: {
   for (const clip of clips) inputs.push("-i", clip.file)
 
   // yuv420p and even dimensions: what browsers and QuickTime both play.
-  const graph = ["[0:v]fps=30,scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos,format=yuv420p[v]"]
+  const even = (n: number) => Math.floor(n / 2) * 2
+  const fit = size
+    ? `scale=${even(size.width)}:${even(size.height)}:force_original_aspect_ratio=decrease:flags=lanczos,` +
+      `pad=${even(size.width)}:${even(size.height)}:(ow-iw)/2:(oh-ih)/2:color=0x111015`
+    : "scale=trunc(iw/2)*2:trunc(ih/2)*2:flags=lanczos"
+  const graph = [`[0:v]fps=30,${fit},format=yuv420p[v]`]
   const maps = ["-map", "[v]"]
   if (clips.length > 0) {
     clips.forEach((clip, index) => {

@@ -21,8 +21,11 @@ import { BinaryLocator } from './services/BinaryLocator'
 import { NodeProcessGateway } from './services/NodeProcessGateway'
 import type { AiDispatcher } from './services/dispatchers/Dispatcher'
 import { listAiAgents, mapAiAgents } from './agents'
+import { AiModelCatalog } from './models/AiModelCatalog'
+import { createDefaultModelReader, createModelListFetcher } from './models/modelListSources'
 import { AgentSessionHistory } from './sessions/AgentSessionHistory'
 import { SessionArchiveStore } from './sessions/SessionArchiveStore'
+import { IndexedDbSessionTextStore } from './sessions/SessionTextStore'
 import {
   TerminalDispatcher,
   type AiTerminalDispatcher,
@@ -199,11 +202,24 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
       loadLocalStorage: (key) => localStorageApp.loadLocalStorage?.(key),
       saveLocalStorage: (key, value) => localStorageApp.saveLocalStorage?.(key, value),
     }),
+    // Conversations extracted for search stay on this device, out of the vault.
+    new IndexedDbSessionTextStore(window.indexedDB),
+  )
+
+  // Model lists come from the CLIs installed here, so they stay on this device.
+  const modelCatalog = new AiModelCatalog(
+    {
+      loadLocalStorage: (key) => localStorageApp.loadLocalStorage?.(key),
+      saveLocalStorage: (key, value) => localStorageApp.saveLocalStorage?.(key, value),
+    },
+    createModelListFetcher(gateway, binaryLocator),
+    createDefaultModelReader(gateway),
   )
 
   const deps: AiTaskManagerDeps = {
     app: plugin.app,
     sessionHistory,
+    modelCatalog,
     dispatchers,
     binaryLocator,
     logWriter,

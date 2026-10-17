@@ -28,8 +28,8 @@ import type {
   AiTaskEditValue,
 } from "@/features/ai-task/services/AiTaskEditService"
 import {
-  AI_MODEL_PRESETS,
   AI_REASONING_BUDGETS,
+  isSafeAiModelId,
   buildReasoningArgs,
   getAvailableReasoningModes,
   type AiReasoningBudget,
@@ -54,10 +54,7 @@ import {
 } from "@/features/ai-task/services/WorkingDirectoryHistory"
 import { ElectronDirectoryPicker } from "@/features/ai-task/services/ElectronDirectoryPicker"
 import { WorkingDirectorySelectController } from "@/features/ai-task/ui/WorkingDirectorySelectController"
-import {
-  AI_MODEL_ID_SAFE_PATTERN,
-  AiCustomModelStore,
-} from "@/features/ai-task/models/AiCustomModelStore"
+import { AiModelCatalog } from "@/features/ai-task/models/AiModelCatalog"
 import { AiModelSelectController } from "@/features/ai-task/ui/AiModelSelectController"
 import { AiTrustFolderControl } from "@/features/ai-task/ui/AiTrustFolderControl"
 import type { Recipe, RecipeService } from "@/features/recipe/services/RecipeService"
@@ -803,21 +800,17 @@ export default class TaskCreationController {
       loadLocalStorage?: (key: string) => unknown
       saveLocalStorage?: (key: string, value: unknown) => void
     }
-    const customModelStore = new AiCustomModelStore({
-      loadLocalStorage: (key) => storageApp.loadLocalStorage?.(key),
-      saveLocalStorage: (key, value) =>
-        storageApp.saveLocalStorage?.(key, value),
-    })
+    // Without a running AI feature (tests), the built-in lists only.
+    const modelCatalog =
+      this.host.plugin.aiTaskManager?.getModelCatalog() ?? new AiModelCatalog(storageApp)
     // A human task turning into an AI task has no AI settings yet: it starts
     // like a new one. Only a task that already was AI is read back.
     const decodedInitialArgs = initialValue && initialValue.initialType !== "human"
       ? decodeAiTaskArgs(
         initialValue.host,
         initialValue.args,
-        (modelId) =>
-          AI_MODEL_PRESETS[initialValue.host].some(
-            (model) => model.id === modelId,
-          ) || customModelStore.hasModelId(initialValue.host, modelId),
+        // Any model the note names stays selected, listed or not.
+        isSafeAiModelId,
       )
       : null
     let passthroughArgs = [...(decodedInitialArgs?.passthroughArgs ?? [])]
@@ -827,12 +820,6 @@ export default class TaskCreationController {
       decodedInitialArgs
         ? { id: decodedInitialArgs.execModeId, tokens: decodedInitialArgs.execModeTokens }
         : null
-    const initialModelIsCustom = Boolean(
-      decodedInitialArgs?.modelId &&
-        customModelStore
-          .getCustomModels(selectedHost)
-          .some((model) => model.id === decodedInitialArgs.modelId),
-    )
 
     // --- Task-type selector -------------------------------------------------
     const typeGroup = doc.win.createDiv()
@@ -1096,40 +1083,47 @@ export default class TaskCreationController {
       doc,
       host: selectedHost,
       modelId: decodedInitialArgs?.modelId || null,
-      isCustom: initialModelIsCustom,
-      store: customModelStore,
+      catalog: modelCatalog,
       labels: {
         openMenu: this.host.tv("addTask.aiModelOpen", "Choose AI model"),
         defaultModel: this.host.tv(
           "addTask.aiModelPlaceholder",
           "Default model",
         ),
-        defaultDescription: this.host.tv(
-          "addTask.aiModelDefaultDescription",
-          "Use the model configured by the CLI",
+        defaultDecidedBy: (host) =>
+          host === "claude"
+            ? this.host.tv("addTask.aiModelDefaultByClaude", "Claude Code picks one for your plan")
+            : host === "codex"
+              ? this.host.tv("addTask.aiModelDefaultByCodex", "Codex decides")
+              : this.host.tv("addTask.aiModelDefaultByCursor", "Cursor decides"),
+        refresh: this.host.tv("addTask.aiModelRefresh", "Get the latest models"),
+        refreshing: this.host.tv("addTask.aiModelRefreshing", "Getting…"),
+        fetchedAt: (time) =>
+          this.host.tv("addTask.aiModelFetchedAt", "Got at {time}", { time }),
+        neverFetched: this.host.tv(
+          "addTask.aiModelNeverFetched",
+          "Not fetched yet",
         ),
-        builtInModels: this.host.tv(
-          "addTask.aiModelBuiltIn",
-          "Available models",
+        fetching: this.host.tv(
+          "addTask.aiModelFetching",
+          "Getting the latest list… you can still choose",
         ),
-        customModels: this.host.tv(
-          "addTask.aiModelCustomModels",
-          "Custom models",
-        ),
-        addCustomModel: this.host.tv(
-          "addTask.aiModelAddCustom",
-          "Add custom model",
-        ),
-        editCustomModel: this.host.tv(
-          "addTask.aiModelEditCustom",
-          "Edit custom model",
-        ),
-        deleteCustomModel: this.host.tv(
-          "addTask.aiModelDeleteCustom",
-          "Delete custom model",
+        fetchFailed: (hasPrevious) =>
+          hasPrevious
+            ? this.host.tv(
+              "addTask.aiModelFetchFailed",
+              "Could not get the list. Showing the previous one.",
+            )
+            : this.host.tv(
+              "addTask.aiModelFetchFailedBuiltIn",
+              "Could not get the list. Showing the built-in one.",
+            ),
+        newBadge: this.host.tv("addTask.aiModelNew", "New"),
+        alwaysNewest: this.host.tv(
+          "addTask.aiModelAlwaysNewest",
+          "Each always runs its newest version. No list to get.",
         ),
       },
-      customModelModalLabels: this.buildCustomModelModalLabels(),
       onChange: () => {
         passthroughArgs = this.removeModelArgs(passthroughArgs)
         rebuildReasoningModeOptions()
@@ -1234,7 +1228,7 @@ export default class TaskCreationController {
         args.push(...trustArgs)
       }
       const model = modelSelect.getValue().modelId ?? ""
-      if (model.length > 0 && AI_MODEL_ID_SAFE_PATTERN.test(model)) {
+      if (model.length > 0 && isSafeAiModelId(model)) {
         args.push(`--model=${model}`)
       }
       args.push(
@@ -1328,7 +1322,12 @@ export default class TaskCreationController {
       const modes = getAvailableReasoningModes(
         selectedHost,
         selectedModel.modelId ?? "",
-        { isCustomModel: selectedModel.isCustom },
+        {
+          isUnlisted: selectedModel.isUnlisted,
+          ...(selectedModel.reasoningLevels
+            ? { levels: selectedModel.reasoningLevels }
+            : {}),
+        },
       )
       for (const mode of modes) {
         appendReasoningModeOption(mode)
@@ -1338,6 +1337,11 @@ export default class TaskCreationController {
           ? previousMode
           : "automatic"
     }
+
+    // A list fetched while the dialog is open can change what efforts the model takes.
+    const stopWatchingModels = modelCatalog.subscribe((host) => {
+      if (host === selectedHost) rebuildReasoningModeOptions()
+    })
 
     const rebuildReasoningBudgetOptions = () => {
       reasoningBudgetSelect.replaceChildren()
@@ -1477,6 +1481,7 @@ export default class TaskCreationController {
       },
       destroy: () => {
         recipeLoadDisposed = true
+        stopWatchingModels()
         modelSelect.destroy()
         workingDirectorySelect.destroy()
       },
@@ -1527,72 +1532,6 @@ export default class TaskCreationController {
       return typeof value === "string" ? value : ""
     } catch {
       return ""
-    }
-  }
-
-  private buildCustomModelModalLabels() {
-    return {
-      addTitle: this.host.tv(
-        "addTask.aiCustomModelAddTitle",
-        "Add custom model",
-      ),
-      editTitle: this.host.tv(
-        "addTask.aiCustomModelEditTitle",
-        "Edit custom model",
-      ),
-      modelId: this.host.tv("addTask.aiCustomModelId", "Model ID"),
-      modelIdPlaceholder: this.host.tv(
-        "addTask.aiCustomModelIdPlaceholder",
-        "provider/model-name",
-      ),
-      modelIdHelp: this.host.tv(
-        "addTask.aiCustomModelIdHelp",
-        "Passed to the CLI as --model=<id>",
-      ),
-      displayName: this.host.tv(
-        "addTask.aiCustomModelDisplayName",
-        "Display name",
-      ),
-      displayNamePlaceholder: this.host.tv(
-        "addTask.aiCustomModelDisplayNamePlaceholder",
-        "My custom model",
-      ),
-      description: this.host.tv(
-        "addTask.aiCustomModelDescription",
-        "Description",
-      ),
-      descriptionPlaceholder: this.host.tv(
-        "addTask.aiCustomModelDescriptionPlaceholder",
-        "Optional description",
-      ),
-      commandPreview: this.host.tv(
-        "addTask.aiCustomModelCommandPreview",
-        "Command preview",
-      ),
-      cancel: t("common.cancel", "Cancel"),
-      add: this.host.tv("addTask.aiCustomModelAdd", "Add"),
-      save: this.host.tv("buttons.save", "Save"),
-      close: t("common.close", "Close"),
-      invalidId: this.host.tv(
-        "addTask.aiCustomModelInvalidId",
-        "Use 1-100 characters: letters, numbers, dot, underscore, colon, slash, or hyphen; start with a letter or number.",
-      ),
-      duplicateId: this.host.tv(
-        "addTask.aiCustomModelDuplicateId",
-        "This model ID already exists.",
-      ),
-      invalidLabel: this.host.tv(
-        "addTask.aiCustomModelInvalidLabel",
-        "Enter a display name.",
-      ),
-      invalidDescription: this.host.tv(
-        "addTask.aiCustomModelInvalidDescription",
-        "The description is invalid.",
-      ),
-      modelNotFound: this.host.tv(
-        "addTask.aiCustomModelNotFound",
-        "The custom model no longer exists.",
-      ),
     }
   }
 

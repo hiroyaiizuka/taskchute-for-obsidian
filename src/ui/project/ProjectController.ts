@@ -1,7 +1,8 @@
 import { Notice, TFile } from 'obsidian'
 import { TaskData, TaskInstance, TaskChutePluginLike, ProjectBoardStatus } from '@/types'
-import ProjectSettingsModal from '../modals/ProjectSettingsModal'
+import ProjectPickerModal from '../modals/ProjectPickerModal'
 import { listFilesInFolder } from '@/utils/vaultFiles'
+import { ProjectBoardService } from '@/services/projects'
 import { t, type ScopedTranslator } from '@/i18n'
 
 export interface ProjectControllerHost {
@@ -105,8 +106,7 @@ export default class ProjectController {
 
       const displayTitle = this.host.getInstanceDisplayTitle(inst)
       const projectFiles = this.getProjectFiles()
-      const modal = new ProjectSettingsModal(this.host.app, {
-        app: this.host.app,
+      const modal = new ProjectPickerModal(this.host.app, {
         plugin: this.host.plugin,
         tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
         displayTitle,
@@ -115,6 +115,12 @@ export default class ProjectController {
         onSubmit: async (projectPath) => {
           await this.setProjectForTask(inst.task, projectPath)
           this.updateProjectDisplay(inst)
+        },
+        // As todo, so it is among the projects this modal offers next time
+        // and sits in the board's todo column.
+        createProject: async (title) => {
+          const created = await new ProjectBoardService(this.host.plugin).createProject({ title, status: 'todo' })
+          return created.path
         },
       })
       this.host.registerDisposer?.(() => modal.close())

@@ -141,7 +141,7 @@ function createHost(
       getAiLogsMonthPath: (yearMonth: string) => `TaskChute/AI/Logs/${yearMonth}`,
     },
     licenseManager: createFakeLicenseManager(options.licensed !== false),
-    aiTaskManager: options.aiTaskManager === false ? undefined : {},
+    aiTaskManager: options.aiTaskManager === false ? undefined : { getModelCatalog: () => undefined },
     routineAliasService: { loadAliases: jest.fn() },
     dayStateService: {
       loadDay: jest.fn(),
@@ -313,44 +313,15 @@ function modelOptionValues(modal: HTMLElement): string[] {
   ).map((option) => option.dataset.modelId ?? '')
 }
 
-function setModel(modal: HTMLElement, value: string): boolean {
+function setModel(modal: HTMLElement, value: string): void {
   const trigger = modal.querySelector<HTMLButtonElement>('.ai-task-model-select')
   if (!trigger) throw new Error('model picker missing')
   trigger.click()
   const option = Array.from(
     modal.querySelectorAll<HTMLButtonElement>('.ai-model-select__option'),
   ).find((candidate) => candidate.dataset.modelId === value)
-  if (option) {
-    option.click()
-    return true
-  }
-
-  modal.querySelector<HTMLButtonElement>('.ai-model-select__add')?.click()
-  const customModal = document.querySelector<HTMLElement>('.ai-custom-model-modal')
-  const id = customModal?.querySelector<HTMLInputElement>(
-    '.ai-custom-model-modal__model-id',
-  )
-  const label = customModal?.querySelector<HTMLInputElement>(
-    '.ai-custom-model-modal__display-name',
-  )
-  const form = customModal?.querySelector<HTMLFormElement>(
-    '.ai-custom-model-modal__form',
-  )
-  if (!customModal || !id || !label || !form) {
-    throw new Error('custom model modal missing')
-  }
-  id.value = value
-  id.dispatchEvent(new Event('input', { bubbles: true }))
-  label.value = `Custom ${value}`
-  label.dispatchEvent(new Event('input', { bubbles: true }))
-  form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-  const saved = document.querySelector('.ai-custom-model-modal') === null
-  if (!saved) {
-    customModal
-      .querySelector<HTMLButtonElement>('.ai-custom-model-modal__cancel')
-      ?.click()
-  }
-  return saved
+  if (!option) throw new Error(`model ${value} is not offered`)
+  option.click()
 }
 
 function selectReasoningMode(
@@ -489,6 +460,34 @@ describe('AI task edit modal', () => {
       file,
       undefined,
       expect.objectContaining({ args: ['--model=claude-fable-5'] }),
+    )
+  })
+
+  test("an existing task's model the list does not have stays selected and is kept", async () => {
+    const { host, aiTaskEditService } = createHost()
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    aiTaskEditService.load.mockResolvedValue({
+      file,
+      taskName: 'Existing AI task',
+      host: 'claude' as const,
+      args: ['--model=groq/llama-3.3-70b:versatile_x', '--effort=high'],
+      prompt: 'Review',
+    })
+    const modal = await openEditModal(host, createAiTaskInstance(file))
+
+    expect(modal.querySelector('.ai-model-select__trigger-label')?.textContent).toBe(
+      'groq/llama-3.3-70b:versatile_x',
+    )
+    // Not promised Ultracode, but its effort stays.
+    expect(
+      Array.from(modal.querySelectorAll<HTMLOptionElement>('.ai-task-reasoning-mode option'), (option) => option.value),
+    ).toEqual(['automatic', 'specified'])
+    await submit(modal)
+    expect(aiTaskEditService.save).toHaveBeenCalledWith(
+      file,
+      undefined,
+      expect.objectContaining({ args: ['--model=groq/llama-3.3-70b:versatile_x', '--effort=high'] }),
     )
   })
 
@@ -816,13 +815,12 @@ describe('AI mode UI', () => {
     expect(modal.querySelector('.ai-task-advanced')).not.toBeNull()
     expect(modal.querySelector('.ai-task-exec-mode')).not.toBeNull()
     expect(modal.querySelector('.ai-task-model-select')).not.toBeNull()
-    expect(modal.querySelector('.ai-task-model-input')).toBeNull()
     expect(modal.querySelector('.ai-task-reasoning-mode')).not.toBeNull()
     expect(modal.querySelector('.ai-task-reasoning-budget')).not.toBeNull()
     expect(modal.querySelector('.ai-task-cwd-input')).not.toBeNull()
   })
 
-  test('offers verified host-specific model presets plus a custom option', () => {
+  test('offers each agent its own models, and no way to add others', () => {
     const { host } = createHost()
     const modal = openModal(host)
     typeButton(modal, 'ai').click()
@@ -830,12 +828,12 @@ describe('AI mode UI', () => {
     modal.querySelector<HTMLButtonElement>('.ai-task-model-select')?.click()
     expect(modelOptionValues(modal)).toEqual([
       '',
-      'claude-fable-5',
-      'claude-opus-4-8',
-      'claude-sonnet-5',
-      'claude-haiku-4-5',
+      'fable',
+      'opus',
+      'sonnet',
+      'haiku',
     ])
-    expect(modal.querySelector('.ai-model-select__add')).not.toBeNull()
+    expect(modal.querySelector('.ai-model-select__add')).toBeNull()
 
     agentCard(modal, 'codex').click()
     modal.querySelector<HTMLButtonElement>('.ai-task-model-select')?.click()
@@ -927,55 +925,15 @@ describe('command preview', () => {
     expect(previewCode(modal)).toBe('codex -- "Go"')
   })
 
-  test('appends a --model=<value> token when the model input is non-empty', () => {
+  test('passes the chosen model to the CLI', () => {
     const { host } = createHost()
     const modal = openModal(host)
     typeButton(modal, 'ai').click()
     setPrompt(modal, 'Go')
 
-    setModel(modal, 'claude-sonnet-4-5')
+    setModel(modal, 'fable')
 
-    expect(previewCode(modal)).toBe('claude --permission-mode auto --model=claude-sonnet-4-5 -- "Go"')
-  })
-
-  test('uses a verified model preset without revealing the custom input', () => {
-    const { host } = createHost()
-    const modal = openModal(host)
-    typeButton(modal, 'ai').click()
-    setPrompt(modal, 'Go')
-
-    setModel(modal, 'claude-fable-5')
-
-    expect(previewCode(modal)).toBe('claude --permission-mode auto --model=claude-fable-5 -- "Go"')
-    expect(modal.querySelector('.ai-task-model-input')).toBeNull()
-  })
-
-  test('keeps model ids using the full reference-safe character set', () => {
-    const { host } = createHost()
-    const modal = openModal(host)
-    typeButton(modal, 'ai').click()
-    setPrompt(modal, 'Go')
-
-    setModel(modal, 'groq/llama-3.3-70b:versatile_x')
-
-    expect(previewCode(modal)).toBe(
-      'claude --permission-mode auto --model=groq/llama-3.3-70b:versatile_x -- "Go"',
-    )
-  })
-
-  test('drops model ids outside the reference safe pattern (carried fix)', () => {
-    // Reference parity (quest-command.ts MODEL_ID_SAFE_PATTERN): invalid ids
-    // are ignored instead of producing an argv token the CLI rejects.
-    const { host } = createHost()
-    const modal = openModal(host)
-    typeButton(modal, 'ai').click()
-    setPrompt(modal, 'Go')
-
-    setModel(modal, '-leading-hyphen')
-    expect(previewCode(modal)).toBe('claude --permission-mode auto -- "Go"')
-
-    setModel(modal, 'opus 4.6; rm -rf /')
-    expect(previewCode(modal)).toBe('claude --permission-mode auto -- "Go"')
+    expect(previewCode(modal)).toBe('claude --permission-mode auto --model=fable -- "Go"')
   })
 
   test('flattens newlines and truncates the displayed prompt head', () => {
@@ -1008,7 +966,7 @@ describe('command preview', () => {
     const modal = openModal(host)
     typeButton(modal, 'ai').click()
     setPrompt(modal, 'Go')
-    setModel(modal, 'claude-sonnet-4-5')
+    setModel(modal, 'sonnet')
 
     agentCard(modal, 'codex').click()
 
@@ -1023,7 +981,7 @@ describe('command preview', () => {
     const modal = openModal(host)
     typeButton(modal, 'ai').click()
     setPrompt(modal, 'Go')
-    setModel(modal, 'claude-fable-5')
+    setModel(modal, 'fable')
     selectReasoningMode(modal, 'specified')
     selectReasoningBudget(modal, 'max')
 
@@ -1036,7 +994,7 @@ describe('command preview', () => {
       modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-budget')?.value,
     ).toBe('max')
     expect(previewCode(modal)).toBe(
-      'claude --permission-mode auto --model=claude-fable-5 --effort=max -- "Go"',
+      'claude --permission-mode auto --model=fable --effort=max -- "Go"',
     )
   })
 
@@ -1045,7 +1003,7 @@ describe('command preview', () => {
     const modal = openModal(host)
     typeButton(modal, 'ai').click()
     setPrompt(modal, 'Go')
-    setModel(modal, 'claude-fable-5')
+    setModel(modal, 'fable')
 
     const budgetField = modal.querySelector('.ai-task-reasoning-budget-field')
     expect(
@@ -1057,12 +1015,12 @@ describe('command preview', () => {
     selectReasoningBudget(modal, 'high')
     expect(budgetField?.classList.contains('hidden')).toBe(false)
     expect(previewCode(modal)).toBe(
-      'claude --permission-mode auto --model=claude-fable-5 --effort=high -- "Go"',
+      'claude --permission-mode auto --model=fable --effort=high -- "Go"',
     )
 
     selectReasoningMode(modal, 'ultra')
     expect(previewCode(modal)).toBe(
-      'claude --permission-mode auto --model=claude-fable-5 --effort=ultracode -- "Go"',
+      'claude --permission-mode auto --model=fable --effort=ultracode -- "Go"',
     )
 
     agentCard(modal, 'codex').click()
@@ -1100,14 +1058,14 @@ describe('command preview', () => {
     const modal = openModal(host)
     typeButton(modal, 'ai').click()
     setPrompt(modal, 'Go')
-    setModel(modal, 'claude-fable-5')
+    setModel(modal, 'fable')
     selectReasoningMode(modal, 'specified')
     selectReasoningBudget(modal, 'high')
     expect(previewCode(modal)).toBe(
-      'claude --permission-mode auto --model=claude-fable-5 --effort=high -- "Go"',
+      'claude --permission-mode auto --model=fable --effort=high -- "Go"',
     )
 
-    setModel(modal, 'claude-haiku-4-5')
+    setModel(modal, 'haiku')
 
     const mode = modal.querySelector<HTMLSelectElement>('.ai-task-reasoning-mode')
     expect(Array.from(mode?.options ?? []).map((option) => option.value)).toEqual([
@@ -1115,7 +1073,7 @@ describe('command preview', () => {
     ])
     expect(mode?.value).toBe('automatic')
     expect(previewCode(modal)).toBe(
-      'claude --permission-mode auto --model=claude-haiku-4-5 -- "Go"',
+      'claude --permission-mode auto --model=haiku -- "Go"',
     )
   })
 
@@ -1203,7 +1161,7 @@ describe('AI mode submission', () => {
     typeButton(modal, 'ai').click()
     setPrompt(modal, 'Review this PR')
     selectExecMode(modal, 'auto')
-    setModel(modal, 'claude-sonnet-4-5')
+    setModel(modal, 'sonnet')
     const cwd = modal.querySelector('.ai-task-cwd-input') as HTMLInputElement
     cwd.value = '/Users/me/project'
     cwd.dispatchEvent(new Event('input', { bubbles: true }))
@@ -1222,35 +1180,13 @@ describe('AI mode submission', () => {
       expect.objectContaining({
         aiTask: {
           host: 'claude',
-          args: ['--permission-mode', 'auto', '--model=claude-sonnet-4-5'],
+          args: ['--permission-mode', 'auto', '--model=sonnet'],
           cwd: '/Users/me/project',
           prompt: 'Review this PR',
         },
       }),
     )
     expect(document.querySelector('.modal-container')).toBeNull()
-  })
-
-  test('an invalid model id contributes no token to the submitted args', async () => {
-    const { host, taskCreationService } = createHost()
-    const modal = openModal(host)
-    const nameInput = modal.querySelector('input.form-input') as HTMLInputElement
-    nameInput.value = 'AI Bad Model'
-
-    typeButton(modal, 'ai').click()
-    setPrompt(modal, 'Go')
-    setModel(modal, 'not a model!!')
-
-    await submit(modal)
-
-    expect(taskCreationService.createTaskFile).toHaveBeenCalledWith(
-      'AI Bad Model',
-      '2025-10-09',
-      undefined,
-      expect.objectContaining({
-        aiTask: { host: 'claude', args: ['--permission-mode', 'auto'], cwd: undefined, prompt: 'Go' },
-      }),
-    )
   })
 
   test('submits the prompt with its outer whitespace unchanged', async () => {
@@ -1320,8 +1256,8 @@ describe('AI mode submission', () => {
     {
       label: 'Claude',
       aiHost: 'claude' as const,
-      model: 'claude-fable-5',
-      expectedArgs: ['--permission-mode', 'auto', '--model=claude-fable-5', '--effort=max'],
+      model: 'fable',
+      expectedArgs: ['--permission-mode', 'auto', '--model=fable', '--effort=max'],
     },
     {
       label: 'Codex',
@@ -1406,7 +1342,7 @@ describe('AI mode submission', () => {
     nameInput.value = 'Claude Ultracode Task'
 
     typeButton(modal, 'ai').click()
-    setModel(modal, 'claude-fable-5')
+    setModel(modal, 'fable')
     selectReasoningMode(modal, 'ultra')
     await submit(modal)
 
@@ -1417,7 +1353,7 @@ describe('AI mode submission', () => {
       expect.objectContaining({
         aiTask: {
           host: 'claude',
-          args: ['--permission-mode', 'auto', '--model=claude-fable-5', '--effort=ultracode'],
+          args: ['--permission-mode', 'auto', '--model=fable', '--effort=ultracode'],
           cwd: undefined,
           prompt: '',
         },

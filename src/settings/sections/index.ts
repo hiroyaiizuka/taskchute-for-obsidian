@@ -1,4 +1,3 @@
-import type { ProUnlockState } from "../proUnlockState"
 import type { SectionModule } from "../types"
 import { logBackupSection } from "./logBackup"
 import { projectCandidateSection } from "./projectCandidate"
@@ -22,6 +21,6 @@ export function everydaySections(): SectionModule[] {
 }
 
 /** Last, after everything the advanced and Pro sections add. */
-export function trailingSections(unlock: ProUnlockState): SectionModule[] {
-  return [versionSection(unlock)]
+export function trailingSections(): SectionModule[] {
+  return [versionSection()]
 }

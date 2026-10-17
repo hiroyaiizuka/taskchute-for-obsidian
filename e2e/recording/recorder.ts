@@ -35,8 +35,16 @@ const OVERLAY_CSS = `
     background: rgba(239, 68, 68, .55); border: 2px solid #ef4444; transition: transform .12s;
   }
   #tc-rec-dot.is-down { transform: scale(.6); }
-  /* Obsidian lays itself out above the caption bar instead of under it. */
+  /* Obsidian lays itself out above the caption bar instead of under it, and
+     so do its dialogs (on a phone a picker's field sits at the very bottom). */
   .app-container { height: calc(100% - ${CAPTION_HEIGHT}px) !important; }
+  .modal-container { bottom: ${CAPTION_HEIGHT}px !important; height: auto !important; }
+  .is-phone .modal-container .prompt { bottom: 0 !important; height: auto !important; }
+  /* A phone-wide window: two shorter lines still fit the bar. */
+  @media (max-width: 600px) {
+    #tc-rec-caption { padding: 10px 14px; font-size: 15px; }
+    #tc-rec-caption small { font-size: 12px; }
+  }
 `
 
 export interface Chapter {
@@ -54,6 +62,11 @@ export interface CaptionOptions {
    * your own where the caption reads badly aloud, or false for silence.
    */
   say?: string | false
+}
+
+export interface StartOptions extends CaptionOptions {
+  /** The window's content size; a phone-sized one for a scenario recorded in mobile emulation. */
+  size?: { width: number; height: number }
 }
 
 export interface RecordingResult {
@@ -87,11 +100,19 @@ export class Recorder {
   private holdUntil = 0
   private finished = false
 
+  /** The window being recorded; `follow` moves to another (Obsidian's settings window). */
+  private page: Page
+  private size = { width: VIDEO_WIDTH, height: VIDEO_HEIGHT }
+  private shown = { title: "", sub: "" }
+  /** The first window's size, which the video keeps throughout. */
+  private videoSize: { width: number; height: number } | null = null
+
   constructor(
-    private readonly page: Page,
+    page: Page,
     private readonly outDir: string,
     private readonly name: string,
   ) {
+    this.page = page
     fs.rmSync(outDir, { recursive: true, force: true })
     this.framesDir = path.join(outDir, "frames")
     fs.mkdirSync(this.framesDir, { recursive: true })
@@ -107,14 +128,42 @@ export class Recorder {
     return Math.max(0, wall - this.startedAt - this.pausedTotal)
   }
 
-  /**
-   * Sizes the window (1280×800 unless `size` says otherwise, e.g. a phone's
-   * 390×844 for a mobile recording), draws the overlay and starts the screencast.
-   */
-  async start(title: string, options: CaptionOptions & { size?: { width: number; height: number } } = {}): Promise<void> {
+  /** Sizes the window, draws the overlay and starts the screencast. */
+  async start(title: string, options: StartOptions = {}): Promise<void> {
     if (this.started) throw new Error("The recording has already started.")
-    const { page } = this
+    if (options.size) this.size = options.size
+    const size = await this.prepare(this.page)
+    this.videoSize = size
 
+    // The opening caption is on screen, and its line ready, before frame zero.
+    await this.writeCaption(title, options.sub ?? "")
+    const opening = await this.voice(title, options)
+
+    this.startedAt = Date.now() / 1000
+    await this.startScreencast(this.page, size)
+    this.chapters.push({ t: 0, title, sub: options.sub ?? "" })
+    this.hold(opening, title + (options.sub ?? ""))
+  }
+
+  /**
+   * Records another window from here on — Obsidian opens its settings in a
+   * window of their own. The caption on screen moves along; call it again
+   * with the main page to come back.
+   */
+  async follow(page: Page): Promise<void> {
+    this.assertRunning()
+    if (page === this.page) return
+    await this.cdp?.send("Page.stopScreencast").catch(() => undefined)
+    await this.cdp?.detach().catch(() => undefined)
+    this.cdp = null
+    this.page = page
+    const size = await this.prepare(page)
+    await this.writeCaption(this.shown.title, this.shown.sub)
+    await this.startScreencast(page, size)
+  }
+
+  /** Sizes the window and draws the caption bar and the mouse dot in it. */
+  private async prepare(page: Page): Promise<{ width: number; height: number }> {
     await page.evaluate(
       ([width, height]) => {
         const host = window as unknown as {
@@ -132,12 +181,13 @@ export class Recorder {
         else if (win?.setSize) win.setSize(width, height)
         else window.resizeTo(width, height)
       },
-      [options.size?.width ?? VIDEO_WIDTH, options.size?.height ?? VIDEO_HEIGHT] as const,
+      [this.size.width, this.size.height] as const,
     )
     await sleep(600)
 
     await page.addStyleTag({ content: OVERLAY_CSS })
     await page.evaluate(() => {
+      if (document.getElementById("tc-rec-caption")) return
       const caption = document.createElement("div")
       caption.id = "tc-rec-caption"
       const dot = document.createElement("div")
@@ -156,17 +206,15 @@ export class Recorder {
     })
     const size = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }))
     await page.mouse.move(size.width / 2, size.height / 2)
+    return size
+  }
 
-    // The opening caption is on screen, and its line ready, before frame zero.
-    await this.writeCaption(title, options.sub ?? "")
-    const opening = await this.voice(title, options)
-
-    this.cdp = await page.context().newCDPSession(page)
-    this.cdp.on("Page.screencastFrame", (frame) => {
-      const cdp = this.cdp
-      if (!cdp) return
+  private async startScreencast(page: Page, size: { width: number; height: number }): Promise<void> {
+    const cdp = await page.context().newCDPSession(page)
+    this.cdp = cdp
+    cdp.on("Page.screencastFrame", (frame) => {
       void cdp.send("Page.screencastFrameAck", { sessionId: frame.sessionId }).catch(() => undefined)
-      if (this.finished || this.pausedAt !== null) return
+      if (this.cdp !== cdp || this.finished || this.pausedAt !== null) return
       const last = this.frames[this.frames.length - 1]
       const wall = frame.metadata.timestamp ?? Date.now() / 1000
       const t = Math.max(last?.t ?? 0, wall - this.startedAt - this.pausedTotal)
@@ -174,22 +222,19 @@ export class Recorder {
       fs.writeFileSync(path.join(this.framesDir, name), Buffer.from(frame.data, "base64"))
       this.frames.push({ name, t })
     })
-
-    this.startedAt = Date.now() / 1000
-    await this.cdp.send("Page.startScreencast", {
+    await cdp.send("Page.startScreencast", {
       format: "jpeg",
       quality: 90,
       maxWidth: size.width,
       maxHeight: size.height,
       everyNthFrame: 1,
     })
-    // Nothing is sent until the picture changes; nudge it so frame zero exists.
+    // Nothing is sent until the picture changes; nudge it so a frame exists.
     await page.mouse.move(size.width / 2 + 1, size.height / 2)
-    this.chapters.push({ t: 0, title, sub: options.sub ?? "" })
-    this.hold(opening, title + (options.sub ?? ""))
   }
 
   private async writeCaption(title: string, sub: string): Promise<void> {
+    this.shown = { title, sub }
     await this.page.evaluate(
       ([main, small]) => {
         const caption = document.getElementById("tc-rec-caption")
@@ -302,6 +347,7 @@ export class Recorder {
       end,
       clips: this.clips,
       output: video,
+      ...(this.videoSize ? { size: this.videoSize } : {}),
     })
     const chapters = path.join(this.outDir, "chapters.json")
     fs.writeFileSync(

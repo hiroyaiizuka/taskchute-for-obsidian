@@ -12,6 +12,7 @@ const {
   ExtraButtonComponent,
   Modal,
   Setting,
+  SuggestModal,
   TextAreaComponent,
   TextComponent,
   ToggleComponent,
@@ -335,23 +336,6 @@ const createMockElement = (tag = 'div') => {
   return element
 }
 
-class SuggestModal {
-  constructor(app) {
-    this.app = app
-    this.open = jest.fn()
-    this.close = jest.fn()
-    this.setPlaceholder = jest.fn()
-  }
-
-  getSuggestions() {
-    return []
-  }
-
-  renderSuggestion() {}
-
-  onChooseSuggestion() {}
-}
-
 const mockLeaf = {
   containerEl: {
     children: [
@@ -405,6 +389,9 @@ const mockApp = {
     },
   },
 }
+
+// The running app's API version; tests set what they need (`mockReturnValue`).
+const requireApiVersion = jest.fn(() => true)
 
 const normalizePath = (path) => {
   // Normalize path by removing redundant slashes and dots
@@ -489,6 +476,7 @@ module.exports = {
   getLanguage,
   setIcon,
   normalizePath,
+  requireApiVersion,
   mockApp,
   mockLeaf,
 }

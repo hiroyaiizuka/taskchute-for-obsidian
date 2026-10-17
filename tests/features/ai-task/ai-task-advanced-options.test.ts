@@ -2,17 +2,16 @@ import {
   AI_MODEL_PRESETS,
   AI_REASONING_BUDGETS,
   buildReasoningArgs,
-  CUSTOM_AI_MODEL_VALUE,
   getAvailableReasoningModes,
 } from '@/features/ai-task/config/AiTaskAdvancedOptions'
 
 describe('AI task advanced options', () => {
-  test('exposes only verified current model IDs', () => {
+  test('built-in models: Claude Code aliases, and the Codex fallback list', () => {
     expect(AI_MODEL_PRESETS.claude.map((model) => model.id)).toEqual([
-      'claude-fable-5',
-      'claude-opus-4-8',
-      'claude-sonnet-5',
-      'claude-haiku-4-5',
+      'fable',
+      'opus',
+      'sonnet',
+      'haiku',
     ])
     expect(AI_MODEL_PRESETS.codex.map((model) => model.id)).toEqual([
       'gpt-5.6-sol',
@@ -50,24 +49,14 @@ describe('AI task advanced options', () => {
   })
 
   test('limits reasoning modes to each selected model capability', () => {
-    expect(getAvailableReasoningModes('claude', '')).toEqual([
-      'automatic',
-    ])
-    expect(getAvailableReasoningModes('codex', '')).toEqual([
-      'automatic',
-    ])
-    expect(getAvailableReasoningModes('claude', 'claude-fable-5')).toEqual([
+    expect(getAvailableReasoningModes('claude', '')).toEqual(['automatic'])
+    expect(getAvailableReasoningModes('codex', '')).toEqual(['automatic'])
+    expect(getAvailableReasoningModes('claude', 'fable')).toEqual([
       'automatic',
       'specified',
       'ultra',
     ])
-    expect(getAvailableReasoningModes('claude', 'claude-haiku-4-5')).toEqual([
-      'automatic',
-    ])
-    expect(getAvailableReasoningModes('claude', CUSTOM_AI_MODEL_VALUE)).toEqual([
-      'automatic',
-      'specified',
-    ])
+    expect(getAvailableReasoningModes('claude', 'haiku')).toEqual(['automatic'])
     expect(getAvailableReasoningModes('codex', 'gpt-5.6-terra')).toEqual([
       'automatic',
       'specified',
@@ -77,34 +66,24 @@ describe('AI task advanced options', () => {
       'automatic',
       'specified',
     ])
-    expect(getAvailableReasoningModes('codex', CUSTOM_AI_MODEL_VALUE)).toEqual([
-      'automatic',
-      'specified',
-    ])
+    expect(getAvailableReasoningModes('cursor', 'composer-2.5')).toEqual(['automatic'])
   })
 
-  test('treats a persisted custom model ID conservatively when explicitly marked custom', () => {
+  test("an older task's model the list does not have is not promised Ultra", () => {
     expect(
-      getAvailableReasoningModes('claude', 'private/claude-model', {
-        isCustomModel: true,
-      }),
+      getAvailableReasoningModes('claude', 'claude-opus-4-8', { isUnlisted: true }),
     ).toEqual(['automatic', 'specified'])
     expect(
-      getAvailableReasoningModes('codex', 'private-codex-model', {
-        isCustomModel: true,
-      }),
+      getAvailableReasoningModes('codex', 'private-codex-model', { isUnlisted: true }),
     ).toEqual(['automatic', 'specified'])
+  })
 
-    // Existing two-argument callers retain the preset/unknown-model behavior.
-    expect(getAvailableReasoningModes('claude', 'private/claude-model')).toEqual([
-      'automatic',
-      'specified',
-      'ultra',
-    ])
-    expect(getAvailableReasoningModes('codex', 'private-codex-model')).toEqual([
-      'automatic',
-      'specified',
-      'ultra',
-    ])
+  test("Codex follows the levels its own list gives for the model", () => {
+    expect(
+      getAvailableReasoningModes('codex', 'gpt-daybreak', { levels: ['low', 'ultra'] }),
+    ).toEqual(['automatic', 'specified', 'ultra'])
+    expect(
+      getAvailableReasoningModes('codex', 'gpt-5.6-sol', { levels: ['low'] }),
+    ).toEqual(['automatic', 'specified'])
   })
 })

@@ -218,6 +218,23 @@ body.is-phone {
 .taskchute-calendar-export-modal .setting-item-info.is-hidden {
   display: none;
 }
+/* Project picker (a SuggestModal): the row that creates a project, and the
+   check on the task's current one. */
+.taskchute-project-picker .taskchute-project-picker__choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.taskchute-project-picker .taskchute-project-picker__choice.is-create {
+  color: var(--text-accent);
+}
+
+.taskchute-project-picker .taskchute-project-picker__current {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
 .taskchute-calendar-export-modal .setting-item.is-hidden {
   display: none;
   border-top: 0;
@@ -1024,15 +1041,13 @@ body.is-phone {
 }
 
 .ai-model-select__trigger-icon,
-.ai-model-select__chevron,
-.ai-model-select__add-icon {
+.ai-model-select__chevron {
   display: inline-flex;
   color: var(--text-muted);
 }
 
 .ai-model-select__trigger-icon svg,
-.ai-model-select__chevron svg,
-.ai-model-select__add-icon svg {
+.ai-model-select__chevron svg {
   width: 16px;
   height: 16px;
 }
@@ -1068,18 +1083,9 @@ body.is-phone {
   display: none;
 }
 
-.ai-model-select__section-heading {
-  padding: 8px 9px 4px;
-  color: var(--text-faint);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
 .ai-model-select__option {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 7px;
   width: 100%;
@@ -1093,20 +1099,21 @@ body.is-phone {
   cursor: pointer;
 }
 
-.ai-model-select__option:hover,
-.ai-model-select__option.is-selected {
+/* Over core's `button:not(.clickable-icon)` (fixed height, shadow): a row is
+   as tall as its two lines. */
+.ai-model-select__menu .ai-model-select__option,
+.ai-model-select__footer .ai-model-select__refresh {
+  height: auto;
+  box-shadow: none;
+}
+
+.ai-model-select__option:hover {
   background: var(--background-modifier-hover);
 }
 
 .ai-model-select__selection-marker {
   display: inline-flex;
-  color: var(--text-muted);
-}
-
-.ai-model-select__menu
-  .ai-model-select__option.is-selected
-  .ai-model-select__selection-marker {
-  color: var(--text-accent);
+  color: var(--text-normal);
 }
 
 .ai-model-select__selection-marker svg {
@@ -1136,158 +1143,152 @@ body.is-phone {
   white-space: nowrap;
 }
 
-.ai-model-select__custom-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-}
-
-.ai-model-select__custom-actions {
-  display: inline-flex;
-  gap: 2px;
-  padding-right: 4px;
-}
-
-.ai-model-select__edit,
-.ai-model-select__delete {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 25px;
-  height: 25px;
-  padding: 4px;
-  border: 0;
-  border-radius: var(--tc-radius-sm);
-  background: transparent;
+.ai-model-select__trigger-sub {
   color: var(--text-muted);
-  cursor: pointer;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
 }
 
-.ai-model-select__edit:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
+/* A class, not `:has()`: Obsidian's review rejects `:has` for its cost. */
+.ai-model-select__trigger.has-sub {
+  grid-template-columns: 20px minmax(0, 1fr) auto 18px;
 }
 
-.ai-model-select__delete:hover {
-  background: var(--background-modifier-error-hover);
-  color: var(--text-error);
-}
-
-.ai-model-select__edit svg,
-.ai-model-select__delete svg {
-  width: 14px;
-  height: 14px;
-}
-
-.ai-model-select__add {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 100%;
-  margin-top: 5px;
-  padding: 9px 8px 6px;
-  border: 0;
-  border-top: 1px solid var(--background-modifier-border);
-  background: transparent;
-  color: var(--text-accent);
-  text-align: left;
-  cursor: pointer;
-}
-
-.ai-model-select__add:hover {
-  color: var(--text-accent-hover);
-}
-
-/* This dialog is a plain Obsidian `Modal` now. It used to be a hand-rolled
-   full-screen overlay, and the frame, the backdrop and the scroll box that
-   went with that are core's job -- the rules that drew them a second time
-   inside core's own frame are gone, along with the `__content`, `__header` and
-   `__title*` markup no TS builds any more. */
-.ai-custom-model-modal__agent-icon {
-  display: inline-flex;
-  color: var(--text-accent);
-}
-
-.ai-custom-model-modal__agent-icon svg {
-  width: 18px;
-  height: 18px;
-}
-
-.ai-custom-model-modal__agent {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: var(--size-4-3);
-  padding: 9px 11px;
-  border-radius: 7px;
-  background: var(--background-secondary);
-  color: var(--text-muted);
-}
-
-.ai-custom-model-modal__form {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.ai-custom-model-modal__label {
-  margin-top: 7px;
-  color: var(--text-normal);
-  font-weight: 500;
-}
-
-.ai-custom-model-modal__model-id,
-.ai-custom-model-modal__display-name,
-.ai-custom-model-modal__form > .ai-custom-model-modal__description {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--tc-radius-md);
-  background: var(--background-primary-alt);
-  color: var(--text-normal);
-}
-
-.ai-custom-model-modal__description {
-  min-height: 70px;
-  resize: vertical;
-}
-
-.ai-custom-model-modal__model-id:disabled {
-  opacity: 0.7;
-}
-
-.ai-custom-model-modal__help {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-
-.ai-custom-model-modal__preview-wrap {
+/* The name wraps when long; a new model's badge sits after it. */
+.ai-model-select__option-title-row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-top: 6px;
-  padding: 9px 10px;
-  border-radius: var(--tc-radius-md);
-  background: var(--background-secondary);
+  gap: 6px;
+  min-width: 0;
 }
 
-.ai-custom-model-modal__preview-label {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.ai-custom-model-modal__preview {
-  color: var(--text-accent);
+.ai-model-select__option-title-row .ai-model-select__option-title {
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 
-.ai-custom-model-modal__error {
-  color: var(--text-error);
-  font-size: 11px;
+.ai-model-select__new {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: rgba(var(--color-green-rgb), 0.15);
+  color: var(--color-green);
+  font-size: 10px;
+  font-weight: 700;
 }
 
-.ai-custom-model-modal__error.is-hidden {
-  display: none;
+/* The ID passed to the CLI. Its end tells variants apart (-high, -fast), so
+   a long one is cut in the middle: the head shrinks, the tail stays. */
+.ai-model-select__option-id {
+  display: flex;
+  min-width: 0;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: 10.5px;
+}
+
+.ai-model-select__option-id-head {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-model-select__option-id-tail {
+  flex: none;
+  white-space: nowrap;
+}
+
+.ai-model-select__banner {
+  position: sticky;
+  z-index: 1;
+  top: -5px;
+  margin: -5px -5px 4px;
+  padding: 6px 10px;
+  font-size: var(--font-ui-smaller);
+}
+
+.ai-model-select__banner.is-fetching {
+  background: var(--background-secondary);
+  color: var(--text-accent);
+}
+
+.ai-model-select__banner.is-failed {
+  background: rgba(var(--color-orange-rgb), 0.15);
+  color: var(--color-orange);
+}
+
+/* The refresh button and when the list was got, kept in view below the list. */
+.ai-model-select__footer {
+  position: sticky;
+  bottom: -5px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 5px -5px -5px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+}
+
+.ai-model-select__footer-note {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.ai-model-select__refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--tc-radius-sm);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-accent);
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+}
+
+.ai-model-select__refresh:hover {
+  background: var(--background-modifier-hover);
+}
+
+.ai-model-select__refresh:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.ai-model-select__refresh-icon {
+  display: inline-flex;
+}
+
+.ai-model-select__refresh-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ai-model-select__refresh:disabled .ai-model-select__refresh-icon {
+  animation: ai-model-select-spin 0.9s linear infinite;
+}
+
+@keyframes ai-model-select-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-model-select__refresh:disabled .ai-model-select__refresh-icon {
+    animation: none;
+  }
+}
+
+.ai-model-select__fetched-at {
+  margin-left: auto;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
 }
 
 .ai-task-agent-grid {
@@ -7028,11 +7029,11 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   /* Drag-resized height, as a share of the view. Overridden inline by the
      pane controller once the user sizes the pane (see --sized below); the
      value here is only the fallback that keeps the variable resolvable. */
-  --tc-ai-pane-height: 40%;
+  --tc-ai-pane-height: 50%;
 
   display: none;
   width: 100%;
-  max-height: 40%;
+  max-height: 50%;
   min-height: 0;
   flex-shrink: 0;
   flex-direction: column;
@@ -7131,11 +7132,14 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   display: none;
 }
 
+/* One 24px row: the icon buttons set its height, so the terminal below
+   keeps the room (must stay in sync with TERMINAL_VERTICAL_INSET_PX). */
 .ai-run-pane__header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 4px 0 6px;
   border-bottom: 1px solid var(--background-modifier-border);
   flex-shrink: 0;
 }
@@ -8133,12 +8137,12 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
 /* ===== AI Task terminal mode ===== */
 
-/* While a terminal run is selected and expanded, the drawer takes a fixed
-   share of the view so the embedded terminal has a real, usable height
-   (must stay in sync with the pane controller's height ratio). */
+/* While a terminal run is selected and expanded, the drawer takes half of
+   the view so the embedded terminal has a real, usable height (must stay in
+   sync with the pane controller's height ratio). */
 .ai-pane-container--terminal {
-  height: 40%;
-  flex-basis: 40%;
+  height: 50%;
+  flex-basis: 50%;
 }
 
 .ai-pane-container--terminal .ai-run-pane {
@@ -8174,6 +8178,26 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 .ai-pane-container--expanded .ai-run-pane {
   flex: 1;
   min-height: 0;
+}
+
+/* Full screen (⤢) is the whole TaskChute view: the date row and the day's
+   comments step aside, and the drawer loses its rounded top and shadow. */
+.taskchute-view-root--ai-pane-expanded .top-bar-container,
+.taskchute-view-root--ai-pane-expanded .taskchute-day-comments,
+.taskchute-view-root--ai-pane-expanded .taskchute-day-comments-resizer {
+  display: none;
+}
+
+/* The task list is squeezed to nothing; its top margin must not push the
+   pane down by a few pixels either. It follows the day's comments, whose
+   rule sets that margin (see "Comments while working"), so match as much. */
+.taskchute-view-root--ai-pane-expanded .main-container .taskchute-day-comments-resizer + .task-list-container {
+  margin-top: 0;
+}
+
+.taskchute-view-root--ai-pane-expanded .ai-pane-container--expanded .ai-run-pane {
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* Terminal body: xterm renders its own scrollback and padding, so the body
