@@ -206,6 +206,20 @@ describe('CommentsController', () => {
       expect(badge()).toBe('1')
     })
 
+    it('keeps a comment sent past midnight on the new day, and says so', async () => {
+      jest.setSystemTime(new Date(2026, 9, 7, 23, 59))
+      const { store, open, dayInput, dayTexts } = await setup()
+      open()
+      type(dayInput(), 'written before midnight, sent after')
+      jest.setSystemTime(new Date(2026, 9, 8, 0, 1))
+      dayInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+      await flush()
+      expect(store.getComments({ dateKey: '2026-10-08' }).map((c) => c.text)).toEqual(['written before midnight, sent after'])
+      expect(store.getComments({ dateKey: DATE })).toEqual([])
+      expect(dayTexts()).toEqual([])
+      expect(Notice).toHaveBeenCalledWith('The date has changed, so the comment was saved for 10/8.')
+    })
+
     it('does not add on Shift+Enter, while composing with an IME, or when blank', async () => {
       const { store, open, dayInput } = await setup()
       open()

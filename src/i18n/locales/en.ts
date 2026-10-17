@@ -513,6 +513,7 @@ export const en = {
       closeDay: "Close the comments",
       deleteLabel: "Delete this comment",
       onlyToday: "Comments can be added only for today.",
+      savedOnNewDay: "The date has changed, so the comment was saved for {date}.",
     },
     comment: {
       editTitle: 'Edit comment for "{title}"',

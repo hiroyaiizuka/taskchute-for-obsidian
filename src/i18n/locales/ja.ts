@@ -510,6 +510,7 @@ export const ja = {
       closeDay: "コメントを閉じる",
       deleteLabel: "このコメントを削除",
       onlyToday: "コメントを追加できるのは今日だけです",
+      savedOnNewDay: "日付が変わったので、{date} のコメントとして保存しました",
     },
     comment: {
       editTitle: "✏️ 「{title}」のコメントを編集",

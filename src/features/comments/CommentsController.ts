@@ -2,6 +2,7 @@ import { Notice, type App } from 'obsidian'
 import type { ScopedTranslator } from '@/i18n'
 import type { DayComment, TaskInstance } from '@/types'
 import { showConfirmModal } from '@/ui/modals/ConfirmModal'
+import { formatDate } from '@/utils/date'
 import { CommentModal } from './ui/CommentModal'
 import { DayCommentsButton, createDayCommentsWindow } from './ui/DayCommentsWindow'
 import {
@@ -230,10 +231,21 @@ export class CommentsController {
     // Clear the draft first: adding re-renders.
     const previous = this.drafts.get(draftKey)
     this.drafts.delete(draftKey)
-    const added = await this.host.store.addCommentTo(this.host.getDateKey(), { text })
+    // Kept on the day it is sent, not the day on screen: written past midnight,
+    // that is the new day (LEV-346).
+    const sentOn = new Date()
+    const dateKey = formatDate(sentOn)
+    const added = await this.host.store.addCommentTo(dateKey, { text })
     if (!added) {
       if (previous !== undefined) this.drafts.set(draftKey, previous)
       return
+    }
+    if (dateKey !== this.host.getDateKey()) {
+      new Notice(
+        this.host.tv('comments.savedOnNewDay', 'The date has changed, so the comment was saved for {date}.', {
+          date: `${sentOn.getMonth() + 1}/${sentOn.getDate()}`,
+        }),
+      )
     }
     this.dayToEnd = true
     this.focusAfterRender(this.composeKey(DAY))
