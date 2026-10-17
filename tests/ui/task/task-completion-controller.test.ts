@@ -1,6 +1,6 @@
 import { TFile } from 'obsidian'
 import TaskCompletionController, { TaskCompletionControllerHost } from '@/ui/task/TaskCompletionController'
-import type { TaskInstance } from '@/types'
+import type { DayComment, TaskInstance } from '@/types'
 import { ProjectNoteSyncService } from '@/features/project/services/ProjectNoteSyncService'
 
 const setActiveDocument = (doc: Document): void => {
@@ -267,9 +267,10 @@ describe('TaskCompletionController', () => {
 
   test('lists the comments written while the task ran between the ratings and the notes, each deletable (LEV-347)', async () => {
     const { host } = createHost()
-    const comments = [
-      { id: 'c1', at: new Date('2025-10-09T08:05:00').getTime(), text: 'Outline done' },
-      { id: 'c2', at: new Date('2025-10-09T08:20:00').getTime(), text: 'Asked for review' },
+    const at = (time: string) => new Date(`2025-10-09T${time}:00`).getTime()
+    const comments: DayComment[] = [
+      { id: 'c1', at: at('08:05'), text: 'Outline done', instanceId: 'inst-3', updatedAt: at('08:05') },
+      { id: 'c2', at: at('08:20'), text: 'Asked for review', instanceId: 'inst-3', updatedAt: at('08:20') },
     ]
     host.getRunningComments = () => comments
     host.deleteRunningComment = jest.fn((_inst, id: string, redraw: () => void) => {
