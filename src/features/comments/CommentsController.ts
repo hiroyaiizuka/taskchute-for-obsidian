@@ -3,16 +3,17 @@ import type { ScopedTranslator } from '@/i18n'
 import type { DayComment, TaskInstance } from '@/types'
 import { showConfirmModal } from '@/ui/modals/ConfirmModal'
 import { CommentModal } from './ui/CommentModal'
-import { DayCommentsHeight } from './ui/DayCommentsHeight'
+import { DayCommentsButton, createDayCommentsWindow } from './ui/DayCommentsWindow'
 import {
   NOW_ATTR,
+  createCommentItem,
   createCommentTextarea,
   findFocusTarget,
   formatCommentTime,
 } from './ui/commentDom'
 import { showUndoNotice } from './ui/undoNotice'
 
-/** The input on the day; any other key is an instance id. */
+/** The day's input (its drafts are kept per date); any other key is an instance id. */
 const DAY = 'day'
 /** A task's panel shows this many, then a button for the rest. */
 const TASK_PREVIEW = 3
@@ -21,7 +22,6 @@ const NOW_TICK_MS = 10_000
 export interface CommentStore {
   getComments(options: { instanceId?: string; dateKey?: string }): DayComment[]
   addCommentTo(dateKey: string, input: { text: string; instanceId?: string }): Promise<DayComment | null>
-  updateComment(id: string, text: string, dateKey?: string): DayComment | null
   deleteComment(id: string, dateKey?: string): DayComment | null
   restoreComment(id: string, dateKey?: string): DayComment | null
 }
@@ -33,9 +33,10 @@ export interface CommentsControllerHost {
   /** The day the view shows; comments are kept on it. */
   getDateKey: () => string
   isViewingToday: () => boolean
-  /** The view's root, for focus and the clocks of open inputs. */
+  /** The view's root, for focus and the clocks of open inputs; a phone's drawer covers it. */
   getRoot: () => HTMLElement | null
-  getTaskListContainer: () => HTMLElement | null
+  /** The day the view shows, as its header writes it ("10/16 Fri"). */
+  getDayLabel: () => string
   /** Rebuilds the task list (and with it the day box and the panels). */
   rerender: () => void
   getInstanceTitle: (instanceId: string) => string
@@ -46,18 +47,12 @@ export interface CommentsControllerHost {
    * rewriting then happen in a modal instead of in place.
    */
   isNarrow: () => boolean
-  /** The setting for the day's box; off by default. Running tasks take comments either way. */
+  /** A phone: the day's comments open as a drawer over the whole view. */
+  isPhone: () => boolean
+  /** The setting for the day's button; off by default. Running tasks take comments either way. */
   isDayCommentsEnabled: () => boolean
-  loadLocalStorage: (key: string) => unknown
-  saveLocalStorage: (key: string, value: unknown) => void
   registerInterval: (id: number) => void
   registerCleanup: (cleanup: () => void) => void
-}
-
-interface EditingState {
-  id: string
-  draft: string
-  original: string
 }
 
 /** Comments are kept for running human tasks; an AI task's run has its own log. */
@@ -66,42 +61,35 @@ export function canCommentWhileRunning(inst: TaskInstance): boolean {
 }
 
 /**
- * Comments written while working (#181, proposal E): the day's comments in a
- * box between the header and the task list, and a running task's comments in
- * a panel under its row, opened by the row's 💬. Both lists show time and
- * text, newest first. Only one input or editor is open at a time.
+ * Comments written while working (#181, proposal E): the day's comments
+ * behind a button at the bottom right of the task list (LEV-346), opening a
+ * window there (a drawer on a phone) listed oldest first like a chat, and a
+ * running task's comments in a panel under its row, opened by the row's 💬,
+ * newest first. Only one input or editor is open at a time.
  */
 export class CommentsController {
   private readonly drafts = new Map<string, string>()
   /** Inputs opened by focus, by key. */
   private readonly composing = new Set<string>()
-  private editing: EditingState | null = null
   private openInstanceId: string | null = null
   private readonly showAll = new Set<string>()
   /** A confirm modal is up; focus moving into it must not close anything. */
   private confirming = false
   /** Bumped to cancel a refocus still waiting for the next frame. */
   private focusToken = 0
-  private dayBox: HTMLElement | null = null
-  private dayGrip: HTMLElement | null = null
-  private height: DayCommentsHeight | null = null
+  private dayArea: HTMLElement | null = null
+  private dayButton: DayCommentsButton | null = null
+  private dayWindow: HTMLElement | null = null
+  private dayOpen = false
+  /** The next draw of the day's window scrolls to its newest comment. */
+  private dayToEnd = false
 
   constructor(private readonly host: CommentsControllerHost) {}
 
-  /** Takes the box above the task list and the grip under it. */
-  mountDay(box: HTMLElement, grip: HTMLElement): void {
-    this.dayBox = box
-    this.dayGrip = grip
-    box.setAttribute('aria-label', this.host.tv('comments.regionLabel', 'Comments for the day'))
-    grip.setAttribute('role', 'separator')
-    grip.setAttribute('aria-orientation', 'horizontal')
-    grip.setAttribute('tabindex', '0')
-    grip.setAttribute('title', this.host.tv('comments.resizerLabel', 'Drag to fix the height'))
-    this.height = new DayCommentsHeight(box, grip, {
-      loadLocalStorage: (key) => this.host.loadLocalStorage(key),
-      saveLocalStorage: (key, value) => this.host.saveLocalStorage(key, value),
-      getTaskListContainer: () => this.host.getTaskListContainer(),
-    })
+  /** Puts the day's button (and, while open, its window) over `area`, the task list's frame. */
+  mountDay(area: HTMLElement): void {
+    this.dayArea = area
+    this.dayButton = new DayCommentsButton(area, () => (this.dayOpen ? this.closeDay() : this.openDay()))
     this.host.registerInterval(window.setInterval(() => this.tickClocks(), NOW_TICK_MS))
     this.watchWidth()
     this.renderDay()
@@ -120,42 +108,135 @@ export class CommentsController {
       if (next === narrow) return
       narrow = next
       this.composing.clear()
-      this.editing = null
       this.host.rerender()
     })
     observer.observe(root)
     this.host.registerCleanup(() => observer.disconnect())
   }
 
-  // --- the day's box ---------------------------------------------------------
+  // --- the day's button and window -----------------------------------------------
 
   renderDay(): void {
-    const box = this.dayBox
-    if (!box) return
+    const area = this.dayArea
+    const button = this.dayButton
+    if (!area || !button) return
     const enabled = this.host.isDayCommentsEnabled()
-    box.classList.toggle('taskchute-day-comments--off', !enabled)
-    if (!enabled) {
-      // Turned off in settings: no box and no grip. A draft stays for when it is turned back on.
-      box.empty()
-      this.composing.delete(DAY)
-      this.dayGrip?.classList.add('taskchute-day-comments-resizer--hidden')
+    // Turned off in settings: no button, and the window closes. Drafts stay for when it is back on.
+    if (!enabled) this.dayOpen = false
+    const comments = enabled ? this.host.store.getComments({ dateKey: this.host.getDateKey() }) : []
+    const phone = this.host.isPhone()
+    // A phone's drawer covers the button, so it never turns into a close button there.
+    const showClose = this.dayOpen && !phone
+    area.classList.toggle('has-day-comments-button', enabled)
+    this.host.getRoot()?.classList.toggle('has-day-comments-drawer', this.dayOpen && phone)
+    button.update({
+      visible: enabled,
+      count: comments.length,
+      open: showClose,
+      label: showClose ? this.host.tv('comments.closeDay', 'Close the comments') : this.dayTitle(),
+    })
+
+    const previousScroll = this.dayWindow?.querySelector('.taskchute-day-comments-window__body')?.scrollTop ?? 0
+    this.dayWindow?.remove()
+    this.dayWindow = null
+    if (!this.dayOpen) return
+
+    const parts = createDayCommentsWindow(phone ? this.host.getRoot() ?? area : area, {
+      drawer: phone,
+      title: this.dayTitle(),
+      count: comments.length > 0 ? this.host.tv('comments.count', '{count} comments', { count: comments.length }) : '',
+      label: this.host.tv('comments.regionLabel', 'Comments for the day'),
+      closeLabel: this.host.tv('comments.closeDay', 'Close the comments'),
+      onClose: () => this.closeDay(),
+    })
+    this.dayWindow = parts.el
+    if (comments.length === 0) {
+      parts.body.createEl('p', {
+        cls: 'taskchute-comment-empty',
+        text: this.host.tv('comments.dayEmpty', 'No comments for this day yet'),
+      })
+    } else {
+      // Oldest first, like a chat: the newest sits just above the input.
+      parts.body.appendChild(this.list([...comments].reverse()))
+    }
+    // Comments are written only for today; a past or future day is for reading back (LEV-346).
+    if (this.host.isViewingToday()) {
+      parts.composer.appendChild(this.dayComposer(phone))
+    } else {
+      parts.composer.createEl('p', {
+        cls: 'taskchute-day-comments-window__only-today',
+        text: this.host.tv('comments.onlyToday', 'Comments can be added only for today.'),
+      })
+    }
+    parts.body.scrollTop = this.dayToEnd ? parts.body.scrollHeight : previousScroll
+    this.dayToEnd = false
+  }
+
+  private dayTitle(): string {
+    return this.host.isViewingToday()
+      ? this.host.tv('comments.dayTitle', "Today's comments")
+      : this.host.tv('comments.otherDayTitle', 'Comments for {date}', { date: this.host.getDayLabel() })
+  }
+
+  private dayDraftKey(): string {
+    return `${DAY}:${this.host.getDateKey()}`
+  }
+
+  /** The window's input: always open, Enter adds (a phone has no Shift, so there the button adds). */
+  private dayComposer(phone: boolean): HTMLElement {
+    const draftKey = this.dayDraftKey()
+    const wrapper = createDiv({ cls: 'taskchute-day-comments-window__input' })
+    const box = wrapper.createDiv({ cls: 'taskchute-comment-composer' })
+    const textarea = createCommentTextarea(box, {
+      cls: 'taskchute-comment-input',
+      focusKey: this.composeKey(DAY),
+      value: this.drafts.get(draftKey) ?? '',
+      placeholder: this.host.tv('comments.dayPlaceholder', 'Add a comment for today…'),
+      submitOnEnter: !phone,
+      onInput: (value) => this.drafts.set(draftKey, value),
+      onSubmit: (text) => void this.submitDay(text),
+      onEscape: () => this.closeDay(),
+    })
+    const add = box.createEl('button', { cls: 'mod-cta taskchute-comment-composer__add', text: this.host.tv('comments.add', 'Add') })
+    add.addEventListener('click', () => void this.submitDay(textarea.value))
+    if (!phone) {
+      wrapper.createDiv({ cls: 'taskchute-comment-hint', text: this.host.tv('comments.dayHint', 'Enter to add · Shift+Enter for a new line · Esc to close') })
+    }
+    return wrapper
+  }
+
+  private openDay(): void {
+    this.dayOpen = true
+    this.dayToEnd = true
+    // A phone's keyboard would cover half the drawer; it comes up on a tap in the input.
+    if (this.host.isPhone()) {
+      this.host.rerender()
       return
     }
-    const previousScroll = box.querySelector('.taskchute-day-comments__entries')?.scrollTop ?? 0
-    box.empty()
-    const placeholder = this.host.isViewingToday()
-      ? this.host.tv('comments.dayPlaceholder', 'Add a comment for today…')
-      : this.host.tv('comments.otherDayPlaceholder', 'Add a comment for this day…')
-    box.appendChild(this.composer(DAY, placeholder))
-    const comments = this.host.store.getComments({ dateKey: this.host.getDateKey() })
-    if (comments.length > 0) {
-      const scroller = box.createDiv({ cls: 'taskchute-day-comments__entries' })
-      scroller.appendChild(this.list(comments))
-      scroller.scrollTop = previousScroll
+    this.focusAfterRender(this.composeKey(DAY))
+  }
+
+  private closeDay(): void {
+    if (!this.dayOpen) return
+    this.dayOpen = false
+    this.focusToken += 1
+    this.host.rerender()
+    this.dayButton?.el.focus()
+  }
+
+  private async submitDay(text: string): Promise<void> {
+    if (!text.trim()) return
+    const draftKey = this.dayDraftKey()
+    // Clear the draft first: adding re-renders.
+    const previous = this.drafts.get(draftKey)
+    this.drafts.delete(draftKey)
+    const added = await this.host.store.addCommentTo(this.host.getDateKey(), { text })
+    if (!added) {
+      if (previous !== undefined) this.drafts.set(draftKey, previous)
+      return
     }
-    this.height?.apply()
-    // The input grows to fit its text on the next frame; measure again then.
-    window.requestAnimationFrame(() => this.height?.apply())
+    this.dayToEnd = true
+    this.focusAfterRender(this.composeKey(DAY))
   }
 
   // --- a running task's panel -------------------------------------------------
@@ -202,10 +283,20 @@ export class CommentsController {
     return this.host.store.getComments({ instanceId, dateKey: dateKey ?? this.host.getDateKey() })
   }
 
-  /** The "leave a comment" command: the running task's input, or else the day's. */
+  /** The "leave a comment" command: the running task's input, or else the day's window. */
   leaveComment(): void {
     const instanceId = this.host.getCommandTargetInstanceId()
-    if (!instanceId && !this.host.isDayCommentsEnabled()) {
+    if (instanceId) {
+      this.openInstanceId = instanceId
+      if (this.host.isNarrow()) {
+        this.host.rerender()
+        this.openAddModal(instanceId)
+        return
+      }
+      this.openComposer(instanceId)
+      return
+    }
+    if (!this.host.isDayCommentsEnabled()) {
       new Notice(
         this.host.tv(
           'comments.noTarget',
@@ -214,14 +305,7 @@ export class CommentsController {
       )
       return
     }
-    if (instanceId) this.openInstanceId = instanceId
-    const key = instanceId ?? DAY
-    if (this.host.isNarrow()) {
-      this.host.rerender()
-      this.openAddModal(key)
-      return
-    }
-    this.openComposer(key)
+    this.openDay()
   }
 
   // --- the input ---------------------------------------------------------------
@@ -308,10 +392,7 @@ export class CommentsController {
     // Clear the draft first: adding re-renders.
     const previous = this.drafts.get(key)
     this.drafts.delete(key)
-    const added = await this.host.store.addCommentTo(this.host.getDateKey(), {
-      text,
-      instanceId: key === DAY ? undefined : key,
-    })
+    const added = await this.host.store.addCommentTo(this.host.getDateKey(), { text, instanceId: key })
     if (!added) {
       if (previous !== undefined) this.drafts.set(key, previous)
       return
@@ -340,22 +421,20 @@ export class CommentsController {
   }
 
   /**
-   * Only one input or editor is open at a time. Before `open` runs the others
-   * close; when one of them holds unsaved text, ask first. Cancel goes back
-   * to that one. `except` is the input being opened.
+   * Only one input is open at a time. Before `open` runs the others close;
+   * when one of them holds unsaved text, ask first. Cancel goes back to that
+   * one. `except` is the input being opened.
    */
   private openOnly(open: () => void, except?: string): void {
     const dirtyInputs = Array.from(this.composing).filter((k) => k !== except && this.drafts.get(k)?.trim())
-    const editorDirty = this.editing !== null && this.editing.draft.trim() !== this.editing.original.trim()
     const closeOthers = () => {
       for (const k of Array.from(this.composing)) {
         if (k === except) continue
         this.composing.delete(k)
         this.drafts.delete(k)
       }
-      this.editing = null
     }
-    if (dirtyInputs.length === 0 && !editorDirty) {
+    if (dirtyInputs.length === 0) {
       closeOthers()
       open()
       return
@@ -375,9 +454,7 @@ export class CommentsController {
         return
       }
       if (except) this.composing.delete(except)
-      const back = dirtyInputs[0] ? this.composeKey(dirtyInputs[0]) : this.editing ? this.editKey(this.editing.id) : null
-      if (back) this.focusAfterRender(back)
-      else this.host.rerender()
+      this.focusAfterRender(this.composeKey(dirtyInputs[0]))
     })
   }
 
@@ -396,14 +473,10 @@ export class CommentsController {
     return box
   }
 
+  /** Adding to a running task on a narrow view. */
   private openAddModal(key: string): void {
-    const title = key === DAY
-      ? this.host.isViewingToday()
-        ? this.host.tv('comments.addDayTitle', 'Add a comment for today')
-        : this.host.tv('comments.addOtherDayTitle', 'Add a comment for this day')
-      : this.host.tv('comments.addTaskTitle', 'Add a comment to "{title}"', { title: this.host.getInstanceTitle(key) })
     new CommentModal(this.host.app, {
-      title,
+      title: this.host.tv('comments.addTaskTitle', 'Add a comment to "{title}"', { title: this.host.getInstanceTitle(key) }),
       at: Date.now(),
       value: this.drafts.get(key) ?? '',
       submitText: this.host.tv('comments.add', 'Add'),
@@ -417,48 +490,22 @@ export class CommentsController {
     }).open()
   }
 
-  private openEditModal(comment: DayComment): void {
-    new CommentModal(this.host.app, {
-      title: this.host.tv('comments.editTitle', 'Edit comment'),
-      at: comment.at,
-      value: comment.text,
-      submitText: this.host.tv('comments.save', 'Save'),
-      cancelText: this.host.tv('comments.cancel', 'Cancel'),
-      deleteText: this.host.tv('comments.delete', 'Delete'),
-      onSubmit: (text) => this.saveText(comment.id, text),
-      onDelete: () => this.deleteWithUndo(comment.id),
-    }).open()
-  }
+  // --- the list and deleting -----------------------------------------------------
 
-  // --- the list and rewriting ----------------------------------------------------
-
-  private editKey(id: string): string {
-    return `edit:${id}`
-  }
-
-  /** Time and text, newest first. `limit` shows that many, then a toggle for the rest. */
+  /**
+   * Time and text, in the order given, each with a button that deletes it:
+   * comments are not rewritten (typos and loose wording are fine, LEV-346).
+   * `limit` shows that many, then a toggle for the rest.
+   */
   private list(comments: DayComment[], options: { key?: string; limit?: number } = {}): HTMLElement {
     const wrapper = createDiv({ cls: 'taskchute-comment-entries' })
     const all = !options.limit || (options.key !== undefined && this.showAll.has(options.key))
     const shown = all ? comments : comments.slice(0, options.limit)
     const ul = wrapper.createEl('ul', { cls: 'taskchute-comment-list' })
     for (const comment of shown) {
-      if (this.editing?.id === comment.id && !this.host.isNarrow()) {
-        ul.createEl('li', { cls: 'is-editing' }).appendChild(this.editor(comment))
-        continue
-      }
-      const li = ul.createEl('li')
-      li.createEl('time', { text: formatCommentTime(comment.at) })
-      const text = li.createSpan({
-        cls: 'taskchute-comment-text',
-        text: comment.text,
-        attr: { role: 'button', tabindex: '0', title: this.host.tv('comments.editTooltip', 'Click to rewrite') },
-      })
-      text.addEventListener('click', () => this.startEdit(comment))
-      text.addEventListener('keydown', (event) => {
-        if (event.key !== 'Enter' || event.isComposing) return
-        event.preventDefault()
-        this.startEdit(comment)
+      createCommentItem(ul, comment, {
+        deleteLabel: this.host.tv('comments.deleteLabel', 'Delete this comment'),
+        onDelete: () => this.deleteWithUndo(comment.id),
       })
     }
     const hidden = comments.length - shown.length
@@ -479,76 +526,21 @@ export class CommentsController {
     return wrapper
   }
 
-  private startEdit(comment: DayComment): void {
-    if (this.host.isNarrow()) {
-      this.openEditModal(comment)
-      return
-    }
-    if (this.editing?.id === comment.id) return
-    this.openOnly(() => {
-      this.editing = { id: comment.id, draft: comment.text, original: comment.text }
-      this.focusAfterRender(this.editKey(comment.id), 'end')
-    })
-  }
-
-  /** Laid out like the open input: time and text, then the hint and the buttons. */
-  private editor(comment: DayComment): HTMLElement {
-    const editing = this.editing!
-    const box = createDiv({ cls: 'taskchute-comment-editor' })
-    const body = box.createDiv({ cls: 'taskchute-comment-composer__body' })
-    body.createEl('time', { cls: 'taskchute-comment-composer__now', text: formatCommentTime(comment.at) })
-    const textarea = createCommentTextarea(body, {
-      cls: 'taskchute-comment-input',
-      focusKey: this.editKey(comment.id),
-      value: editing.draft,
-      maxHeight: 320,
-      onInput: (value) => {
-        if (this.editing) this.editing.draft = value
-      },
-      onSubmit: (value) => this.finishEdit(comment.id, value),
-      onEscape: () => this.cancelEdit(),
-    })
-    const foot = box.createDiv({ cls: 'taskchute-comment-composer__foot' })
-    foot.createSpan({ cls: 'taskchute-comment-hint', text: this.host.tv('comments.editHint', 'Enter to save · Esc to cancel') })
-    const actions = foot.createDiv({ cls: 'taskchute-comment-editor__actions' })
-    const cancel = actions.createEl('button', { text: this.host.tv('comments.cancel', 'Cancel') })
-    cancel.addEventListener('click', () => this.cancelEdit())
-    const remove = actions.createEl('button', { cls: 'mod-warning', text: this.host.tv('comments.delete', 'Delete') })
-    remove.addEventListener('click', () => {
-      this.editing = null
-      this.deleteWithUndo(comment.id)
-    })
-    const save = actions.createEl('button', { cls: 'mod-cta', text: this.host.tv('comments.save', 'Save') })
-    save.addEventListener('click', () => this.finishEdit(comment.id, textarea.value))
-    return box
-  }
-
-  private cancelEdit(): void {
-    this.editing = null
-    this.host.rerender()
-  }
-
-  private finishEdit(id: string, text: string): void {
-    this.editing = null
-    this.saveText(id, text)
-  }
-
-  /** Saving blank text deletes the comment (with undo). */
-  private saveText(id: string, text: string): boolean {
-    if (!text.trim()) {
-      this.deleteWithUndo(id)
-      return true
-    }
-    this.host.store.updateComment(id, text, this.host.getDateKey())
-    this.host.rerender()
-    return true
+  /**
+   * The completion modal's list of a task's comments while it ran (LEV-347):
+   * deleting there works like anywhere else, and `redraw` redraws that list
+   * (on delete and on undo).
+   */
+  deleteRunningComment(id: string, redraw: () => void): void {
+    this.deleteWithUndo(id, redraw)
   }
 
   /** Deletes at once and offers undo in a notice instead of asking first. */
-  private deleteWithUndo(id: string): void {
+  private deleteWithUndo(id: string, redraw?: () => void): void {
     const dateKey = this.host.getDateKey()
     const removed = this.host.store.deleteComment(id, dateKey)
     this.host.rerender()
+    redraw?.()
     if (!removed) return
     showUndoNotice(
       this.host.tv('comments.deleted', 'Comment deleted'),
@@ -556,6 +548,7 @@ export class CommentsController {
       () => {
         this.host.store.restoreComment(id, dateKey)
         this.host.rerender()
+        redraw?.()
       },
     )
   }

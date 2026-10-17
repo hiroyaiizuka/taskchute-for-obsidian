@@ -59,6 +59,12 @@ describe('TaskViewLayout', () => {
     expect(result.taskListContainer.classList.contains('task-list-container')).toBe(true)
     expect(result.taskListElement.classList.contains('task-list')).toBe(true)
     expect(result.taskListElement.parentElement).toBe(result.taskListContainer)
+    // The list scrolls inside an area that does not, so the day's comments
+    // button floating over it stays put.
+    expect(result.taskListArea.classList.contains('taskchute-list-area')).toBe(true)
+    expect(result.taskListContainer.parentElement).toBe(result.taskListArea)
+    expect(result.taskListArea.parentElement).toBe(result.contentContainer)
+    expect(root.querySelector('.taskchute-day-comments')).toBeNull()
     expect(root.querySelector('.header-rendered')).not.toBeNull()
     expect(root.querySelector('.nav-rendered')).not.toBeNull()
   })

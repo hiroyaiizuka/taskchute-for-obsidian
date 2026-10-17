@@ -4,8 +4,9 @@ import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
 import { TASK_FOLDER, openTaskChute, rowState, taskRow, todayKey } from "../helpers/aiTask"
 
-// #181: comments written while working — the day's comments above the task
-// list, and a running task's comments under its row.
+// #181: comments written while working — the day's comments behind a button
+// at the bottom right of the task list (LEV-346), and a running task's
+// comments under its row.
 
 function readDayComments(vaultDir: string, dateKey: string): Array<{ text: string; instanceId?: string }> {
   const file = path.join(vaultDir, "TaskChute", "Log", `${dateKey.slice(0, 7)}-state.json`)
@@ -39,7 +40,7 @@ async function createTask(page: Page, title: string): Promise<string> {
   return taskPath
 }
 
-/** Turns on the day's comments box (off by default) the way the settings toggle does. */
+/** Turns on the day's comments button (off by default) the way the settings toggle does. */
 async function enableDayComments(page: Page) {
   await page.evaluate(async (id) => {
     const plugin = window.app.plugins.plugins[id] as { settings: Record<string, unknown>; saveSettings(): Promise<void> }
@@ -48,33 +49,80 @@ async function enableDayComments(page: Page) {
   }, "taskchute-plus")
 }
 
-test("the day's comments box is off by default and appears once turned on", async ({ obsidian }) => {
+const dayButton = (page: Page) => page.locator(".taskchute-day-comments-button")
+const dayWindow = (page: Page) => page.locator(".taskchute-day-comments-window")
+const dayInput = (page: Page) => dayWindow(page).locator(".taskchute-day-comments-window__input textarea")
+
+test("the day's comments button is off by default and appears once turned on", async ({ obsidian }) => {
   const { page } = obsidian
   await openTaskChute(page)
-  await expect(page.locator(".taskchute-day-comments")).toBeHidden()
+  await expect(dayButton(page)).toBeHidden()
   await enableDayComments(page)
   await page.evaluate(() => window.app.workspace.detachLeavesOfType("taskchute-view"))
   await openTaskChute(page)
-  await expect(page.locator(".taskchute-day-comments textarea")).toBeVisible()
+  await expect(dayButton(page)).toBeVisible()
+  await expect(dayButton(page).locator(".taskchute-day-comments-button__count")).toHaveCount(0)
 })
 
-test("a comment on the day is kept in the day state and shown again after reopening", async ({ obsidian }) => {
+test("a comment on the day is kept in the day state, counted on the button, and shown again after reopening", async ({ obsidian }) => {
   const { page, vaultDir } = obsidian
   await enableDayComments(page)
   await openTaskChute(page)
   const today = await todayKey(page)
 
-  const input = page.locator(".taskchute-day-comments textarea")
-  await input.click()
-  await input.fill("Finish the draft before lunch")
-  await input.press("Enter")
+  await dayButton(page).click()
+  await expect(dayInput(page)).toBeFocused()
+  await dayInput(page).fill("Finish the draft before lunch")
+  await dayInput(page).press("Enter")
 
-  await expect(page.locator(".taskchute-day-comments .taskchute-comment-text")).toHaveText(["Finish the draft before lunch"])
+  await expect(dayWindow(page).locator(".taskchute-comment-text")).toHaveText(["Finish the draft before lunch"])
   await expect.poll(() => readDayComments(vaultDir, today).map((c) => c.text)).toEqual(["Finish the draft before lunch"])
+  await expect(dayInput(page)).toBeFocused()
+
+  await page.keyboard.press("Escape")
+  await expect(dayWindow(page)).toHaveCount(0)
+  await expect(dayButton(page).locator(".taskchute-day-comments-button__count")).toHaveText("1")
 
   await page.evaluate(() => window.app.workspace.detachLeavesOfType("taskchute-view"))
   await openTaskChute(page)
-  await expect(page.locator(".taskchute-day-comments .taskchute-comment-text")).toHaveText(["Finish the draft before lunch"])
+  await expect(dayButton(page).locator(".taskchute-day-comments-button__count")).toHaveText("1")
+  await dayButton(page).click()
+  await expect(dayWindow(page).locator(".taskchute-comment-text")).toHaveText(["Finish the draft before lunch"])
+})
+
+test("the window floats over the bottom right of the list, stays open on a click outside, and closes from × and the button", async ({ obsidian }) => {
+  const { page } = obsidian
+  await createTask(page, "Write report")
+  await enableDayComments(page)
+  await openTaskChute(page)
+
+  await dayButton(page).click()
+  await expect(dayWindow(page)).toBeVisible()
+  const placement = await page.evaluate(() => {
+    const area = document.querySelector(".taskchute-list-area")!.getBoundingClientRect()
+    const win = document.querySelector(".taskchute-day-comments-window")!.getBoundingClientRect()
+    const button = document.querySelector(".taskchute-day-comments-button")!.getBoundingClientRect()
+    return {
+      inside: win.left >= area.left && win.right <= area.right && win.top >= area.top && win.bottom <= area.bottom,
+      aboveButton: win.bottom <= button.top,
+      rightAligned: Math.abs(area.right - win.right - (area.right - button.right)) <= 1,
+    }
+  })
+  expect(placement).toEqual({ inside: true, aboveButton: true, rightAligned: true })
+  await expect(dayWindow(page).locator(".taskchute-comment-composer__add")).toBeInViewport()
+
+  // Reading the tasks while writing: a click on the list leaves the window open.
+  await page.locator(".taskchute-view-root .task-list").click({ position: { x: 2, y: 2 } })
+  await expect(dayWindow(page)).toBeVisible()
+
+  await dayWindow(page).locator(".taskchute-day-comments-window__close").click()
+  await expect(dayWindow(page)).toHaveCount(0)
+  await dayButton(page).click()
+  await expect(dayWindow(page)).toBeVisible()
+  await dayButton(page).click()
+  await expect(dayWindow(page)).toHaveCount(0)
+  // The TaskChute view is still the one shown.
+  await expect(page.locator(".taskchute-view-root")).toBeVisible()
 })
 
 test("a running task takes comments, and the completion modal lists them", async ({ obsidian }) => {
@@ -107,58 +155,6 @@ test("a running task takes comments, and the completion modal lists them", async
   const recap = page.locator(".taskchute-comment-recap")
   await expect(recap).toBeVisible()
   await expect(recap.locator(".taskchute-comment-text")).toHaveText(["Outline done"])
-})
-
-test("an opened input is not cut off when the box's height is fixed small", async ({ obsidian }) => {
-  const { page } = obsidian
-  await enableDayComments(page)
-  await openTaskChute(page)
-  const input = () => page.locator(".taskchute-day-comments textarea")
-  for (const text of ["one", "two", "three", "four"]) {
-    await input().click()
-    await input().fill(text)
-    await input().press("Enter")
-  }
-  // After adding, focus comes back to the input a frame later; wait for it, then leave with Esc.
-  await expect(input()).toBeFocused()
-  await page.keyboard.press("Escape")
-  // The input closes a moment after it loses focus; fix the height only then.
-  await expect(page.locator(".taskchute-day-comments .taskchute-comment-composer.is-open")).toHaveCount(0)
-
-  // Drag the grip as far up as it goes: the height is now fixed at its smallest.
-  const grip = page.locator(".taskchute-day-comments-resizer")
-  const box = (await grip.boundingBox())!
-  await page.mouse.move(box.x + box.width / 2, box.y + 3)
-  await page.mouse.down()
-  await page.mouse.move(box.x + box.width / 2, box.y - 300, { steps: 10 })
-  await page.mouse.up()
-
-  await input().click()
-  await expect(page.locator(".taskchute-day-comments .taskchute-comment-composer.is-open")).toBeVisible()
-  await expect
-    .poll(() =>
-      page.evaluate(() => {
-        const dayBox = document.querySelector(".taskchute-day-comments")!.getBoundingClientRect()
-        const composer = document.querySelector(".taskchute-day-comments .taskchute-comment-composer")!.getBoundingClientRect()
-        return Math.round(dayBox.bottom - composer.bottom)
-      }),
-    )
-    .toBeGreaterThanOrEqual(0)
-  await expect(page.locator(".taskchute-day-comments .taskchute-comment-composer__add")).toBeInViewport()
-})
-
-test("Esc leaves the input; an empty one closes", async ({ obsidian }) => {
-  const { page } = obsidian
-  await enableDayComments(page)
-  await openTaskChute(page)
-  const input = page.locator(".taskchute-day-comments textarea")
-  await input.click()
-  await expect(page.locator(".taskchute-day-comments .taskchute-comment-composer.is-open")).toBeVisible()
-  await page.keyboard.press("Escape")
-  await expect(page.locator(".taskchute-day-comments textarea")).not.toBeFocused()
-  await expect(page.locator(".taskchute-day-comments .taskchute-comment-composer.is-open")).toHaveCount(0)
-  // The TaskChute view is still the one shown.
-  await expect(page.locator(".taskchute-view-root")).toBeVisible()
 })
 
 test("a task's comments come back after it is reset, the view reloads, and it is started again", async ({ obsidian }) => {

@@ -1,4 +1,4 @@
-import { EventRef, ItemView, Notice, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian'
+import { EventRef, ItemView, Notice, Platform, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian'
 import {
   TaskData,
   TaskInstance,
@@ -547,6 +547,7 @@ export class TaskChuteView
         this.executionLogService.appendCommentDelta(dateKey, entry),
       getRunningComments: (inst) =>
         inst.instanceId ? this.commentsController?.commentsFor(inst.instanceId) ?? [] : [],
+      deleteRunningComment: (_inst, id, redraw) => this.commentsController?.deleteRunningComment(id, redraw),
     })
     this.taskSettingsTooltipController = new TaskSettingsTooltipController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -868,16 +869,10 @@ export class TaskChuteView
   // ===========================================
 
   private setupUI(container: HTMLElement): void {
-    const {
-      taskListElement,
-      taskListContainer,
-      aiPaneContainer,
-      dayCommentsContainer,
-      dayCommentsResizer,
-    } = this.taskViewLayout.render(container)
+    const { taskListElement, taskListArea, aiPaneContainer } = this.taskViewLayout.render(container)
     this.taskListElement = taskListElement
     this.aiPaneContainer = aiPaneContainer
-    this.mountComments(container, dayCommentsContainer, dayCommentsResizer, taskListContainer)
+    this.mountComments(container, taskListArea)
     this.mountAiRunPane()
     this.watchLinkedAiRunExits()
   }
@@ -2697,18 +2692,7 @@ export class TaskChuteView
     })
   }
 
-  private mountComments(
-    root: HTMLElement,
-    dayBox: HTMLElement,
-    grip: HTMLElement,
-    taskListContainer: HTMLElement,
-  ): void {
-    // Duck-typed like the board view persistence: App#saveLocalStorage exists
-    // at runtime, but test doubles (and older typings) may lack it.
-    const app = this.app as unknown as {
-      saveLocalStorage?: (key: string, data: unknown) => void
-      loadLocalStorage?: (key: string) => unknown
-    }
+  private mountComments(root: HTMLElement, taskListArea: HTMLElement): void {
     this.commentsController = new CommentsController({
       app: this.app,
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -2723,7 +2707,11 @@ export class TaskChuteView
         )
       },
       getRoot: () => root,
-      getTaskListContainer: () => taskListContainer,
+      getDayLabel: () => {
+        const date = this.currentDate
+        const localeCode = getCurrentLocale() === "ja" ? "ja-JP" : "en-US"
+        return `${date.getMonth() + 1}/${date.getDate()} ${date.toLocaleDateString(localeCode, { weekday: "short" })}`
+      },
       rerender: () => this.renderTaskList(),
       getInstanceTitle: (instanceId) => {
         const inst = this.taskInstances.find((candidate) => candidate.instanceId === instanceId)
@@ -2733,15 +2721,11 @@ export class TaskChuteView
       isDayCommentsEnabled: () => this.plugin.settings.dayCommentsEnabled === true,
       // The same width the prototype switched at: a phone, or a pane that narrow.
       isNarrow: () => root.getBoundingClientRect().width <= COMMENTS_NARROW_WIDTH_PX,
-      loadLocalStorage: (key) =>
-        typeof app.loadLocalStorage === "function" ? app.loadLocalStorage(key) : null,
-      saveLocalStorage: (key, value) => {
-        if (typeof app.saveLocalStorage === "function") app.saveLocalStorage(key, value)
-      },
+      isPhone: () => Platform.isPhone,
       registerInterval: (id) => this.registerInterval(id),
       registerCleanup: (cleanup) => this.registerManagedDisposer(cleanup),
     })
-    this.commentsController.mountDay(dayBox, grip)
+    this.commentsController.mountDay(taskListArea)
   }
 
   /** For "leave a comment": the selected running task, else the one started last. */

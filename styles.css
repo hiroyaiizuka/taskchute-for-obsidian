@@ -8804,95 +8804,266 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
 /* ===========================================
    Comments while working (issue 181)
-   The day's comments sit between the header and the task list; a running
-   task's comments open in a panel under its row. Both lists show time and
-   text, newest first.
+   The day's comments sit behind a button at the bottom right of the task
+   list (LEV-346), opening a window there (a drawer on a phone); a running
+   task's comments open in a panel under its row.
    =========================================== */
 
-/* The day's box: sized by its content up to a cap (three comments, or a
-   height fixed by dragging the grip under it), scrolling past the cap. */
-.taskchute-day-comments {
-  flex: 0 0 auto;
+/* The task list's frame. The list scrolls inside it; the frame does not, so
+   the button and the window floating over the list stay put. */
+.taskchute-list-area {
+  position: relative;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  max-height: var(--tc-day-comments-max, none);
-  overflow: hidden;
-  margin-top: 10px;
 }
 
-.taskchute-day-comments__entries {
-  flex: 0 1 auto;
-  min-height: 0;
-  overflow-y: auto;
-  margin-top: 8px;
+/* Room under the last row, so the button never covers it. */
+.taskchute-list-area.has-day-comments-button .task-list {
+  padding-bottom: max(76px, var(--taskchute-mobile-bottom-obstruction, 0px));
+}
+
+/* --- the button --- */
+.taskchute-view-root .taskchute-day-comments-button {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 20;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  box-shadow: var(--shadow-l);
+  cursor: var(--cursor);
+  transition: background-color var(--tc-transition), transform var(--tc-transition);
+}
+
+.taskchute-view-root .taskchute-day-comments-button[hidden] {
+  display: none;
+}
+
+.taskchute-view-root .taskchute-day-comments-button:hover {
+  background: var(--interactive-accent-hover);
+}
+
+.taskchute-view-root .taskchute-day-comments-button:active {
+  transform: scale(0.94);
+}
+
+.taskchute-view-root .taskchute-day-comments-button:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 3px;
+}
+
+.taskchute-day-comments-button__icon {
+  display: flex;
+  --icon-size: 22px;
+  --icon-stroke: 2px;
+}
+
+.taskchute-day-comments-button__count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 20px;
+  height: 20px;
   padding: 0 6px;
+  border-radius: 10px;
+  background: var(--background-primary);
+  color: var(--text-accent);
+  box-shadow: 0 0 0 1.5px var(--interactive-accent), var(--shadow-s);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+  line-height: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Same grip as the one between the task list and the AI runs pane. */
-.taskchute-day-comments-resizer {
+.taskchute-day-comments-button__count.is-bumped {
+  animation: tc-day-comments-bump 0.35s ease;
+}
+
+@keyframes tc-day-comments-bump {
+  40% { transform: scale(1.3); }
+}
+
+.is-phone .taskchute-view-root .taskchute-day-comments-button {
+  width: 54px;
+  height: 54px;
+}
+
+/* --- the window --- */
+.taskchute-day-comments-window {
+  position: absolute;
+  right: 16px;
+  bottom: 76px;
+  z-index: 25;
+  width: min(360px, calc(100% - 32px));
+  max-height: min(560px, calc(100% - 96px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--modal-background, var(--background-primary));
+  border: var(--modal-border-width, 1px) solid var(--modal-border-color, var(--background-modifier-border));
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-l);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  transform-origin: calc(100% - 24px) calc(100% + 40px);
+  animation: tc-day-comments-pop 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes tc-day-comments-pop {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+}
+
+.is-tablet .taskchute-day-comments-window {
+  width: min(400px, calc(100% - 32px));
+}
+
+.taskchute-day-comments-window__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 8px 8px 16px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.taskchute-day-comments-window__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.taskchute-day-comments-window__title-text {
+  overflow: hidden;
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.taskchute-day-comments-window__count {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.taskchute-day-comments-window__body {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px 16px 8px;
+}
+
+.taskchute-day-comments-window__composer {
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.taskchute-day-comments-window__input {
+  display: grid;
+  gap: 6px;
+}
+
+.taskchute-day-comments-window__input .taskchute-comment-composer {
+  align-items: flex-end;
+}
+
+.taskchute-day-comments-window__input .taskchute-comment-input {
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.taskchute-day-comments-window__input .taskchute-comment-hint {
+  white-space: normal;
+}
+
+/* A past or future day: read back, not written to. */
+.taskchute-day-comments-window__only-today {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-align: center;
+}
+
+/* --- phones: a drawer over the whole view --- */
+.taskchute-view-root.has-day-comments-drawer {
   position: relative;
-  flex-shrink: 0;
-  height: 6px;
-  margin-top: 4px;
-  cursor: row-resize;
-  background: transparent;
-  transition: background 120ms ease;
+}
+
+.taskchute-day-comments-window.is-drawer {
+  inset: 0;
+  width: auto;
+  max-height: none;
+  z-index: var(--layer-modal);
+  border: 0;
+  border-radius: 0;
+  font-size: var(--font-ui-medium);
+  transform: translateY(var(--tc-drawer-offset, 0px));
+  animation: tc-day-comments-up 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.taskchute-day-comments-window.is-drawer:not(.is-dragging) {
+  transition: transform 0.2s ease;
+}
+
+@keyframes tc-day-comments-up {
+  from { transform: translateY(100%); }
+}
+
+.taskchute-day-comments-window.is-drawer .taskchute-day-comments-window__head {
+  flex-wrap: wrap;
+  padding-top: 0;
   touch-action: none;
 }
 
-.taskchute-day-comments-resizer::before {
-  content: '';
-  position: absolute;
-  inset: -3px 0;
+.taskchute-day-comments-window__handle {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 4px;
+  cursor: grab;
 }
 
-.taskchute-day-comments-resizer::after {
+.taskchute-day-comments-window__handle::before {
   content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 28px;
-  height: 2px;
-  transform: translate(-50%, -50%);
-  border-radius: 1px;
-  background: var(--background-modifier-border);
-  transition: background 120ms ease;
-}
-
-.taskchute-day-comments-resizer:hover::after,
-.taskchute-day-comments-resizer:focus-visible::after,
-.taskchute-day-comments-resizer.is-dragging::after {
+  width: 38px;
+  height: 5px;
+  border-radius: 3px;
   background: var(--background-modifier-border-hover);
 }
 
-.taskchute-day-comments-resizer:hover,
-.taskchute-day-comments-resizer:focus-visible {
-  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
-  outline: none;
+.taskchute-day-comments-window.is-drawer .taskchute-day-comments-window__title-text {
+  font-size: var(--font-ui-large);
 }
 
-.taskchute-day-comments-resizer.is-dragging {
-  background: color-mix(in srgb, var(--interactive-accent) 32%, transparent);
-  outline: none;
+.taskchute-day-comments-window.is-drawer .taskchute-comment-list > li {
+  padding: 6px;
+  font-size: var(--font-ui-medium);
 }
 
-.taskchute-day-comments-resizer--hidden {
-  display: none;
+.taskchute-day-comments-window.is-drawer .taskchute-comment-input {
+  min-height: 40px;
+  font-size: 16px;
 }
 
-/* Turned off in settings: the box takes no room at all. */
-.taskchute-day-comments--off {
-  display: none;
-}
-
-/* With the grip hidden, the list keeps its usual gap below the input. */
-.taskchute-day-comments + .taskchute-day-comments-resizer--hidden + .task-list-container {
-  margin-top: 10px;
-}
-
-.taskchute-day-comments + .taskchute-day-comments-resizer + .task-list-container {
-  margin-top: 4px;
+@media (prefers-reduced-motion: reduce) {
+  .taskchute-day-comments-window,
+  .taskchute-day-comments-window.is-drawer,
+  .taskchute-day-comments-button__count.is-bumped {
+    animation: none;
+  }
 }
 
 /* --- the input: one line, opening like X's composer when focused --- */
@@ -8930,8 +9101,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   flex: none;
 }
 
-.taskchute-comment-composer.is-open,
-.taskchute-comment-editor {
+.taskchute-comment-composer.is-open {
   flex-direction: column;
   align-items: stretch;
   gap: 0;
@@ -8941,8 +9111,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   background: var(--background-primary);
 }
 
-.taskchute-comment-composer.is-open .taskchute-comment-input,
-.taskchute-comment-editor .taskchute-comment-input {
+.taskchute-comment-composer.is-open .taskchute-comment-input {
   min-height: 72px;
   padding: 2px 0;
   border: 0;
@@ -8985,12 +9154,6 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   font-size: var(--font-ui-smaller);
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-.taskchute-comment-editor__actions {
-  display: flex;
-  gap: 6px;
-  margin-left: auto;
 }
 
 .taskchute-comment-composer__foot .taskchute-comment-composer__add {
@@ -9051,40 +9214,43 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   overflow-wrap: anywhere;
 }
 
-/* The whole row (time and text) is the click target: the text's ::after
-   stretches over it. */
-.taskchute-comment-list:not(.is-readonly) .taskchute-comment-text {
-  cursor: text;
-}
-
-.taskchute-comment-list:not(.is-readonly) .taskchute-comment-text::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: var(--radius-s);
-}
-
-.taskchute-comment-list:not(.is-readonly) > li:hover {
+/* Comments are not rewritten, only deleted (LEV-346, LEV-347): the × at the
+   end of a row shows on hover or focus, and always where there is no hover. */
+.taskchute-comment-list > li:hover,
+.taskchute-comment-list > li:focus-within {
   background: var(--background-modifier-hover);
 }
 
-.taskchute-comment-list:not(.is-readonly) .taskchute-comment-text:focus-visible {
-  outline: none;
-}
-
-.taskchute-comment-list:not(.is-readonly) .taskchute-comment-text:focus-visible::after {
-  box-shadow: 0 0 0 2px var(--interactive-accent);
-}
-
-/* A comment being rewritten spans the row, looking like the open input. */
-.taskchute-comment-list > li.is-editing {
-  display: block;
-  margin: 4px 0;
+.taskchute-view-root .taskchute-comment-delete,
+.modal .taskchute-comment-delete {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: -1px -2px -1px 0;
   padding: 0;
+  opacity: 0;
+  --icon-size: 14px;
 }
 
-.taskchute-comment-list > li.is-editing:hover {
-  background: none;
+.taskchute-comment-list > li:hover .taskchute-comment-delete,
+.taskchute-comment-delete:focus-visible {
+  opacity: 1;
+}
+
+.taskchute-comment-delete:hover {
+  color: var(--text-error);
+}
+
+@media (hover: none) {
+  .taskchute-view-root .taskchute-comment-delete,
+  .modal .taskchute-comment-delete {
+    opacity: 0.7;
+  }
+}
+
+.is-mobile .taskchute-view-root .taskchute-comment-delete,
+.is-mobile .modal .taskchute-comment-delete {
+  opacity: 0.7;
 }
 
 .taskchute-comment-toggle {
@@ -9141,12 +9307,11 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   box-shadow: inset 0 0 0 1px var(--interactive-accent);
 }
 
-/* --- the completion modal: the comments written while it ran --- */
+/* --- the completion modal: the comments written while it ran, under the ratings --- */
+/* On the modal's own background, like the rows around it. */
 .taskchute-comment-recap {
-  margin-bottom: 14px;
-  padding: 10px 12px;
-  border-radius: var(--radius-m);
-  background: var(--background-secondary);
+  margin: 4px 0 14px;
+  padding: 10px 0;
 }
 
 .taskchute-comment-recap__title {
@@ -9162,13 +9327,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   overflow-y: auto;
 }
 
-/* Read-only rows have no hover background to bleed into, so no negative inset. */
-.taskchute-comment-list.is-readonly > li {
-  margin: 0;
-  padding: 2px 0;
-}
-
-/* --- phones: adding and rewriting in a modal --- */
+/* --- phones: adding to a running task in a modal --- */
 .taskchute-comment-entry-modal__time {
   display: block;
   margin-bottom: 4px;
