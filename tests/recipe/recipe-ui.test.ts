@@ -1450,6 +1450,114 @@ describe('recipe UI helpers', () => {
     expect(document.querySelector('.recipe-modal-content')).toBeNull()
   })
 
+  describe("opened from a task's ⚙ menu (LEV-345)", () => {
+    const setup = ({ fromTask = true } = {}) => {
+      const recipeFile = new TFile()
+      recipeFile.path = 'TaskChute/Recipes/A.md'
+      recipeFile.basename = 'A'
+      recipeFile.extension = 'md'
+      const taskFile = new TFile()
+      taskFile.path = 'TaskChute/Task/Write.md'
+      taskFile.basename = 'Write'
+      taskFile.extension = 'md'
+      const files = new Map([
+        [recipeFile.path, {
+          file: recipeFile,
+          content: '---\ntaskchute_recipe: true\ntitle: "aaa"\n---\n\n- [ ] a\n',
+          frontmatter: { taskchute_recipe: true, title: 'aaa' },
+        }],
+        [taskFile.path, {
+          file: taskFile,
+          content: '---\nrecipe: "[[TaskChute/Recipes/A.md]]"\n---\n',
+          frontmatter: { recipe: '[[TaskChute/Recipes/A.md]]' },
+        }],
+      ])
+      const taskFrontmatter: Record<string, unknown> = { recipe: '[[TaskChute/Recipes/A.md]]' }
+      const plugin = {
+        app: {
+          vault: {
+            getMarkdownFiles: jest.fn(() => [recipeFile, taskFile]),
+            getAbstractFileByPath: createRecipeFolderLookup(files),
+            read: jest.fn(async (target: TFile) => files.get(target.path)?.content ?? ''),
+            modify: jest.fn(),
+            create: jest.fn(),
+          },
+          metadataCache: {
+            getFileCache: jest.fn((target: TFile) => ({ frontmatter: files.get(target.path)?.frontmatter ?? {} })),
+          },
+          fileManager: {
+            trashFile: jest.fn(),
+            processFrontMatter: jest.fn(async (_file: TFile, fn: (fm: Record<string, unknown>) => void) => {
+              fn(taskFrontmatter)
+            }),
+          },
+          workspace: { openLinkText: jest.fn() },
+        },
+        pathManager: {
+          getRecipeFolderPath: () => 'TaskChute/Recipes',
+          getTaskFolderPath: () => 'TaskChute/Task',
+          ensureFolderExists: jest.fn(),
+        },
+      }
+      const onUnassigned = jest.fn()
+      const onRecipesChanged = jest.fn()
+      const modal = new RecipeManagerModal(plugin.app as never, plugin as never, {
+        initialRecipePath: 'TaskChute/Recipes/A.md',
+        onRecipesChanged,
+        ...(fromTask ? { unassignFromTask: { taskPath: taskFile.path, onUnassigned } } : {}),
+      })
+      const buttonTexts = () =>
+        Array.from(document.querySelectorAll<HTMLButtonElement>('.modal-button-container button')).map((b) => b.textContent)
+      return { modal, onUnassigned, onRecipesChanged, taskFrontmatter, buttonTexts, plugin }
+    }
+
+    test("opens the same edit dialog as the popover's ✏, with Remove recipe added", async () => {
+      const { modal, buttonTexts } = setup()
+      modal.open()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(document.querySelector('.modal-title')?.textContent).toBe('レシピ編集')
+      expect((document.querySelector('.recipe-title-input') as HTMLInputElement).value).toBe('aaa')
+      expect(buttonTexts()).toEqual(['レシピを解除', 'キャンセル', '保存'])
+      const remove = document.querySelector<HTMLButtonElement>('.recipe-unassign-button')!
+      expect(remove.classList.contains('mod-secondary')).toBe(true)
+      modal.close()
+    })
+
+    test('Remove recipe takes the recipe off the task and closes the dialog', async () => {
+      const { modal, onUnassigned, taskFrontmatter } = setup()
+      modal.open()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      document.querySelector<HTMLButtonElement>('.recipe-unassign-button')!.click()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(taskFrontmatter.recipe).toBeUndefined()
+      expect(onUnassigned).toHaveBeenCalledTimes(1)
+      expect(document.querySelector('.recipe-modal-content')).toBeNull()
+    })
+
+    test('saving closes the dialog and refreshes the task list, instead of moving on to the recipe list', async () => {
+      const { modal, onRecipesChanged, plugin } = setup()
+      modal.open()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      const goal = document.querySelector<HTMLTextAreaElement>('.recipe-goal-input')!
+      goal.value = 'done when shared'
+      goal.dispatchEvent(new Event('input'))
+      document.querySelector<HTMLButtonElement>('.recipe-edit-form button[type="submit"]')!.click()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(plugin.app.vault.modify).toHaveBeenCalled()
+      expect(document.querySelector('.recipe-modal-content')).toBeNull()
+      expect(onRecipesChanged).toHaveBeenCalledTimes(1)
+    })
+
+    test("from the popover's ✏ (no task), there is no Remove recipe", async () => {
+      const { modal, buttonTexts } = setup({ fromTask: false })
+      modal.open()
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      expect(buttonTexts()).toEqual(['キャンセル', '保存'])
+      modal.close()
+    })
+  })
+
   test('recipe manager returns to list on cancel when edit was opened from recipe list', async () => {
     const file = new TFile()
     file.path = 'TaskChute/Recipes/A.md'

@@ -3702,6 +3702,18 @@ export class TaskChuteView
 
   private showRecipeSelectModal(inst: TaskInstance): void {
     if (!this.isRecipeFeatureEnabled()) return
+    const recipePath = inst.task.recipePath
+    if (recipePath && this.recipeService.hasRecipe(recipePath)) {
+      // "Change or remove recipe": the same dialog as the recipe popover's ✏,
+      // with "Remove recipe" at the bottom (LEV-345).
+      const reload = () => this.reloadTasksAndRestore({ runBoundaryCheck: true })
+      new RecipeManagerModal(this.app, this.plugin, {
+        initialRecipePath: recipePath,
+        onRecipesChanged: reload,
+        unassignFromTask: { taskPath: inst.task.path, onUnassigned: reload },
+      }).open()
+      return
+    }
     new RecipeSelectModal(this.app, {
       service: this.recipeService,
       instance: inst,

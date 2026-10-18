@@ -515,6 +515,32 @@ describe('style regressions', () => {
     expect(recipeHandleHoverRule).toMatch(/opacity:\s*1;/)
   })
 
+  test('the recipe reorder grip stays visible on touch screens, which have no hover (LEV-345)', () => {
+    const css = styles()
+    const touchRule = readRule(css, '.recipe-step-row .recipe-list-drag-handle,')
+    expect(touchRule).toContain('.recipe-run-step .recipe-step-drag-handle')
+    expect(touchRule).toMatch(/opacity:\s*0\.6;/)
+    const mobileRule = readRule(css, '.is-mobile .recipe-step-row .recipe-list-drag-handle,')
+    expect(mobileRule).toMatch(/opacity:\s*0\.6;/)
+  })
+
+  test('"+ Add step" lines up with the step inputs: past the grip, short of the remove button (LEV-345)', () => {
+    const css = styles()
+    const rule = readRule(css, '.recipe-editor-fields .recipe-add-step-button {')
+    expect(rule).toContain('width: calc(100% - 18px - 8px - 34px - 8px)')
+    expect(rule).toContain('margin-left: calc(18px + 8px)')
+    expect(rule).toContain('height: var(--input-height)')
+    const mobile = readRule(css, '.is-mobile .recipe-editor-fields .recipe-add-step-button {')
+    expect(mobile).toContain('margin-left: calc(28px + 8px)')
+    // The grip it measures past is that wide on a phone.
+    expect(readRule(css, '.is-mobile .recipe-editor-fields .recipe-list-drag-handle {')).toContain('width: 28px')
+  })
+
+  test('"Remove recipe" sits below Cancel on a phone (LEV-345)', () => {
+    const css = styles()
+    expect(readRule(css, '.is-mobile .modal-button-container .recipe-unassign-button {')).toMatch(/order:\s*-2;/)
+  })
+
   test('touch devices explicitly suppress sticky row hover for hidden controls', () => {
     const css = styles()
     const mobileMediaIndex = css.indexOf('@media (hover: none)')
