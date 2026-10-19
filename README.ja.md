@@ -1,4 +1,4 @@
-# TaskChute Plus
+# TaskChute for Obsidian（TaskChute Plus）
 
 [English](./README.md) | [日本語](./README.ja.md)
 
@@ -6,8 +6,10 @@
 
 **タスクを整理するだけでなく、実行するためのプラグイン。**
 
-TaskChute Plus は、実行重視のタスク管理を Obsidian 上で行うためのプラグインです。  
-「今やること」を決めて実行し、実績ログを蓄積して改善につなげます。
+TaskChute for Obsidian（TaskChute Plus）は、大橋悦夫さんが考案したタスク管理メソッド「タスクシュート」を Obsidian で実践するための公式プラグインです。  
+大橋さんが代表理事を務める一般社団法人タスクシュート協会の公認を受けています。
+
+実行重視のタスク管理で、「今やること」を決めて実行し、実績ログを蓄積して改善につなげます。
 
 ## できること
 
