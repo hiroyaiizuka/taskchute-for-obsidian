@@ -5955,6 +5955,27 @@ body.is-phone .taskchute-modal .modal-button-container {
   opacity: 0.6;
 }
 
+/* A touch screen has no hover to reveal the grip, so nobody would find it:
+   keep it showing there (LEV-345), and big enough for a finger. */
+@media (hover: none) {
+  .recipe-step-row .recipe-list-drag-handle,
+  .recipe-step-row .recipe-step-drag-handle,
+  .recipe-run-step .recipe-step-drag-handle {
+    opacity: 0.6;
+  }
+}
+
+.is-mobile .recipe-step-row .recipe-list-drag-handle,
+.is-mobile .recipe-step-row .recipe-step-drag-handle,
+.is-mobile .recipe-run-step .recipe-step-drag-handle {
+  opacity: 0.6;
+}
+
+.is-mobile .recipe-editor-fields .recipe-list-drag-handle {
+  width: 28px;
+  height: 36px;
+}
+
 .recipe-step-drag-handle-icon {
   fill: currentColor;
   opacity: 0.7;
@@ -6191,9 +6212,34 @@ body.is-phone .taskchute-modal .modal-button-container {
   padding-right: 0;
 }
 
-.recipe-add-step-button {
-  align-self: center;
-  margin-top: 15px;
+/* "+ Add step" spans the input column of the rows above it -- past the grip
+   (18px) and the gap, short of the remove button (34px) and the gap -- so it
+   reads as one more row rather than a stray button (LEV-345). */
+.recipe-editor-fields .recipe-add-step-button {
+  display: flex;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  width: calc(100% - 18px - 8px - 34px - 8px);
+  height: var(--input-height);
+  margin-top: 8px;
+  margin-left: calc(18px + 8px);
+  padding-inline: var(--size-4-3);
+}
+
+.is-mobile .recipe-editor-fields .recipe-add-step-button {
+  width: calc(100% - 28px - 8px - 34px - 8px);
+  margin-left: calc(28px + 8px);
+}
+
+/* "Remove recipe" in the edit dialog opened from a task's ⚙ (LEV-345): on the
+   left of the desktop row (core's mod-secondary), and below Cancel on a phone,
+   where core's reversed column already puts Cancel at order -1. */
+.modal .modal-button-container button.recipe-unassign-button {
+  color: var(--text-error);
+}
+
+.is-mobile .modal-button-container .recipe-unassign-button {
+  order: -2;
 }
 
 .recipe-usage-details {

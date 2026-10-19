@@ -14,6 +14,15 @@ type Mode = 'list' | 'edit'
 export interface RecipeManagerModalOptions {
   initialRecipePath?: string
   onRecipesChanged?: () => Promise<void> | void
+  /**
+   * Opened from a task's ⚙ menu (LEV-345): the same edit dialog as the recipe
+   * popover's ✏, plus "Remove recipe" at the bottom, which takes the recipe
+   * off that task. Shown only while editing the recipe the dialog opened on.
+   */
+  unassignFromTask?: {
+    taskPath: string
+    onUnassigned: () => Promise<void> | void
+  }
 }
 
 export default class RecipeManagerModal extends Modal {
@@ -255,7 +264,21 @@ export default class RecipeManagerModal extends Modal {
     this.activeEditor = editor
 
     let saveButton: HTMLButtonElement | undefined
+    const unassign = this.options.unassignFromTask
+    const offerUnassign = Boolean(unassign && recipe && this.directEditFromRecipePath)
     createModalFooter(form, [
+      ...(offerUnassign
+        ? [
+            {
+              text: t('recipes.select.clear', 'Remove recipe'),
+              role: 'secondary' as const,
+              cls: 'recipe-unassign-button',
+              onClick: () => {
+                void this.unassignFromTask()
+              },
+            },
+          ]
+        : []),
       {
         text: t('common.cancel', 'Cancel'),
         role: 'cancel',
@@ -282,6 +305,25 @@ export default class RecipeManagerModal extends Modal {
           button.disabled = false
         })
     })
+  }
+
+  /** Takes the recipe off the task the dialog was opened from; the recipe itself stays. */
+  private async unassignFromTask(): Promise<void> {
+    const unassign = this.options.unassignFromTask
+    if (!unassign) return
+    if (this.activeEditor?.isDirty()) {
+      const confirmed = await this.confirmDiscardChanges()
+      if (!confirmed) return
+    }
+    try {
+      // The service shows the "removed" notice itself.
+      await this.service.unassignRecipeFromTask(unassign.taskPath)
+      this.forceClose()
+      await unassign.onUnassigned()
+    } catch (error) {
+      console.error('[RecipeManagerModal] Failed to remove recipe from task', error)
+      new Notice(t('recipes.select.notices.unassignFailed', 'Failed to remove recipe'))
+    }
   }
 
   private renderHeader(title: string): void {
@@ -382,6 +424,13 @@ export default class RecipeManagerModal extends Modal {
     try {
       await this.service.saveRecipe({ path, ...value })
       new Notice(t('recipes.manager.notices.saved', 'Recipe saved'))
+      // Opened from a task's ⚙ menu: saving is the end of it, so close and let
+      // the task list catch up instead of moving on to the recipe list.
+      if (this.options.unassignFromTask && this.directEditFromRecipePath) {
+        this.forceClose()
+        await this.options.onRecipesChanged?.()
+        return
+      }
       this.directEditFromRecipePath = false
       this.mode = 'list'
       this.editing = null
