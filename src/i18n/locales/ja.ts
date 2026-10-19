@@ -506,7 +506,6 @@ export const ja = {
       otherDayTitle: "{date} のコメント",
       count: "{count} 件",
       dayEmpty: "この日のコメントはまだありません",
-      dayHint: "Enter で追加・Shift+Enter で改行・Esc で閉じる",
       closeDay: "コメントを閉じる",
       deleteLabel: "このコメントを削除",
       onlyToday: "コメントを追加できるのは今日だけです",

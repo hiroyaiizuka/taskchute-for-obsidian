@@ -9053,10 +9053,6 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   overflow-y: auto;
 }
 
-.taskchute-day-comments-window__input .taskchute-comment-hint {
-  white-space: normal;
-}
-
 /* A past or future day: read back, not written to. */
 .taskchute-day-comments-window__only-today {
   margin: 0;
