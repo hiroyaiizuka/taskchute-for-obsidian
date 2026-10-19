@@ -212,6 +212,7 @@ export default [
       // Plain CJS module stub wired through jest.config.js moduleNameMapper;
       // also outside the typed lint project.
       "tests/setup/xterm-stub.js",
+      "tests/setup/build-info-stub.js",
       // The shared Modal mock the dialog tests build on; a plain CJS module,
       // so likewise outside the typed lint project.
       "tests/setup/obsidian-modal-mock.js",
