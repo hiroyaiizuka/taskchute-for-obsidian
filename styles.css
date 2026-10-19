@@ -7114,14 +7114,9 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   --tc-ai-pane-height: 50%;
 
   display: none;
-  /* Edge to edge: out across the view's side padding (Obsidian's
-     `.view-content` gutter), so the terminal gets the leaf's whole width. The
-     pane controller measures that padding into the two variables; Obsidian's
-     own value is the fallback. The bottom gutter stays -- the status bar
-     floats over it. */
-  width: auto;
-  margin-left: calc(-1 * var(--tc-ai-pane-bleed-start, var(--size-4-3)));
-  margin-right: calc(-1 * var(--tc-ai-pane-bleed-end, var(--size-4-3)));
+  /* Inside the view's side padding, like the task list above it: the pane's
+     left and right edges line up with the task list's frame, collapsed and
+     full screen (⤢) alike. */
   max-height: 50%;
   min-height: 0;
   flex-shrink: 0;
@@ -7220,9 +7215,13 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   flex-direction: column;
   min-height: 0;
   background: var(--background-primary);
-  /* No frame: one line parts it from the task list, and the terminal runs to
-     the pane's edges. */
-  border-top: 1px solid var(--background-modifier-border);
+  /* The task list's frame: the same width, line and corners, so the two read
+     as a pair of cards, one above the other. The corners clip what lies
+     under them (the tab row's fill), and nothing in the pane is meant to
+     reach past it. */
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--tc-radius-sm);
+  overflow: hidden;
 }
 
 .ai-run-pane.is-hidden {
@@ -7677,6 +7676,14 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   border-bottom: 1px solid var(--tc-code-border);
   background: var(--tc-code-tabbar-bg);
   font-family: var(--font-monospace);
+}
+
+/* Collapsed, the pane's frame closes the row: the rows' own bottom lines
+   would sit on it as a second line. Transparent rather than removed, so the
+   row keeps its height (the tab row's background fills the line's place). */
+.ai-run-pane.is-collapsed .ai-run-pane__sidebar-toolbar,
+.ai-run-pane.is-collapsed .ai-run-pane__work-tabbar {
+  border-bottom-color: transparent;
 }
 
 .ai-run-pane__file-tabs {
@@ -9208,9 +9215,9 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   transform: rotate(45deg);
 }
 
-/* The list keeps one height from the moment it opens -- five one-line
+/* The list keeps one height from the moment it opens -- three one-line
    comments -- so adding never moves the popover's edge or its input. Comments
-   run from the top, each new one under the last; from the sixth on, the
+   run from the top, each new one under the last; from the fourth on, the
    older ones are a scroll away and the newest is kept in view. A row is its
    text line, or the delete button's 20px when that is taller, plus 3px above
    and below. */
@@ -9219,7 +9226,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
   box-sizing: content-box;
   flex: none;
-  height: calc(var(--tc-comment-row-height) * 5);
+  height: calc(var(--tc-comment-row-height) * 3);
   min-height: 0;
 }
 

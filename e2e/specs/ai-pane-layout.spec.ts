@@ -114,11 +114,38 @@ async function box(page: Page, selector: string) {
   })
 }
 
+/** An element's left and right edges, its four border widths and its corners. */
+async function frame(page: Page, selector: string) {
+  return page.locator(selector).first().evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const s = getComputedStyle(el)
+    return {
+      left: Math.round(r.left),
+      right: Math.round(r.right),
+      border: [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth].join(" "),
+      radius: s.borderRadius,
+    }
+  })
+}
+
+/** The pane has the task list's frame: the same edges, line and corners. */
+async function expectFramedLikeTaskList(page: Page) {
+  const pane = await frame(page, ".ai-run-pane")
+  expect(pane.border).toBe("1px 1px 1px 1px")
+  expect(pane).toEqual(await frame(page, ".taskchute-view-root .task-list"))
+}
+
+/** A row's bottom line color, to tell a drawn line from a transparent one. */
+async function bottomLineColor(page: Page, selector: string) {
+  return page.locator(selector).first().evaluate((el) => getComputedStyle(el).borderBottomColor)
+}
+
 // No title row: the pane's controls lie over the two ends of the terminal tab
-// row. No frame either: the pane runs across the view's side padding to the
-// leaf's edges, and the sidebar hides outright from a toggle on that row.
-// Collapsed, the tab row stays and the terminal goes.
-test("the pane's controls share the tab row, the pane runs edge to edge, and the sidebar hides outright", async ({ obsidian, home }, testInfo) => {
+// row. The pane is framed like the task list above it -- the same edges, line
+// and corners -- and the sidebar hides outright from a toggle on that row.
+// Collapsed, the tab row stays, closed by the frame's line alone, and the
+// terminal goes.
+test("the pane's controls share the tab row, the pane is framed like the task list, and the sidebar hides outright", async ({ obsidian, home }, testInfo) => {
   const { page } = obsidian
   const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
   await enableAiTasks(page, prepare(home!, vault, testInfo.outputPath("bin")))
@@ -147,13 +174,13 @@ test("the pane's controls share the tab row, the pane runs edge to edge, and the
   expect((await box(page, ".ai-run-pane__header")).top).toBe(tabRow.top)
   expect(tabRow.top - pane.top).toBeLessThanOrEqual(1)
 
-  // Edge to edge: the leaf's own edges, past the view's side padding.
-  const leaf = await page.evaluate(() => {
-    const r = document.querySelector(".taskchute-view-root")!.parentElement!.getBoundingClientRect()
-    return { left: Math.round(r.left), right: Math.round(r.right) }
-  })
-  expect(pane.left).toBe(leaf.left)
-  expect(pane.right).toBe(leaf.right)
+  // The task list's frame, at half height and full screen (⤢) alike.
+  await expectFramedLikeTaskList(page)
+  await page.locator(".ai-run-pane__expand").click()
+  await expect.poll(async () => (await layout(page)).dateRow).toBe(0)
+  await expectFramedLikeTaskList(page)
+  await page.locator(".ai-run-pane__expand").click()
+  await expect.poll(async () => (await layout(page)).dateRow).toBeGreaterThan(0)
 
   // The sidebar's toggle sits on the sidebar's edge, past files and history.
   await expect(page.locator(".ai-run-pane__sidebar")).toBeVisible()
@@ -180,8 +207,17 @@ test("the pane's controls share the tab row, the pane runs edge to edge, and the
     (await box(page, ".ai-run-pane__expand")).left,
   )
 
-  // Collapsed: the tab row stays, the terminal goes.
+  // Collapsed, with the sidebar back: the tab row and the sidebar's toolbar
+  // stay, still framed like the task list, and the terminal goes. The frame's
+  // bottom line closes the row; the rows' own bottom lines would be a second
+  // one on it.
+  await page.locator(".ai-run-pane__sidebar-toggle").click()
+  await expect(page.locator(".ai-run-pane__sidebar")).toBeVisible()
   await page.locator(".ai-run-pane__collapse").click()
   await expect(page.locator(".ai-run-pane__panel .ai-run-pane__tabstrip").first()).toBeVisible()
+  await expect(page.locator(".ai-run-pane__sidebar-toolbar")).toBeVisible()
   await expect(page.locator(".ai-run-pane .xterm").first()).toBeHidden()
+  await expectFramedLikeTaskList(page)
+  expect(await bottomLineColor(page, ".ai-run-pane__panel .ai-run-pane__tabstrip")).toBe("rgba(0, 0, 0, 0)")
+  expect(await bottomLineColor(page, ".ai-run-pane__sidebar-toolbar")).toBe("rgba(0, 0, 0, 0)")
 })
