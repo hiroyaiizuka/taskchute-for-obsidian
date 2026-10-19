@@ -128,11 +128,16 @@ async function frame(page: Page, selector: string) {
   })
 }
 
-/** Whether the pane has the task list's frame: the same edges, line and corners. */
-async function framedLikeTaskList(page: Page) {
+/** The pane has the task list's frame: the same edges, line and corners. */
+async function expectFramedLikeTaskList(page: Page) {
   const pane = await frame(page, ".ai-run-pane")
-  const list = await frame(page, ".taskchute-view-root .task-list")
-  return pane.border === "1px 1px 1px 1px" && JSON.stringify(pane) === JSON.stringify(list)
+  expect(pane.border).toBe("1px 1px 1px 1px")
+  expect(pane).toEqual(await frame(page, ".taskchute-view-root .task-list"))
+}
+
+/** A row's bottom line color, to tell a drawn line from a transparent one. */
+async function bottomLineColor(page: Page, selector: string) {
+  return page.locator(selector).first().evaluate((el) => getComputedStyle(el).borderBottomColor)
 }
 
 // No title row: the pane's controls lie over the two ends of the terminal tab
@@ -170,10 +175,10 @@ test("the pane's controls share the tab row, the pane is framed like the task li
   expect(tabRow.top - pane.top).toBeLessThanOrEqual(1)
 
   // The task list's frame, at half height and full screen (⤢) alike.
-  expect(await framedLikeTaskList(page)).toBe(true)
+  await expectFramedLikeTaskList(page)
   await page.locator(".ai-run-pane__expand").click()
   await expect.poll(async () => (await layout(page)).dateRow).toBe(0)
-  expect(await framedLikeTaskList(page)).toBe(true)
+  await expectFramedLikeTaskList(page)
   await page.locator(".ai-run-pane__expand").click()
   await expect.poll(async () => (await layout(page)).dateRow).toBeGreaterThan(0)
 
@@ -202,17 +207,17 @@ test("the pane's controls share the tab row, the pane is framed like the task li
     (await box(page, ".ai-run-pane__expand")).left,
   )
 
-  // Collapsed: the tab row stays, still framed like the task list, and the
-  // terminal goes. The frame's bottom line closes the row; the row's own
-  // bottom line would be a second one on it.
+  // Collapsed, with the sidebar back: the tab row and the sidebar's toolbar
+  // stay, still framed like the task list, and the terminal goes. The frame's
+  // bottom line closes the row; the rows' own bottom lines would be a second
+  // one on it.
+  await page.locator(".ai-run-pane__sidebar-toggle").click()
+  await expect(page.locator(".ai-run-pane__sidebar")).toBeVisible()
   await page.locator(".ai-run-pane__collapse").click()
   await expect(page.locator(".ai-run-pane__panel .ai-run-pane__tabstrip").first()).toBeVisible()
+  await expect(page.locator(".ai-run-pane__sidebar-toolbar")).toBeVisible()
   await expect(page.locator(".ai-run-pane .xterm").first()).toBeHidden()
-  expect(await framedLikeTaskList(page)).toBe(true)
-  expect(
-    await page
-      .locator(".ai-run-pane__panel .ai-run-pane__tabstrip")
-      .first()
-      .evaluate((el) => getComputedStyle(el).borderBottomColor),
-  ).toBe("rgba(0, 0, 0, 0)")
+  await expectFramedLikeTaskList(page)
+  expect(await bottomLineColor(page, ".ai-run-pane__panel .ai-run-pane__tabstrip")).toBe("rgba(0, 0, 0, 0)")
+  expect(await bottomLineColor(page, ".ai-run-pane__sidebar-toolbar")).toBe("rgba(0, 0, 0, 0)")
 })

@@ -97,6 +97,24 @@ describe('style regressions', () => {
     expect(visiblePane).toMatch(/display:\s*flex;/)
   })
 
+  test('the AI pane keeps to the view padding and is framed like the task list', () => {
+    const css = styles()
+    // Inside the view's side padding, like the task list: no bleed past it.
+    expect(readRule(css, '.ai-pane-container {')).not.toMatch(/margin-(?:left|right):/)
+
+    // The task list's line and corners, with the corners clipping the fill.
+    const frame = /border:\s*1px solid var\(--background-modifier-border\);[\s\S]*border-radius:\s*var\(--tc-radius-sm\);/
+    expect(readRule(css, '.task-list {')).toMatch(frame)
+    const pane = readRule(css, '.ai-run-pane {')
+    expect(pane).toMatch(frame)
+    expect(pane).toMatch(/overflow:\s*hidden;/)
+  })
+
+  test("a running task's comment popover lists three one-line comments", () => {
+    const body = readRule(styles(), '.taskchute-task-comments-popover .taskchute-day-comments-window__body {')
+    expect(body).toMatch(/height:\s*calc\(var\(--tc-comment-row-height\) \* 3\);/)
+  })
+
   test('the AI pane splitter is a row-resize handle that hides while collapsed', () => {
     const css = styles()
     const resizer = readRule(css, '.ai-pane-resizer {')
