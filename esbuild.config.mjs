@@ -4,6 +4,7 @@ import fs from "fs";
 import path from "path";
 // Use Node's built-in modules list to avoid JSON import assertions incompatibility
 import { builtinModules as nodeBuiltinModules } from "module";
+import { execFileSync } from "child_process";
 
 const banner =
 `/*
@@ -35,6 +36,32 @@ const copyStaticAssets = {
 			for (const file of ["manifest.json", "styles.css"]) {
 				fs.copyFileSync(file, path.join(pluginDir, file));
 			}
+		});
+	},
+};
+
+// The build number shown after the version in settings, "2.2.16 (614)": the
+// number of commits in the history being built. It only ever goes up, and any
+// checkout of the same commit -- a laptop, CI, a release -- gets the same number
+// (the release workflow checks out with fetch-depth: 0 for that reason). It is
+// a virtual module rather than a `define` so `npm run dev` recomputes it on
+// every rebuild. Without git, or in a shallow clone, the number is 0.
+function git(args) {
+	try {
+		return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+	} catch {
+		return "";
+	}
+}
+
+const buildInfoModule = {
+	name: "build-info",
+	setup(build) {
+		build.onResolve({ filter: /^taskchute:build-info$/ }, (args) => ({ path: args.path, namespace: "build-info" }));
+		build.onLoad({ filter: /.*/, namespace: "build-info" }, () => {
+			const shallow = git(["rev-parse", "--is-shallow-repository"]) === "true";
+			const info = { number: shallow ? 0 : Number(git(["rev-list", "--count", "HEAD"])) || 0 };
+			return { contents: `export default ${JSON.stringify(info)};`, loader: "js" };
 		});
 	},
 };
@@ -74,7 +101,7 @@ const context = await esbuild.context({
 	sourcemap: (prod || pluginDir) ? false : "inline",
 	treeShaking: true,
 	outfile: pluginDir ? path.join(pluginDir, "main.js") : "main.js",
-	plugins: pluginDir ? [copyStaticAssets] : [],
+	plugins: pluginDir ? [buildInfoModule, copyStaticAssets] : [buildInfoModule],
 });
 
 if (prod) {

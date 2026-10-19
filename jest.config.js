@@ -9,6 +9,8 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@tests/(.*)$': '<rootDir>/tests/$1',
     '^obsidian$': '<rootDir>/__mocks__/obsidian.js',
+    // Filled in by esbuild at build time (esbuild.config.mjs); tests get a fixed one.
+    '^taskchute:build-info$': '<rootDir>/tests/setup/build-info-stub.js',
     // Real xterm probes canvas APIs jsdom lacks, and tests always mock the
     // TerminalViewAdapter anyway (never instantiate real xterm in jsdom).
     '^@xterm/xterm$': '<rootDir>/tests/setup/xterm-stub.js',
