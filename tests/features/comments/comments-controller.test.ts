@@ -171,6 +171,16 @@ describe('CommentsController', () => {
       expect(document.activeElement).toBe(dayInput())
     })
 
+    it('shows no key hint under the input; the keys still work (LEV-367)', async () => {
+      const { open, win, dayInput, store } = await setup()
+      open()
+      expect(win()!.querySelector('.taskchute-comment-hint')).toBeNull()
+      type(dayInput(), 'still added with Enter')
+      dayInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+      await flush()
+      expect(store.getComments({ dateKey: DATE }).map((c) => c.text)).toEqual(['still added with Enter'])
+    })
+
     it('on another day, says which day it shows and lists its comments without an input', async () => {
       const { store, open, win, day, dayTexts } = await setup()
       await store.ensure(OTHER_DATE)

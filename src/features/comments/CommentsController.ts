@@ -183,7 +183,10 @@ export class CommentsController {
     return `${DAY}:${this.host.getDateKey()}`
   }
 
-  /** The window's input: always open, Enter adds (a phone has no Shift, so there the button adds). */
+  /**
+   * The window's input: always open. Enter adds, Shift+Enter is a new line,
+   * Esc closes (a phone has no Shift, so there Enter is a new line and the button adds).
+   */
   private dayComposer(phone: boolean): HTMLElement {
     const draftKey = this.dayDraftKey()
     const wrapper = createDiv({ cls: 'taskchute-day-comments-window__input' })
@@ -200,9 +203,8 @@ export class CommentsController {
     })
     const add = box.createEl('button', { cls: 'mod-cta taskchute-comment-composer__add', text: this.host.tv('comments.add', 'Add') })
     add.addEventListener('click', () => void this.submitDay(textarea.value))
-    if (!phone) {
-      wrapper.createDiv({ cls: 'taskchute-comment-hint', text: this.host.tv('comments.dayHint', 'Enter to add · Shift+Enter for a new line · Esc to close') })
-    }
+    // No key hint under the input: it showed every time the window opened,
+    // which is noise for something written many times a day (LEV-367).
     return wrapper
   }
 

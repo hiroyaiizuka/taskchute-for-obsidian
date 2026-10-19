@@ -509,7 +509,6 @@ export const en = {
       otherDayTitle: "Comments for {date}",
       count: "{count} comments",
       dayEmpty: "No comments for this day yet",
-      dayHint: "Enter to add · Shift+Enter for a new line · Esc to close",
       closeDay: "Close the comments",
       deleteLabel: "Delete this comment",
       onlyToday: "Comments can be added only for today.",
