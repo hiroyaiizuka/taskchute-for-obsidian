@@ -266,10 +266,10 @@ test("a running task's 💬 opens a popover under it that moves no row", async (
   await expect(popover).toHaveCount(0)
 })
 
-// The popover's list has one size from the start, five one-line comments:
-// adding never moves its edge or its input, the sixth and older are a scroll
+// The popover's list has one size from the start, three one-line comments:
+// adding never moves its edge or its input, the fourth and older are a scroll
 // away, and each add keeps the newest in view.
-test("a running task's popover keeps its size: five comments fit, the sixth scrolls", async ({ obsidian }) => {
+test("a running task's popover keeps its size: three comments fit, the fourth scrolls", async ({ obsidian }) => {
   const { page } = obsidian
   const taskPath = await createTask(page, "Write report")
   await openTaskChute(page)
@@ -292,11 +292,11 @@ test("a running task's popover keeps its size: five comments fit, the sixth scro
   const empty = await box()
   expect(empty.scrolls).toBe(false)
 
-  for (let i = 1; i <= 6; i += 1) {
+  for (let i = 1; i <= 4; i += 1) {
     await input.fill(`Note ${i}`)
     await input.press("Enter")
     await expect(popover.locator(".taskchute-comment-text")).toHaveCount(i)
-    await expect.poll(box).toEqual({ height: empty.height, scrolls: i > 5, atEnd: true })
+    await expect.poll(box).toEqual({ height: empty.height, scrolls: i > 3, atEnd: true })
   }
   await expect(input).toBeFocused()
 })

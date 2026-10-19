@@ -9203,9 +9203,9 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   transform: rotate(45deg);
 }
 
-/* The list keeps one height from the moment it opens -- five one-line
+/* The list keeps one height from the moment it opens -- three one-line
    comments -- so adding never moves the popover's edge or its input. Comments
-   run from the top, each new one under the last; from the sixth on, the
+   run from the top, each new one under the last; from the fourth on, the
    older ones are a scroll away and the newest is kept in view. A row is its
    text line, or the delete button's 20px when that is taller, plus 3px above
    and below. */
@@ -9214,7 +9214,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
   box-sizing: content-box;
   flex: none;
-  height: calc(var(--tc-comment-row-height) * 5);
+  height: calc(var(--tc-comment-row-height) * 3);
   min-height: 0;
 }
 
