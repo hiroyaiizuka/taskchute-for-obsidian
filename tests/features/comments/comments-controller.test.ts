@@ -77,7 +77,6 @@ async function setup(initial: DayState = emptyDay()) {
     isNarrow: () => narrow.value,
     isPhone: () => phone.value,
     isDayCommentsEnabled: () => dayEnabled.value,
-    registerInterval: () => undefined,
     registerCleanup: () => undefined,
   }
   controller = new CommentsController(host)
@@ -86,13 +85,13 @@ async function setup(initial: DayState = emptyDay()) {
   const button = () => area.querySelector<HTMLButtonElement>('.taskchute-day-comments-button')!
   const win = () => root.querySelector<HTMLElement>('.taskchute-day-comments-window')
   const dayInput = () => win()!.querySelector<HTMLTextAreaElement>('.taskchute-day-comments-window__input textarea')!
-  const badge = () => button().querySelector('.taskchute-day-comments-button__count')?.textContent ?? null
+  const dayCount = () => win()?.querySelector('.taskchute-day-comments-window__count')?.textContent ?? null
   const dayTexts = () => Array.from(win()?.querySelectorAll('.taskchute-comment-text') ?? []).map((n) => n.textContent)
   const open = () => {
     button().click()
     rerender()
   }
-  return { controller, store, root, area, list, instances, rerender, narrow, phone, dayEnabled, day, button, win, dayInput, badge, dayTexts, open }
+  return { controller, store, root, area, list, instances, rerender, narrow, phone, dayEnabled, day, button, win, dayInput, dayCount, dayTexts, open }
 }
 
 const flush = async () => {
@@ -118,24 +117,25 @@ describe('CommentsController', () => {
   })
 
   describe("the day's button", () => {
-    it('sits over the task list with no badge on a day without comments', async () => {
-      const { button, badge, win } = await setup()
+    it('sits over the task list, closed', async () => {
+      const { button, win } = await setup()
       expect(button().hidden).toBe(false)
-      expect(badge()).toBeNull()
       expect(win()).toBeNull()
     })
 
-    it("carries the day's count, and follows the day the view shows", async () => {
-      const { store, controller, badge, day } = await setup()
+    it("carries no count; the window counts the day the view shows", async () => {
+      const { store, controller, button, day, open, dayCount } = await setup()
       await store.addCommentTo(DATE, { text: 'one' })
       await store.addCommentTo(DATE, { text: 'two' })
       controller.renderDay()
-      expect(badge()).toBe('2')
+      expect(button().textContent).toBe('')
+      open()
+      expect(dayCount()).toBe('2 comments')
 
       await store.ensure(OTHER_DATE)
       day.key = OTHER_DATE
       controller.renderDay()
-      expect(badge()).toBeNull()
+      expect(dayCount()).toBeNull()
     })
 
     it('is not drawn when the setting is off, and the window closes', async () => {
@@ -202,7 +202,7 @@ describe('CommentsController', () => {
     })
 
     it('adds with Enter, stays open, and the count follows', async () => {
-      const { store, open, dayInput, win, badge } = await setup()
+      const { store, open, dayInput, win, dayCount } = await setup()
       open()
       type(dayInput(), 'remember the meeting')
       dayInput().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
@@ -210,10 +210,7 @@ describe('CommentsController', () => {
       expect(store.getComments({ dateKey: DATE }).map((c) => c.text)).toEqual(['remember the meeting'])
       expect(win()).not.toBeNull()
       expect(dayInput().value).toBe('')
-      expect(win()!.querySelector('.taskchute-day-comments-window__count')?.textContent).toBe('1 comments')
-      // The button shows × while open; the count is back once closed.
-      win()!.querySelector<HTMLButtonElement>('.taskchute-day-comments-window__close')!.click()
-      expect(badge()).toBe('1')
+      expect(dayCount()).toBe('1 comments')
     })
 
     it('keeps a comment sent past midnight on the new day, and says so', async () => {
@@ -302,7 +299,7 @@ describe('CommentsController', () => {
     })
 
     it('deletes from the × at once and brings it back from the undo notice', async () => {
-      const { store, open, win, badge, button, dayTexts } = await setup()
+      const { store, open, win, dayTexts } = await setup()
       await store.addCommentTo(DATE, { text: 'oops' })
       open()
       win()!.querySelector<HTMLButtonElement>('.taskchute-comment-delete')!.click()
@@ -311,8 +308,7 @@ describe('CommentsController', () => {
       const fragment = (Notice as unknown as jest.Mock).mock.calls.at(-1)[0] as DocumentFragment
       fragment.querySelector<HTMLButtonElement>('.taskchute-undo-notice__button')!.click()
       expect(store.getComments({ dateKey: DATE }).map((c) => c.text)).toEqual(['oops'])
-      button().click()
-      expect(badge()).toBe('1')
+      expect(dayTexts()).toEqual(['oops'])
     })
 
     it("deletes a past day's comment too", async () => {
@@ -373,7 +369,7 @@ describe('CommentsController', () => {
       const { controller, instances, list, win } = await setup()
       instances.push(instance({ instanceId: 'i-1' }))
       controller.leaveComment()
-      expect(list.querySelector('.taskchute-task-comments textarea')).not.toBeNull()
+      expect(list.querySelector('.taskchute-task-comments-popover textarea')).not.toBeNull()
       expect(win()).toBeNull()
     })
 
@@ -407,22 +403,27 @@ describe('CommentsController', () => {
       expect(controller.commentButton(instance({ instanceId: 'i-2', state: 'done' }))).toBeNull()
     })
 
-    it("opens the panel under the row and keeps the day's comments apart", async () => {
-      const { controller, store, instances, list, badge } = await setup()
+    it("opens a popover under the row's 💬, titled with the task, and keeps the day's comments apart", async () => {
+      const { controller, store, instances, list, open, dayTexts, win } = await setup()
       const running = instance({ instanceId: 'i-1' })
       instances.push(running)
       await store.addCommentTo(DATE, { text: 'on the day' })
       await store.addCommentTo(DATE, { text: 'on the task', instanceId: 'i-1' })
       controller.togglePanel(running)
       expect(controller.commentButton(running)?.open).toBe(true)
-      const panel = list.querySelector('.taskchute-task-comments')!
-      expect(panel.textContent).toContain('on the task')
-      expect(panel.textContent).not.toContain('on the day')
-      // The day's count is the day's own comments; a task's stay on its row.
-      expect(badge()).toBe('1')
+      const popover = list.querySelector('.taskchute-task-comments-anchor > .taskchute-task-comments-popover')!
+      expect(popover.querySelector('.taskchute-day-comments-window__title-text')?.textContent).toBe('Write the plan')
+      expect(popover.querySelector('.taskchute-day-comments-window__count')?.textContent).toBe('1 comments')
+      expect(popover.textContent).toContain('on the task')
+      expect(popover.textContent).not.toContain('on the day')
+      // Not the day's window, though it is dressed like it.
+      expect(win()).toBeNull()
+      // The day's window holds the day's own comments; a task's stay with its row.
+      open()
+      expect(dayTexts()).toEqual(['on the day'])
     })
 
-    it('shows three comments first, then a button for the rest', async () => {
+    it('lists every comment oldest first, the newest just above the input', async () => {
       const { controller, store, instances, list } = await setup()
       const running = instance({ instanceId: 'i-1' })
       instances.push(running)
@@ -431,12 +432,11 @@ describe('CommentsController', () => {
         jest.advanceTimersByTime(60_000)
       }
       controller.togglePanel(running)
-      const panel = () => list.querySelector('.taskchute-task-comments')!
-      expect(panel().querySelectorAll('.taskchute-comment-list > li')).toHaveLength(3)
-      const toggle = panel().querySelector<HTMLButtonElement>('.taskchute-comment-toggle')!
-      expect(toggle.textContent).toBe('Show more (2)')
-      toggle.click()
-      expect(panel().querySelectorAll('.taskchute-comment-list > li')).toHaveLength(5)
+      const popover = list.querySelector('.taskchute-task-comments-popover')!
+      const texts = Array.from(popover.querySelectorAll('.taskchute-comment-text')).map((n) => n.textContent)
+      expect(texts).toEqual(['c1', 'c2', 'c3', 'c4', 'c5'])
+      expect(popover.querySelector('.taskchute-comment-toggle')).toBeNull()
+      expect(popover.lastElementChild?.classList.contains('taskchute-day-comments-window__composer')).toBe(true)
     })
 
     it('still takes comments when the setting for the day is off', async () => {
@@ -445,77 +445,128 @@ describe('CommentsController', () => {
       const running = instance({ instanceId: 'i-1' })
       instances.push(running)
       controller.togglePanel(running)
-      expect(list.querySelector('.taskchute-task-comments textarea')).not.toBeNull()
+      expect(list.querySelector('.taskchute-task-comments-popover textarea')).not.toBeNull()
     })
   })
 
-  describe("Esc in a task's input", () => {
-    const openPanel = async () => {
+  describe("a running task's popover", () => {
+    const openPopover = async () => {
       const ctx = await setup()
       const running = instance({ instanceId: 'i-1' })
       ctx.instances.push(running)
       ctx.controller.togglePanel(running)
       await flush()
-      const opened = () => ctx.list.querySelector<HTMLTextAreaElement>('.taskchute-comment-composer.is-open textarea')
-      return { ...ctx, opened }
+      const popover = () => ctx.list.querySelector<HTMLElement>('.taskchute-task-comments-popover')
+      const input = () => popover()!.querySelector<HTMLTextAreaElement>('textarea')!
+      const texts = () => Array.from(popover()?.querySelectorAll('.taskchute-comment-text') ?? []).map((n) => n.textContent)
+      return { ...ctx, running, popover, input, texts }
     }
 
-    it('leaves an empty input, which then closes', async () => {
-      const { opened, list } = await openPanel()
-      const input = opened()!
-      input.focus()
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-      expect(document.activeElement).not.toBe(input)
-      jest.advanceTimersByTime(200)
-      expect(list.querySelector('.taskchute-comment-composer.is-open')).toBeNull()
+    it('opens with its input focused, open from the start: nothing grows on focus', async () => {
+      const { input, popover } = await openPopover()
+      expect(document.activeElement).toBe(input())
+      expect(popover()!.querySelector('.taskchute-day-comments-window__composer textarea')).toBe(input())
     })
 
-    it('asks before throwing away unsaved text, and keeps it on cancel', async () => {
-      const { opened, list } = await openPanel()
-      const input = opened()!
-      input.focus()
-      type(input, 'half written')
-      ;(showConfirmModal as jest.Mock).mockResolvedValue(false)
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-      jest.advanceTimersByTime(200)
+    it('adds with Enter to the bottom of the list, and stays open with the input cleared and focused', async () => {
+      const { input, texts, popover } = await openPopover()
+      type(input(), 'first')
+      input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
       await flush()
-      expect(showConfirmModal).toHaveBeenCalledTimes(1)
-      expect(list.querySelector<HTMLTextAreaElement>('.taskchute-task-comments textarea')!.value).toBe('half written')
+      jest.advanceTimersByTime(60_000)
+      type(input(), 'second')
+      input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+      await flush()
+      expect(texts()).toEqual(['first', 'second'])
+      expect(popover()!.querySelector('.taskchute-day-comments-window__count')?.textContent).toBe('2 comments')
+      expect(input().value).toBe('')
+      expect(document.activeElement).toBe(input())
     })
-  })
 
-  describe('only one input open at a time', () => {
-    const twoRunning = async () => {
-      const ctx = await setup()
-      const first = instance({ instanceId: 'i-1' })
+    it('closes from ×, Esc and the 💬, keeping an unsent draft for next time without asking', async () => {
+      const { controller, running, popover, input } = await openPopover()
+      type(input(), 'half written')
+      popover()!.querySelector<HTMLButtonElement>('.taskchute-day-comments-window__close')!.click()
+      expect(popover()).toBeNull()
+      expect(controller.commentButton(running)?.open).toBe(false)
+
+      controller.togglePanel(running)
+      await flush()
+      expect(input().value).toBe('half written')
+      input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      expect(popover()).toBeNull()
+
+      controller.togglePanel(running)
+      await flush()
+      controller.togglePanel(running)
+      expect(popover()).toBeNull()
+      expect(showConfirmModal).not.toHaveBeenCalled()
+    })
+
+    it("gives the focus back to the row's 💬 when it closes", async () => {
+      const { root, popover } = await openPopover()
+      const button = root.createDiv({ cls: 'task-item', attr: { 'data-instance-id': 'i-1' } }).createEl('button', { cls: 'comment-button' })
+      popover()!.querySelector<HTMLButtonElement>('.taskchute-day-comments-window__close')!.click()
+      expect(document.activeElement).toBe(button)
+    })
+
+    it('stays closed after its task stops, even when the task runs again', async () => {
+      const { controller, running, popover, rerender } = await openPopover()
+      running.state = 'done'
+      rerender()
+      expect(popover()).toBeNull()
+      running.state = 'running'
+      rerender()
+      expect(popover()).toBeNull()
+      expect(controller.commentButton(running)?.open).toBe(false)
+    })
+
+    it('adds once when Enter is pressed again before the first add is saved', async () => {
+      const { store, input } = await openPopover()
+      type(input(), 'only once')
+      input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+      input().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+      await flush()
+      expect(store.getComments({ instanceId: 'i-1', dateKey: DATE }).map((c) => c.text)).toEqual(['only once'])
+    })
+
+    it("moves to another task's 💬, each task keeping its own draft", async () => {
+      const { controller, instances, running, input, list } = await openPopover()
       const second = instance({ instanceId: 'i-2' })
-      ctx.instances.push(first, second)
-      ctx.controller.togglePanel(first)
-      return { ...ctx, first, second }
-    }
-
-    it("closes a task's empty input when another task's opens", async () => {
-      const { controller, list, second } = await twoRunning()
-      expect(list.querySelectorAll('.taskchute-comment-composer.is-open')).toHaveLength(1)
+      instances.push(second)
+      type(input(), 'for the first')
       controller.togglePanel(second)
-      expect(list.querySelectorAll('.taskchute-task-comments')).toHaveLength(1)
+      await flush()
       expect(controller.commentButton(second)?.open).toBe(true)
-    })
-
-    it('asks before discarding unsaved text, and keeps it on cancel', async () => {
-      const { controller, list, first, second } = await twoRunning()
-      type(list.querySelector<HTMLTextAreaElement>('.taskchute-task-comments textarea')!, 'half written')
-      ;(showConfirmModal as jest.Mock).mockResolvedValue(false)
-      controller.togglePanel(second)
+      expect(list.querySelectorAll('.taskchute-task-comments-popover')).toHaveLength(1)
+      expect(input().value).toBe('')
+      controller.togglePanel(running)
       await flush()
-      expect(showConfirmModal).toHaveBeenCalledTimes(1)
-      controller.togglePanel(first)
-      await flush()
-      expect(list.querySelector<HTMLTextAreaElement>('.taskchute-task-comments textarea')!.value).toBe('half written')
+      expect(input().value).toBe('for the first')
     })
   })
 
   describe('a narrow view (a phone, or a narrow pane)', () => {
+    it("opens a panel under the row instead, newest first: three, then a button for the rest", async () => {
+      const { controller, store, instances, list, narrow } = await setup()
+      narrow.value = true
+      const running = instance({ instanceId: 'i-1' })
+      instances.push(running)
+      for (let i = 1; i <= 5; i += 1) {
+        await store.addCommentTo(DATE, { text: `c${i}`, instanceId: 'i-1' })
+        jest.advanceTimersByTime(60_000)
+      }
+      controller.togglePanel(running)
+      expect(list.querySelector('.taskchute-task-comments-popover')).toBeNull()
+      const panel = () => list.querySelector('.taskchute-task-comments')!
+      const texts = () => Array.from(panel().querySelectorAll('.taskchute-comment-text')).map((n) => n.textContent)
+      expect(texts()).toEqual(['c5', 'c4', 'c3'])
+      const toggle = panel().querySelector<HTMLButtonElement>('.taskchute-comment-toggle')!
+      expect(toggle.textContent).toBe('Show more (2)')
+      toggle.click()
+      expect(texts()).toHaveLength(5)
+    })
+
     it("makes a task's input a tap target that opens a modal for adding", async () => {
       const { controller, instances, list, store, narrow } = await setup()
       narrow.value = true

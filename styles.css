@@ -3614,6 +3614,19 @@ body.is-phone .taskchute-modal .modal-button-container {
   color: var(--text-normal);
 }
 
+/* Flat until the pointer is on it. Obsidian's `button:not(.clickable-icon)`
+   (0,1,1) fills every button with `--interactive-normal` and adds
+   `--input-shadow` (none in the default theme, a drop shadow in others),
+   which the single-class `background: none` above cannot take back, so every
+   running row's 💬 sat raised before anything was hovered. Restated deeper
+   (0,4,0); the hover rules above then fill the button again, and the open
+   popover's outline and the keyboard focus ring (a box-shadow on
+   `button:focus-visible`) are left alone. */
+.taskchute-view-root .task-item .comment-button:not(:hover, :focus-visible, .is-open) {
+  background: transparent;
+  box-shadow: none;
+}
+
 /* コメントボタンの無効化スタイル - スペースは維持して非表示 */
 .comment-button.disabled {
   visibility: hidden;
@@ -3642,8 +3655,9 @@ body.is-phone .taskchute-modal .modal-button-container {
   visibility: visible;
 }
 
-/* With a mouse, an empty 💬 waits for the pointer on its row, like the rest of
-   the row's controls: always shown, it reads the same as one with comments
+/* With a mouse, an empty 💬 -- a done task's, or a running task's before its
+   first comment -- waits for the pointer on its row, like the rest of the
+   row's controls: always shown, it reads the same as one with comments
    (LEV-366). The space stays, so the row does not shift. A touch screen has no
    hover to fade it in from: see the `hover: none` block below. */
 @media (hover: hover) {
@@ -8874,7 +8888,8 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
    Comments while working (issue 181)
    The day's comments sit behind a button at the bottom right of the task
    list (LEV-346), opening a window there (a drawer on a phone); a running
-   task's comments open in a panel under its row.
+   task's comments open in a popover under its row's 💬 that is laid out
+   like that window (a panel under the row on a narrow view).
    =========================================== */
 
 /* The task list's frame. The list scrolls inside it; the frame does not, so
@@ -8896,7 +8911,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 .taskchute-view-root .taskchute-day-comments-button {
   position: absolute;
   right: 16px;
-  bottom: 16px;
+  bottom: 11px;
   z-index: 20;
   width: 48px;
   height: 48px;
@@ -8935,32 +8950,6 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   --icon-stroke: 2px;
 }
 
-.taskchute-day-comments-button__count {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: 10px;
-  background: var(--background-primary);
-  color: var(--text-accent);
-  box-shadow: 0 0 0 1.5px var(--interactive-accent), var(--shadow-s);
-  font-size: var(--font-ui-smaller);
-  font-weight: var(--font-semibold);
-  line-height: 20px;
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.taskchute-day-comments-button__count.is-bumped {
-  animation: tc-day-comments-bump 0.35s ease;
-}
-
-@keyframes tc-day-comments-bump {
-  40% { transform: scale(1.3); }
-}
-
 .is-phone .taskchute-view-root .taskchute-day-comments-button {
   width: 54px;
   height: 54px;
@@ -8970,7 +8959,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 .taskchute-day-comments-window {
   position: absolute;
   right: 16px;
-  bottom: 76px;
+  bottom: 71px;
   z-index: 25;
   width: min(360px, calc(100% - 32px));
   max-height: min(560px, calc(100% - 96px));
@@ -9122,15 +9111,82 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   font-size: 16px;
 }
 
+/* --- a running task's comments: a popover under its row's 💬 --- */
+
+/* Placed right after the row with no height of its own, so opening the
+   popover moves no row; the popover scrolls with the list like the row. */
+.taskchute-task-comments-anchor {
+  position: relative;
+  z-index: 15;
+  flex: none;
+  height: 0;
+}
+
+/* Dressed like the day's window, whose parts it shares inside, but hung
+   under the 💬. Its right edge and point follow the 💬 (set from the script
+   once it is laid out); the defaults are where the 💬 sits on a desktop row. */
+.taskchute-task-comments-popover {
+  position: absolute;
+  top: 8px;
+  right: var(--tc-comments-popover-right, 88px);
+  width: min(360px, calc(100% - 32px));
+  display: flex;
+  flex-direction: column;
+  background: var(--modal-background, var(--background-primary));
+  border: var(--modal-border-width, 1px) solid var(--modal-border-color, var(--background-modifier-border));
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-l);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  transform-origin: calc(100% - var(--tc-comments-caret-right, 32px)) 0;
+}
+
+.taskchute-task-comments-popover.is-entering {
+  animation: tc-task-comments-pop 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes tc-task-comments-pop {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+}
+
+/* The point, toward the 💬. */
+.taskchute-task-comments-popover::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  right: calc(var(--tc-comments-caret-right, 32px) - 6px);
+  width: 12px;
+  height: 12px;
+  background: var(--modal-background, var(--background-primary));
+  border-top: var(--modal-border-width, 1px) solid var(--modal-border-color, var(--background-modifier-border));
+  border-left: var(--modal-border-width, 1px) solid var(--modal-border-color, var(--background-modifier-border));
+  transform: rotate(45deg);
+}
+
+/* The list keeps one height from the moment it opens -- five one-line
+   comments -- so adding never moves the popover's edge or its input. Comments
+   run from the top, each new one under the last; from the sixth on, the
+   older ones are a scroll away and the newest is kept in view. A row is its
+   text line, or the delete button's 20px when that is taller, plus 3px above
+   and below. */
+.taskchute-task-comments-popover .taskchute-day-comments-window__body {
+  --tc-comment-row-height: calc(max(var(--font-ui-small) * 1.5, 20px) + 6px);
+
+  box-sizing: content-box;
+  flex: none;
+  height: calc(var(--tc-comment-row-height) * 5);
+  min-height: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .taskchute-day-comments-window,
   .taskchute-day-comments-window.is-drawer,
-  .taskchute-day-comments-button__count.is-bumped {
+  .taskchute-task-comments-popover.is-entering {
     animation: none;
   }
 }
 
-/* --- the input: one line, opening like X's composer when focused --- */
+/* --- the input: under a window's list, growing with its text --- */
 .taskchute-comment-composer {
   display: flex;
   align-items: flex-start;
@@ -9163,65 +9219,6 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
 .taskchute-comment-composer__add {
   flex: none;
-}
-
-.taskchute-comment-composer.is-open {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-  padding: 10px 14px;
-  border: 1px solid var(--interactive-accent);
-  border-radius: var(--radius-m);
-  background: var(--background-primary);
-}
-
-.taskchute-comment-composer.is-open .taskchute-comment-input {
-  min-height: 72px;
-  padding: 2px 0;
-  border: 0;
-  box-shadow: none;
-  background: transparent;
-  font-size: var(--font-ui-medium);
-}
-
-/* The time a comment gets: above its text, so the text has the full width. */
-.taskchute-comment-composer__body {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.taskchute-comment-composer__now {
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Hint on the left, buttons on the right; on a narrow width the hint keeps one
-   line above the buttons instead of folding letter by letter. */
-.taskchute-comment-composer__foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px 8px;
-  margin-top: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--background-modifier-border);
-}
-
-.taskchute-comment-hint {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-faint);
-  font-size: var(--font-ui-smaller);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.taskchute-comment-composer__foot .taskchute-comment-composer__add {
-  margin-left: auto;
 }
 
 /* Phones: the input is a tap target that opens a modal. */
@@ -9337,7 +9334,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   font-size: var(--font-ui-smaller);
 }
 
-/* --- a running task's panel, under its row: told apart by its background --- */
+/* --- a narrow view: a running task's panel, under its row, told apart by its background --- */
 .taskchute-task-comments {
   padding: 8px 12px 10px 56px;
   border-bottom: 1px solid var(--background-modifier-border);
@@ -9354,17 +9351,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   }
 }
 
-/* The running row's 💬 with its count. */
-.comment-button--running {
-  gap: 3px;
-  opacity: 0.8;
-}
-
-.comment-button__count {
-  font-size: var(--font-ui-smaller);
-  font-variant-numeric: tabular-nums;
-}
-
+/* The running row's 💬 while its panel is open. */
 .comment-button--running.is-open {
   opacity: 1;
   background: var(--background-modifier-hover);

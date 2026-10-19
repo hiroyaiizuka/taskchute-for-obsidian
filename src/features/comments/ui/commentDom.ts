@@ -3,8 +3,6 @@ import type { DayComment } from '@/types'
 
 /** Attribute naming the textareas that keep focus across a re-render. */
 export const FOCUS_ATTR = 'data-tc-comment-focus'
-/** Attribute on the clocks inside an open input, kept current by a ticker. */
-export const NOW_ATTR = 'data-tc-comment-now'
 
 export function formatCommentTime(at: number): string {
   const date = new Date(at)

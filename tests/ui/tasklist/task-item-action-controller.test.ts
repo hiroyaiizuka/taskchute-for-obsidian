@@ -181,6 +181,33 @@ describe('TaskItemActionController', () => {
     expect(host.showTaskCompletionModal).not.toHaveBeenCalled()
   })
 
+  test("a running task's 💬 carries no count, and is an empty one until the first comment", () => {
+    const render = (state: { count: number; open: boolean }) => {
+      const container = document.createElement('div')
+      const { host } = createHost({ getRunningComments: () => state, toggleRunningComments: jest.fn() })
+      const inst = createInstance({ state: 'running' })
+      new TaskItemActionController(host).renderCommentButton(container, inst)
+      const button = container.querySelector('.comment-button--running') as HTMLButtonElement
+      return { button, host, inst }
+    }
+
+    const withComments = render({ count: 2, open: false })
+    expect(withComments.button.textContent).toBe('💬')
+    expect(withComments.button.classList.contains('active')).toBe(true)
+    expect(withComments.button.classList.contains('no-comment')).toBe(false)
+    withComments.button.click()
+    expect(withComments.host.toggleRunningComments).toHaveBeenCalledWith(withComments.inst)
+
+    const empty = render({ count: 0, open: false })
+    expect(empty.button.classList.contains('no-comment')).toBe(true)
+    expect(empty.button.classList.contains('active')).toBe(false)
+
+    // Its panel open, the 💬 is what closes it: never an empty one then.
+    const open = render({ count: 0, open: true })
+    expect(open.button.classList.contains('no-comment')).toBe(false)
+    expect(open.button.classList.contains('is-open')).toBe(true)
+  })
+
   test('renderRoutineButton toggles depending on routine flag', async () => {
     jest.useFakeTimers()
     const container = document.createElement('div')

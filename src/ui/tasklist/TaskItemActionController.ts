@@ -170,7 +170,11 @@ export class TaskItemActionController {
     })
   }
 
-  /** A running task's 💬: the number of its comments, and it opens the panel under the row. */
+  /**
+   * A running task's 💬, which opens its comments. Until the first comment it
+   * is an empty 💬 like a done task's (`no-comment`): with a mouse it waits
+   * for the pointer, so a shown 💬 means the task has comments.
+   */
   private renderRunningCommentButton(
     taskItem: HTMLElement,
     inst: TaskInstance,
@@ -185,10 +189,8 @@ export class TaskItemActionController {
       },
     })
     button.createSpan({ text: '💬' })
-    if (state.count > 0) {
-      button.createSpan({ cls: 'comment-button__count', text: String(state.count) })
-      button.classList.add('active')
-    }
+    if (state.count > 0) button.classList.add('active')
+    else if (!state.open) button.classList.add('no-comment')
     if (state.open) button.classList.add('is-open')
     this.registerTapEvent(button, (event) => {
       event.stopPropagation()
