@@ -344,13 +344,13 @@ const TERMINAL_CELL_HEIGHT_PX = 17
 const TERMINAL_HORIZONTAL_INSET_PX = 16
 /**
  * What the pane's share of the view spends above one panel's terminal body
- * when deriving its height: the splitter (6px), the pane's top border (1px)
- * and the tab row (25px, its border included), which the pane's own
- * controls sit on rather than adding a row of their own, plus slack —
- * mirrors styles.css. The composer is hidden for terminal runs, so it is not
- * part of this allowance.
+ * when deriving its height: the splitter (6px), the pane's top and bottom
+ * borders (1px each) and the tab row (25px, its border included), which the
+ * pane's own controls sit on rather than adding a row of their own, plus
+ * slack — mirrors styles.css. The composer is hidden for terminal runs, so it
+ * is not part of this allowance.
  */
-const TERMINAL_VERTICAL_INSET_PX = 34
+const TERMINAL_VERTICAL_INSET_PX = 35
 /**
  * Fixed width of the run sidebar (styles.css .ai-run-pane__sidebar). The
  * sidebar lives INSIDE the measured host container but not inside the

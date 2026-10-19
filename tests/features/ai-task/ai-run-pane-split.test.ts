@@ -447,10 +447,10 @@ describe('AiRunPaneController split panels', () => {
       setParentHeight(500)
 
       // cols: (1000 total - 180 sidebar - 16 horizontal inset) / 8 px cells
-      // rows: (500 * 0.5 pane share - 34 vertical chrome) / 17 px cells —
-      // the vertical inset covers the splitter (6px), the pane's top border
-      // and the tab row (25px incl. border), which the pane's own controls
-      // share.
+      // rows: (500 * 0.5 pane share - 35 vertical chrome) / 17 px cells —
+      // the vertical inset covers the splitter (6px), the pane's top and
+      // bottom borders and the tab row (25px incl. border), which the pane's
+      // own controls share.
       expect(controller.computeTerminalSize()).toEqual({ cols: 100, rows: 12 })
     })
 

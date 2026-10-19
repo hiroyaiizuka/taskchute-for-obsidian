@@ -114,18 +114,33 @@ async function box(page: Page, selector: string) {
   })
 }
 
-/** Whether the pane's left and right edges are the task list frame's. */
-async function alignedWithTaskList(page: Page) {
-  const pane = await box(page, ".ai-run-pane")
-  const list = await box(page, ".taskchute-view-root .task-list")
-  return pane.left === list.left && pane.right === list.right
+/** An element's left and right edges, its four border widths and its corners. */
+async function frame(page: Page, selector: string) {
+  return page.locator(selector).first().evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    const s = getComputedStyle(el)
+    return {
+      left: Math.round(r.left),
+      right: Math.round(r.right),
+      border: [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth].join(" "),
+      radius: s.borderRadius,
+    }
+  })
+}
+
+/** Whether the pane has the task list's frame: the same edges, line and corners. */
+async function framedLikeTaskList(page: Page) {
+  const pane = await frame(page, ".ai-run-pane")
+  const list = await frame(page, ".taskchute-view-root .task-list")
+  return pane.border === "1px 1px 1px 1px" && JSON.stringify(pane) === JSON.stringify(list)
 }
 
 // No title row: the pane's controls lie over the two ends of the terminal tab
-// row. No frame either, but the pane keeps to the view's side padding like the
-// task list above it, and the sidebar hides outright from a toggle on that
-// row. Collapsed, the tab row stays and the terminal goes.
-test("the pane's controls share the tab row, the pane lines up with the task list, and the sidebar hides outright", async ({ obsidian, home }, testInfo) => {
+// row. The pane is framed like the task list above it -- the same edges, line
+// and corners -- and the sidebar hides outright from a toggle on that row.
+// Collapsed, the tab row stays, closed by the frame's line alone, and the
+// terminal goes.
+test("the pane's controls share the tab row, the pane is framed like the task list, and the sidebar hides outright", async ({ obsidian, home }, testInfo) => {
   const { page } = obsidian
   const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
   await enableAiTasks(page, prepare(home!, vault, testInfo.outputPath("bin")))
@@ -154,11 +169,11 @@ test("the pane's controls share the tab row, the pane lines up with the task lis
   expect((await box(page, ".ai-run-pane__header")).top).toBe(tabRow.top)
   expect(tabRow.top - pane.top).toBeLessThanOrEqual(1)
 
-  // The task list frame's edges, at half height and full screen (⤢) alike.
-  expect(await alignedWithTaskList(page)).toBe(true)
+  // The task list's frame, at half height and full screen (⤢) alike.
+  expect(await framedLikeTaskList(page)).toBe(true)
   await page.locator(".ai-run-pane__expand").click()
   await expect.poll(async () => (await layout(page)).dateRow).toBe(0)
-  expect(await alignedWithTaskList(page)).toBe(true)
+  expect(await framedLikeTaskList(page)).toBe(true)
   await page.locator(".ai-run-pane__expand").click()
   await expect.poll(async () => (await layout(page)).dateRow).toBeGreaterThan(0)
 
@@ -187,10 +202,17 @@ test("the pane's controls share the tab row, the pane lines up with the task lis
     (await box(page, ".ai-run-pane__expand")).left,
   )
 
-  // Collapsed: the tab row stays, still under the task list's edges, and the
-  // terminal goes.
+  // Collapsed: the tab row stays, still framed like the task list, and the
+  // terminal goes. The frame's bottom line closes the row; the row's own
+  // bottom line would be a second one on it.
   await page.locator(".ai-run-pane__collapse").click()
   await expect(page.locator(".ai-run-pane__panel .ai-run-pane__tabstrip").first()).toBeVisible()
   await expect(page.locator(".ai-run-pane .xterm").first()).toBeHidden()
-  expect(await alignedWithTaskList(page)).toBe(true)
+  expect(await framedLikeTaskList(page)).toBe(true)
+  expect(
+    await page
+      .locator(".ai-run-pane__panel .ai-run-pane__tabstrip")
+      .first()
+      .evaluate((el) => getComputedStyle(el).borderBottomColor),
+  ).toBe("rgba(0, 0, 0, 0)")
 })

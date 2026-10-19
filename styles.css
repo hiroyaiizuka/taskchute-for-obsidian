@@ -7215,9 +7215,13 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   flex-direction: column;
   min-height: 0;
   background: var(--background-primary);
-  /* No frame: one line parts it from the task list, and the terminal runs to
-     the pane's edges. */
-  border-top: 1px solid var(--background-modifier-border);
+  /* The task list's frame: the same width, line and corners, so the two read
+     as a pair of cards, one above the other. The corners clip what lies
+     under them (the tab row's fill), and nothing in the pane is meant to
+     reach past it. */
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--tc-radius-sm);
+  overflow: hidden;
 }
 
 .ai-run-pane.is-hidden {
@@ -7672,6 +7676,14 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   border-bottom: 1px solid var(--tc-code-border);
   background: var(--tc-code-tabbar-bg);
   font-family: var(--font-monospace);
+}
+
+/* Collapsed, the pane's frame closes the row: the rows' own bottom lines
+   would sit on it as a second line. Transparent rather than removed, so the
+   row keeps its height (the tab row's background fills the line's place). */
+.ai-run-pane.is-collapsed .ai-run-pane__sidebar-toolbar,
+.ai-run-pane.is-collapsed .ai-run-pane__work-tabbar {
+  border-bottom-color: transparent;
 }
 
 .ai-run-pane__file-tabs {
