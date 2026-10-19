@@ -542,8 +542,45 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
     })
   })
 
+  describe('collapsed to the tab row', () => {
+    const collapse = () =>
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__collapse')?.click()
+
+    test('the sidebar toggle on the collapsed row opens the pane first, wherever it sits', () => {
+      controller.mount(container)
+      collapse()
+      manager.emit(createRun())
+      const toggle = () => container.querySelector<HTMLButtonElement>('.ai-run-pane__sidebar-toggle')
+      expect(pane()?.classList.contains('is-collapsed')).toBe(true)
+      expect(adapters).toHaveLength(0)
+
+      // On the sidebar's toolbar.
+      toggle()?.click()
+      expect(pane()?.classList.contains('is-collapsed')).toBe(false)
+      expect(pane()?.classList.contains('is-sidebar-collapsed')).toBe(true)
+      expect(adapters).toHaveLength(1)
+
+      // Right after ▾, the sidebar hidden.
+      collapse()
+      toggle()?.click()
+      expect(pane()?.classList.contains('is-collapsed')).toBe(false)
+      expect(pane()?.classList.contains('is-sidebar-collapsed')).toBe(false)
+    })
+
+    test('the sidebar toggle never opens a terminal into collapsed bodies', () => {
+      controller.mount(container)
+      collapse()
+      manager.emit(createRun())
+      // Restoring a stored hidden sidebar runs while the pane may be collapsed.
+      ;(controller as unknown as { setSidebarCollapsed(collapsed: boolean, persist: boolean): void })
+        .setSidebarCollapsed(true, false)
+      expect(pane()?.classList.contains('is-collapsed')).toBe(true)
+      expect(adapters).toHaveLength(0)
+    })
+  })
+
   describe('independent sidebar collapse', () => {
-    test('collapses to an icon rail without collapsing the run content and persists it', () => {
+    test('hides the sidebar from a toggle on its edge without collapsing the run content, and persists it', () => {
       controller.mount(container)
       manager.emit(createRun())
 
@@ -551,6 +588,10 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
         '.ai-run-pane__sidebar-toggle',
       )
       expect(toggle).not.toBeNull()
+      // Open: the last control of the sidebar's toolbar, past files and history.
+      const toolbar = container.querySelector('.ai-run-pane__sidebar-toolbar')
+      expect(toggle?.parentElement).toBe(toolbar)
+      expect(toolbar?.lastElementChild).toBe(toggle)
       adapters[0].fit.mockClear()
       toggle?.click()
 
@@ -566,6 +607,9 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
         true,
       )
       expect(adapters[0].fit).toHaveBeenCalled()
+      // Hidden: the sidebar's edge is gone, so the toggle moves right after ▾.
+      expect(container.querySelector('.ai-run-pane__collapse')?.nextElementSibling).toBe(toggle)
+      expect(toggle?.closest('.ai-run-pane__sidebar')).toBeNull()
 
       toggle?.click()
       expect(pane()?.classList.contains('is-sidebar-collapsed')).toBe(false)
@@ -573,6 +617,18 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
         AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY,
         false,
       )
+      expect(toolbar?.lastElementChild).toBe(toggle)
+    })
+
+    test('keeps the keyboard focus on the toggle as it moves', () => {
+      controller.mount(container)
+      manager.emit(createRun())
+      const toggle = container.querySelector<HTMLButtonElement>('.ai-run-pane__sidebar-toggle')!
+      toggle.focus()
+      toggle.click()
+      expect(document.activeElement).toBe(toggle)
+      toggle.click()
+      expect(document.activeElement).toBe(toggle)
     })
 
     test('restores the collapsed sidebar without re-persisting mount state', () => {
