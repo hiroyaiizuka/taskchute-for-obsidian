@@ -7100,7 +7100,14 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   --tc-ai-pane-height: 50%;
 
   display: none;
-  width: 100%;
+  /* Edge to edge: out across the view's side padding (Obsidian's
+     `.view-content` gutter), so the terminal gets the leaf's whole width. The
+     pane controller measures that padding into the two variables; Obsidian's
+     own value is the fallback. The bottom gutter stays -- the status bar
+     floats over it. */
+  width: auto;
+  margin-left: calc(-1 * var(--tc-ai-pane-bleed-start, var(--size-4-3)));
+  margin-right: calc(-1 * var(--tc-ai-pane-bleed-end, var(--size-4-3)));
   max-height: 50%;
   min-height: 0;
   flex-shrink: 0;
@@ -7186,30 +7193,58 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   --tc-code-text-dim: #6b7280;
   --tc-code-text: #d1d5db;
   --tc-code-text-strong: #e5e7eb;
+  /* The tab row's height, and the room kept at its two ends for the pane's
+     own controls lying over them: ▾ at the start (with the sidebar toggle
+     after it while the sidebar is hidden), ⤢ at the end. */
+  --tc-ai-bar-height: 25px;
+  --tc-ai-bar-start: 28px;
+  --tc-ai-bar-start-wide: 54px;
+  --tc-ai-bar-end: 28px;
 
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
   background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px 6px 0 0;
-  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.15);
+  /* No frame: one line parts it from the task list, and the terminal runs to
+     the pane's edges. */
+  border-top: 1px solid var(--background-modifier-border);
 }
 
 .ai-run-pane.is-hidden {
   display: none;
 }
 
-/* One 24px row: the icon buttons set its height, so the terminal below
-   keeps the room (must stay in sync with TERMINAL_VERTICAL_INSET_PX). */
+/* Not a row of its own: the pane's controls lie over the two ends of the tab
+   row (no title -- the terminal tabs say what the pane is), so the terminal
+   gets that row back (must stay in sync with TERMINAL_VERTICAL_INSET_PX).
+   Only the buttons take the pointer; the tabs between them stay clickable. */
 .ai-run-pane__header {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 24px;
-  padding: 0 4px 0 6px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  flex-shrink: 0;
+  gap: 2px;
+  height: var(--tc-ai-bar-height);
+  padding: 0 2px;
+  pointer-events: none;
+}
+
+.ai-run-pane__header > * {
+  pointer-events: auto;
+}
+
+/* The pane's name, for screen readers only. */
+.ai-run-pane__title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .ai-run-pane__collapse {
@@ -7227,13 +7262,6 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   color: var(--text-normal);
 }
 
-.ai-run-pane__title {
-  font-weight: 600;
-  font-size: var(--font-ui-small);
-  color: var(--text-normal);
-  flex-shrink: 0;
-}
-
 .ai-run-pane__header-actions {
   display: flex;
   align-items: center;
@@ -7248,7 +7276,17 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   min-height: 0;
 }
 
-.ai-run-pane.is-collapsed .ai-run-pane__layout {
+/* Collapsed to the tab row alone (with the sidebar's toolbar beside it, so
+   the panels keep their width): the tabs still say what is there, and
+   pressing anything on that row opens the pane again. The bodies are taken
+   out of the layout (not squeezed to no height), so a terminal's fit never
+   proposes a one-row grid to its PTY. */
+.ai-run-pane.is-collapsed .ai-run-pane__sidebar-runs,
+.ai-run-pane.is-collapsed .ai-run-pane__sidebar-files-view,
+.ai-run-pane.is-collapsed .ai-run-pane__sidebar-history-view,
+.ai-run-pane.is-collapsed .ai-run-pane__bodies,
+.ai-run-pane.is-collapsed .ai-run-pane__file-editor-body,
+.ai-run-pane.is-collapsed .ai-run-pane__composer {
   display: none;
 }
 
@@ -7262,22 +7300,42 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   border-right: 1px solid var(--background-modifier-border);
 }
 
+/* Hidden, not a rail: its toggle lives on the tab row, so the terminal takes
+   the whole width. */
 .ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar {
-  width: 24px;
+  display: none;
 }
 
-.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-toolbar {
-  padding: 0;
-}
-
+/* Level with the tab row beside it, with room at its start for ▾. */
 .ai-run-pane__sidebar-toolbar {
   display: flex;
   align-items: center;
   gap: 2px;
-  min-height: 28px;
-  padding: 0 4px;
+  box-sizing: border-box;
+  min-height: var(--tc-ai-bar-height);
+  padding: 0 4px 0 var(--tc-ai-bar-start);
   flex-shrink: 0;
   border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* The sidebar's toggle on the sidebar's edge: past the files and history
+   buttons, against the line that parts the sidebar from the tabs. Deep
+   enough to win over the icon buttons' own `margin: 0` (0,2,1). */
+.ai-run-pane .ai-run-pane__sidebar-toolbar > button.ai-run-pane__sidebar-toggle {
+  margin-left: auto;
+}
+
+/* The tab row's two ends, under the pane's controls: the start of the first
+   panel's row when the sidebar is not beside it (▾ and, the sidebar gone,
+   its toggle), and the end of the row at the far right -- the open file's,
+   or else the last panel shown. */
+.ai-run-pane.is-sidebar-collapsed .ai-run-pane__panel:first-child > .ai-run-pane__tabstrip {
+  padding-left: var(--tc-ai-bar-start-wide);
+}
+
+.ai-run-pane:not(.has-file-panel) .ai-run-pane__panel:nth-last-child(1 of :not([hidden])) > .ai-run-pane__tabstrip,
+.ai-run-pane.has-file-panel .ai-run-pane__file-panel-header {
+  padding-right: var(--tc-ai-bar-end);
 }
 
 .ai-run-pane__sidebar-toggle,
@@ -7302,14 +7360,6 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 .ai-run-pane__sidebar-history:hover,
 .ai-run-pane__sidebar-history[aria-pressed="true"] {
   color: var(--text-normal);
-}
-
-.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-files,
-.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-history,
-.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-runs,
-.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-files-view,
-.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-history-view {
-  display: none;
 }
 
 .ai-run-pane__sidebar-runs {
@@ -8249,7 +8299,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 }
 
 /* Full screen (⤢) is the whole TaskChute view: the date row and the day's
-   comments step aside, and the drawer loses its rounded top and shadow. */
+   comments step aside. */
 .taskchute-view-root--ai-pane-expanded .top-bar-container,
 .taskchute-view-root--ai-pane-expanded .taskchute-day-comments,
 .taskchute-view-root--ai-pane-expanded .taskchute-day-comments-resizer {
@@ -8261,11 +8311,6 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
    rule sets that margin (see "Comments while working"), so match as much. */
 .taskchute-view-root--ai-pane-expanded .main-container .taskchute-day-comments-resizer + .task-list-container {
   margin-top: 0;
-}
-
-.taskchute-view-root--ai-pane-expanded .ai-pane-container--expanded .ai-run-pane {
-  border-radius: 0;
-  box-shadow: none;
 }
 
 /* Terminal body: xterm renders its own scrollback and padding, so the body

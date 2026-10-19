@@ -407,6 +407,31 @@ describe('AiRunPaneController split panels', () => {
     })
   })
 
+  describe('the collapsed tab row', () => {
+    const pane = () => container.querySelector('.ai-run-pane')
+    const collapse = () =>
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__collapse')?.click()
+
+    test('pressing ＋ on it opens the pane before the new shell starts', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a' }))
+      collapse()
+      expect(pane()?.classList.contains('is-collapsed')).toBe(true)
+
+      let collapsedWhenStarted: boolean | undefined
+      const start = manager.startShellSession.getMockImplementation()!
+      manager.startShellSession.mockImplementationOnce((options) => {
+        collapsedWhenStarted = pane()?.classList.contains('is-collapsed')
+        return start(options)
+      })
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+
+      expect(manager.startShellSession).toHaveBeenCalledTimes(1)
+      expect(collapsedWhenStarted).toBe(false)
+      expect(pane()?.classList.contains('is-collapsed')).toBe(false)
+    })
+  })
+
   describe('carried fixes: PTY sizing excludes the run sidebar', () => {
     function setParentHeight(height: number): void {
       Object.defineProperty(document.body, 'clientHeight', {
@@ -422,10 +447,11 @@ describe('AiRunPaneController split panels', () => {
       setParentHeight(500)
 
       // cols: (1000 total - 180 sidebar - 16 horizontal inset) / 8 px cells
-      // rows: (500 * 0.5 pane share - 56 vertical chrome) / 17 px cells —
-      // the vertical inset must cover the pane header (25px incl. border),
-      // the panel tab strip (27px incl. border), and the pane borders.
-      expect(controller.computeTerminalSize()).toEqual({ cols: 100, rows: 11 })
+      // rows: (500 * 0.5 pane share - 34 vertical chrome) / 17 px cells —
+      // the vertical inset covers the splitter (6px), the pane's top border
+      // and the tab row (25px incl. border), which the pane's own controls
+      // share.
+      expect(controller.computeTerminalSize()).toEqual({ cols: 100, rows: 12 })
     })
 
     test('a split spawns the shell with the sidebar-excluded per-panel size', () => {
@@ -441,7 +467,7 @@ describe('AiRunPaneController split panels', () => {
       expect(panels()).toHaveLength(2)
       expect(manager.startShellSession).toHaveBeenCalledWith({
         cols: 38, // (320 panel - 16 horizontal inset) / 8 px cells
-        rows: 11,
+        rows: 12,
         name: 'Terminal',
         parentRunId: 'run-a',
       })

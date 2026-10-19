@@ -119,9 +119,10 @@ describe('AiRunPaneController', () => {
     expect(pane()?.classList.contains('is-hidden')).toBe(true)
     expect(manager.listeners.size).toBe(1)
     expect(disposers.length).toBeGreaterThanOrEqual(1)
-    expect(container.querySelector('.ai-run-pane__title')?.textContent).toBe(
-      'AI runs',
-    )
+    // No title row: the name stays as text for screen readers (styles.css
+    // hides it), not as an aria-label Obsidian would turn into a tooltip.
+    expect(container.querySelector('.ai-run-pane__title')?.textContent).toBe('AI runs')
+    expect(container.querySelector('[aria-label="AI runs"]')).toBeNull()
   })
 
   test('reveals the pane and adds a sidebar row when a run starts', () => {

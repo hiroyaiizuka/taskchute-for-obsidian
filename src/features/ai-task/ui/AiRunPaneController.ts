@@ -8,7 +8,9 @@
  * slim internal tab strip (one replaceable top-level AI-task slot plus any
  * explicit + shell tabs) and its own bodies element;
  * each panel's corner actions hold its local ◫ split control, while the
- * global ⤢ expand toggle lives in the AI Runs header. Bodies are kept per run
+ * pane's own controls (▾ collapse, ⤢ expand) lie over the two ends of that
+ * tab row instead of a title row, and the sidebar toggle sits on the
+ * sidebar's edge. Bodies are kept per run
  * in a Map and only each
  * panel's selected body is visible, so state (scroll position, terminal
  * screen) survives selection switches. Starting concurrent AI tasks only
@@ -341,20 +343,21 @@ const TERMINAL_CELL_HEIGHT_PX = 17
 /** Horizontal padding/scrollbar allowance inside the terminal body */
 const TERMINAL_HORIZONTAL_INSET_PX = 16
 /**
- * Pane chrome above one panel's terminal body when deriving its height:
- * the pane header (24px + 1px border), the per-panel tab strip (26px
- * min-height + 1px border), the pane borders, plus slack — mirrors
- * styles.css. The composer is hidden for terminal runs, so it is not part
- * of this allowance.
+ * What the pane's share of the view spends above one panel's terminal body
+ * when deriving its height: the splitter (6px), the pane's top border (1px)
+ * and the tab row (25px, its border included), which the pane's own
+ * controls sit on rather than adding a row of their own, plus slack —
+ * mirrors styles.css. The composer is hidden for terminal runs, so it is not
+ * part of this allowance.
  */
-const TERMINAL_VERTICAL_INSET_PX = 56
+const TERMINAL_VERTICAL_INSET_PX = 34
 /**
  * Fixed width of the run sidebar (styles.css .ai-run-pane__sidebar). The
  * sidebar lives INSIDE the measured host container but not inside the
  * panels area, so every panel-width computation must exclude it; this
  * constant is the fallback when the mounted sidebar cannot be measured
- * (hidden pane, jsdom) — the sidebar is always visible once a run is on
- * screen.
+ * (hidden pane, jsdom). A sidebar the user hid takes no width at all
+ * (measureContentWidth counts it as 0).
  */
 export const RUN_SIDEBAR_WIDTH_PX = 180
 /**
@@ -430,6 +433,7 @@ export class AiRunPaneController {
   private sidebarRunsEl: HTMLElement | null = null
   private sidebarFilesEl: HTMLElement | null = null
   private sidebarToggleButton: HTMLButtonElement | null = null
+  private sidebarToolbarEl: HTMLElement | null = null
   private sidebarFilesButton: HTMLButtonElement | null = null
   private sidebarHistoryButton: HTMLButtonElement | null = null
   private sidebarHistoryEl: HTMLElement | null = null
@@ -502,7 +506,18 @@ export class AiRunPaneController {
     const root = container.createDiv({ cls: 'ai-run-pane is-hidden' })
     this.root = root
 
+    // The pane's own controls (▾ at the start -- with the sidebar toggle
+    // after it while the sidebar is hidden -- and ⤢ at the end) lie over the
+    // ends of the tab row instead of taking a row of their own; styles.css
+    // keeps room for them at both ends of that row.
     const header = root.createDiv({ cls: 'ai-run-pane__header' })
+    // No title on screen: the terminal tabs say what the pane is. The name
+    // stays for screen readers -- as text, not an aria-label, which Obsidian
+    // would show as a tooltip over the whole pane.
+    header.createSpan({
+      cls: 'ai-run-pane__title',
+      text: this.host.tv('aiTask.paneTitle', 'AI runs'),
+    })
     const toggleLabel = this.host.tv('aiTask.togglePane', 'Toggle AI run pane')
     const collapseButton = header.createEl('button', {
       cls: 'ai-run-pane__collapse',
@@ -519,12 +534,32 @@ export class AiRunPaneController {
     })
     this.collapseButton = collapseButton
 
-    header.createSpan({
-      cls: 'ai-run-pane__title',
-      text: this.host.tv('aiTask.paneTitle', 'AI runs'),
-    })
     const headerActions = header.createDiv({
       cls: 'ai-run-pane__header-actions',
+    })
+    // One button, put where the sidebar's edge is (placeSidebarToggle): at
+    // the end of the sidebar's toolbar while it is open, right after ▾ once
+    // it is hidden.
+    const sidebarToggleLabel = this.host.tv(
+      'aiTask.toggleSidebar',
+      'Toggle terminal sidebar',
+    )
+    this.sidebarToggleButton = createEl('button', {
+      cls: 'ai-run-pane__sidebar-toggle',
+      attr: {
+        'aria-label': sidebarToggleLabel,
+        title: sidebarToggleLabel,
+        'aria-expanded': 'true',
+      },
+    })
+    setIcon(this.sidebarToggleButton, 'panel-left')
+    this.sidebarToggleButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      // Like the rest of the collapsed row, it opens the pane first --
+      // wherever it sits (the layout's capture handler covers the sidebar's
+      // toolbar, not the controls lying over the row).
+      if (this.isCollapsed()) this.setCollapsed(false)
+      this.setSidebarCollapsed(!this.sidebarCollapsed, true)
     })
     const expandButton = headerActions.createEl('button', {
       cls: 'ai-run-pane__expand',
@@ -545,27 +580,22 @@ export class AiRunPaneController {
     // NOW PLAYING layout: sidebar (run list) on the left, the panels area
     // (each panel: tab strip + bodies) plus the composer on the right.
     const layout = root.createDiv({ cls: 'ai-run-pane__layout' })
+    // Collapsed, the pane keeps its tab row (and the sidebar's toolbar) on
+    // screen. Anything pressed there -- a tab, ＋, ◫, a sidebar view -- opens
+    // the pane first, so it never acts on bodies nobody can see. Capture runs
+    // before those controls' own handlers.
+    layout.addEventListener(
+      'click',
+      () => {
+        if (this.isCollapsed()) this.setCollapsed(false)
+      },
+      { capture: true },
+    )
     this.sidebarEl = layout.createDiv({ cls: 'ai-run-pane__sidebar' })
     const sidebarToolbar = this.sidebarEl.createDiv({
       cls: 'ai-run-pane__sidebar-toolbar',
     })
-    const sidebarToggleLabel = this.host.tv(
-      'aiTask.toggleSidebar',
-      'Toggle terminal sidebar',
-    )
-    this.sidebarToggleButton = sidebarToolbar.createEl('button', {
-      cls: 'ai-run-pane__sidebar-toggle',
-      attr: {
-        'aria-label': sidebarToggleLabel,
-        title: sidebarToggleLabel,
-        'aria-expanded': 'true',
-      },
-    })
-    setIcon(this.sidebarToggleButton, 'panel-left')
-    this.sidebarToggleButton.addEventListener('click', (event) => {
-      event.stopPropagation()
-      this.setSidebarCollapsed(!this.sidebarCollapsed, true)
-    })
+    this.sidebarToolbarEl = sidebarToolbar
     const filesLabel = this.host.tv('aiTask.files.label', 'Files')
     this.sidebarFilesButton = sidebarToolbar.createEl('button', {
       cls: 'ai-run-pane__sidebar-files',
@@ -840,7 +870,7 @@ export class AiRunPaneController {
     this.fitVisibleTerminalViews()
   }
 
-  /** Collapse only the left Vertical Tabs/Files sidebar to a 24px icon rail. */
+  /** Hide only the left Vertical Tabs/Files sidebar; its toggle stays on the tab row. */
   private setSidebarCollapsed(collapsed: boolean, persist: boolean): void {
     this.sidebarCollapsed = collapsed
     this.root?.classList.toggle('is-sidebar-collapsed', collapsed)
@@ -848,13 +878,16 @@ export class AiRunPaneController {
       'aria-expanded',
       collapsed ? 'false' : 'true',
     )
+    this.placeSidebarToggle()
     if (persist) {
       this.host.saveLocalStorage?.(
         AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY,
         collapsed,
       )
     }
-    this.ensureVisibleTerminalViews()
+    // The toggle sits on the tab row, which stays while the pane is
+    // collapsed: the bodies are not on screen then, so open no terminal.
+    if (!this.isCollapsed()) this.ensureVisibleTerminalViews()
     this.fitVisibleTerminalViews()
   }
 
@@ -1062,9 +1095,23 @@ export class AiRunPaneController {
       measuredSidebar > 0
         ? measuredSidebar
         : this.sidebarCollapsed
-          ? 24
+          ? 0
           : RUN_SIDEBAR_WIDTH_PX
     return Math.max(0, totalWidth - sidebarWidth)
+  }
+
+  /**
+   * The sidebar toggle sits on the sidebar's edge: the end of the sidebar's
+   * toolbar while it is open, and -- the sidebar gone -- right after ▾ at the
+   * start of the tab row. Moving the button keeps its keyboard focus.
+   */
+  private placeSidebarToggle(): void {
+    const toggle = this.sidebarToggleButton
+    if (!toggle) return
+    const hadFocus = toggle.ownerDocument.activeElement === toggle
+    if (this.sidebarCollapsed) this.collapseButton?.after(toggle)
+    else this.sidebarToolbarEl?.appendChild(toggle)
+    if (hadFocus) toggle.focus()
   }
 
   private isCollapsed(): boolean {
@@ -1077,8 +1124,29 @@ export class AiRunPaneController {
 
   private revealPane(): void {
     this.root?.classList.remove('is-hidden')
+    this.matchViewGutter()
     this.updateContainerChrome()
     this.fitVisibleTerminalViews()
+  }
+
+  /**
+   * The pane runs edge to edge, out across the view's side padding: hand
+   * styles.css that padding as measured, so a theme or platform that pads
+   * the view differently still lines the pane up with the leaf's edges.
+   */
+  private matchViewGutter(): void {
+    const container = this.containerEl
+    const view = container?.closest<HTMLElement>('.view-content')
+    if (!container || !view) return
+    const style = view.ownerDocument.defaultView?.getComputedStyle(view)
+    for (const [side, value] of [
+      ['start', style?.paddingLeft],
+      ['end', style?.paddingRight],
+    ] as const) {
+      if (value && Number.isFinite(parseFloat(value))) {
+        container.style.setProperty(`--tc-ai-pane-bleed-${side}`, value)
+      }
+    }
   }
 
   /**
@@ -1179,7 +1247,7 @@ export class AiRunPaneController {
   /**
    * Build one content panel (tab strip with the +/◫ controls and a bodies
    * element) and insert it after `afterPanel` (or append it). Global pane
-   * actions stay in the AI Runs header rather than belonging to a panel.
+   * actions stay in the pane's own controls rather than belonging to a panel.
    */
   private createPanel(
     afterPanel: PanelView | null,

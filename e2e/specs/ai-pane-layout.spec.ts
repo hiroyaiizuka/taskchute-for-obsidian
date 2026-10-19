@@ -105,3 +105,83 @@ test("the pane takes half the view, full screen takes all of it, and collapsing 
   expect(back.pane / back.main).toBeGreaterThan(0.47)
   expect(back.pane / back.main).toBeLessThan(0.53)
 })
+
+/** A box in CSS pixels, rounded. */
+async function box(page: Page, selector: string) {
+  return page.locator(selector).first().evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right) }
+  })
+}
+
+// No title row: the pane's controls lie over the two ends of the terminal tab
+// row. No frame either: the pane runs across the view's side padding to the
+// leaf's edges, and the sidebar hides outright from a toggle on that row.
+// Collapsed, the tab row stays and the terminal goes.
+test("the pane's controls share the tab row, the pane runs edge to edge, and the sidebar hides outright", async ({ obsidian, home }, testInfo) => {
+  const { page } = obsidian
+  const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
+  await enableAiTasks(page, prepare(home!, vault, testInfo.outputPath("bin")))
+  await openTaskChute(page)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.evaluate(
+    async ([id, session, cwd]) => {
+      const plugin = window.app.plugins.plugins[id] as {
+        aiTaskManager: { resumeAgentSession(options: unknown): Promise<unknown> }
+      }
+      await plugin.aiTaskManager.resumeAgentSession({ host: "claude", sessionId: session, cwd, name: "probe" })
+    },
+    [PLUGIN_ID, SESSION, vault] as const,
+  )
+  await page.locator(".ai-run-pane .xterm").first().waitFor()
+
+  // The name is there for screen readers but takes no room on screen.
+  await expect(page.locator(".ai-run-pane__title")).toHaveText("AI runs")
+  expect(
+    await page.locator(".ai-run-pane__title").evaluate((el) => Math.round(el.getBoundingClientRect().width)),
+  ).toBeLessThanOrEqual(1)
+
+  // One row: the controls sit on the tab row, which is the pane's first.
+  const pane = await box(page, ".ai-run-pane")
+  const tabRow = await box(page, ".ai-run-pane__panel .ai-run-pane__tabstrip")
+  expect((await box(page, ".ai-run-pane__header")).top).toBe(tabRow.top)
+  expect(tabRow.top - pane.top).toBeLessThanOrEqual(1)
+
+  // Edge to edge: the leaf's own edges, past the view's side padding.
+  const leaf = await page.evaluate(() => {
+    const r = document.querySelector(".taskchute-view-root")!.parentElement!.getBoundingClientRect()
+    return { left: Math.round(r.left), right: Math.round(r.right) }
+  })
+  expect(pane.left).toBe(leaf.left)
+  expect(pane.right).toBe(leaf.right)
+
+  // The sidebar's toggle sits on the sidebar's edge, past files and history.
+  await expect(page.locator(".ai-run-pane__sidebar")).toBeVisible()
+  const sidebar = await box(page, ".ai-run-pane__sidebar")
+  const toggleOpen = await box(page, ".ai-run-pane__sidebar-toggle")
+  expect(sidebar.right - toggleOpen.right).toBeLessThanOrEqual(8)
+  expect(toggleOpen.left).toBeGreaterThan((await box(page, ".ai-run-pane__sidebar-history")).right)
+
+  // The sidebar hides outright, and the terminal takes its width.
+  const terminalWidth = () =>
+    page.locator(".ai-run-pane .xterm-screen").first().evaluate((el) => Math.round(el.getBoundingClientRect().width))
+  const withSidebar = await terminalWidth()
+  await page.locator(".ai-run-pane__sidebar-toggle").click()
+  await expect(page.locator(".ai-run-pane__sidebar")).toBeHidden()
+  await expect.poll(terminalWidth).toBeGreaterThan(withSidebar)
+
+  // Neither end's controls cover the row's own: ▾, then the toggle, then the
+  // tabs; the split button ends before ⤢.
+  const collapse = await box(page, ".ai-run-pane__collapse")
+  const toggleClosed = await box(page, ".ai-run-pane__sidebar-toggle")
+  expect(toggleClosed.left).toBeGreaterThanOrEqual(collapse.right)
+  expect((await box(page, ".ai-run-pane__panel .ai-run-pane__tabs")).left).toBeGreaterThanOrEqual(toggleClosed.right)
+  expect((await box(page, ".ai-run-pane__split")).right).toBeLessThanOrEqual(
+    (await box(page, ".ai-run-pane__expand")).left,
+  )
+
+  // Collapsed: the tab row stays, the terminal goes.
+  await page.locator(".ai-run-pane__collapse").click()
+  await expect(page.locator(".ai-run-pane__panel .ai-run-pane__tabstrip").first()).toBeVisible()
+  await expect(page.locator(".ai-run-pane .xterm").first()).toBeHidden()
+})
