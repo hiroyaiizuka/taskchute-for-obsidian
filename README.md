@@ -1,4 +1,4 @@
-# TaskChute Plus
+# TaskChute for Obsidian (TaskChute Plus)
 
 [English](./README.md) | [日本語](./README.ja.md)
 
@@ -6,8 +6,12 @@
 
 **Execute tasks, don't just organize them.**
 
-TaskChute Plus is an Obsidian plugin focused on execution-first task management:
-you decide what to do now, run it, and keep a reliable log of what actually happened.
+TaskChute for Obsidian (TaskChute Plus) is the official TaskChute plugin for Obsidian.
+TaskChute is a task management method created by Etsuo Ohashi, and this plugin is endorsed by
+the TaskChute Association (一般社団法人タスクシュート協会), where he serves as representative director.
+
+It is built for execution-first task management: you decide what to do now, run it,
+and keep a reliable log of what actually happened.
 
 ## What You Can Do
 
