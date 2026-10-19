@@ -1124,29 +1124,8 @@ export class AiRunPaneController {
 
   private revealPane(): void {
     this.root?.classList.remove('is-hidden')
-    this.matchViewGutter()
     this.updateContainerChrome()
     this.fitVisibleTerminalViews()
-  }
-
-  /**
-   * The pane runs edge to edge, out across the view's side padding: hand
-   * styles.css that padding as measured, so a theme or platform that pads
-   * the view differently still lines the pane up with the leaf's edges.
-   */
-  private matchViewGutter(): void {
-    const container = this.containerEl
-    const view = container?.closest<HTMLElement>('.view-content')
-    if (!container || !view) return
-    const style = view.ownerDocument.defaultView?.getComputedStyle(view)
-    for (const [side, value] of [
-      ['start', style?.paddingLeft],
-      ['end', style?.paddingRight],
-    ] as const) {
-      if (value && Number.isFinite(parseFloat(value))) {
-        container.style.setProperty(`--tc-ai-pane-bleed-${side}`, value)
-      }
-    }
   }
 
   /**

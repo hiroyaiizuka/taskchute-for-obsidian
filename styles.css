@@ -7114,14 +7114,9 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   --tc-ai-pane-height: 50%;
 
   display: none;
-  /* Edge to edge: out across the view's side padding (Obsidian's
-     `.view-content` gutter), so the terminal gets the leaf's whole width. The
-     pane controller measures that padding into the two variables; Obsidian's
-     own value is the fallback. The bottom gutter stays -- the status bar
-     floats over it. */
-  width: auto;
-  margin-left: calc(-1 * var(--tc-ai-pane-bleed-start, var(--size-4-3)));
-  margin-right: calc(-1 * var(--tc-ai-pane-bleed-end, var(--size-4-3)));
+  /* Inside the view's side padding, like the task list above it: the pane's
+     left and right edges line up with the task list's frame, collapsed and
+     full screen (⤢) alike. */
   max-height: 50%;
   min-height: 0;
   flex-shrink: 0;

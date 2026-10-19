@@ -114,11 +114,18 @@ async function box(page: Page, selector: string) {
   })
 }
 
+/** Whether the pane's left and right edges are the task list frame's. */
+async function alignedWithTaskList(page: Page) {
+  const pane = await box(page, ".ai-run-pane")
+  const list = await box(page, ".taskchute-view-root .task-list")
+  return pane.left === list.left && pane.right === list.right
+}
+
 // No title row: the pane's controls lie over the two ends of the terminal tab
-// row. No frame either: the pane runs across the view's side padding to the
-// leaf's edges, and the sidebar hides outright from a toggle on that row.
-// Collapsed, the tab row stays and the terminal goes.
-test("the pane's controls share the tab row, the pane runs edge to edge, and the sidebar hides outright", async ({ obsidian, home }, testInfo) => {
+// row. No frame either, but the pane keeps to the view's side padding like the
+// task list above it, and the sidebar hides outright from a toggle on that
+// row. Collapsed, the tab row stays and the terminal goes.
+test("the pane's controls share the tab row, the pane lines up with the task list, and the sidebar hides outright", async ({ obsidian, home }, testInfo) => {
   const { page } = obsidian
   const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
   await enableAiTasks(page, prepare(home!, vault, testInfo.outputPath("bin")))
@@ -147,13 +154,13 @@ test("the pane's controls share the tab row, the pane runs edge to edge, and the
   expect((await box(page, ".ai-run-pane__header")).top).toBe(tabRow.top)
   expect(tabRow.top - pane.top).toBeLessThanOrEqual(1)
 
-  // Edge to edge: the leaf's own edges, past the view's side padding.
-  const leaf = await page.evaluate(() => {
-    const r = document.querySelector(".taskchute-view-root")!.parentElement!.getBoundingClientRect()
-    return { left: Math.round(r.left), right: Math.round(r.right) }
-  })
-  expect(pane.left).toBe(leaf.left)
-  expect(pane.right).toBe(leaf.right)
+  // The task list frame's edges, at half height and full screen (⤢) alike.
+  expect(await alignedWithTaskList(page)).toBe(true)
+  await page.locator(".ai-run-pane__expand").click()
+  await expect.poll(async () => (await layout(page)).dateRow).toBe(0)
+  expect(await alignedWithTaskList(page)).toBe(true)
+  await page.locator(".ai-run-pane__expand").click()
+  await expect.poll(async () => (await layout(page)).dateRow).toBeGreaterThan(0)
 
   // The sidebar's toggle sits on the sidebar's edge, past files and history.
   await expect(page.locator(".ai-run-pane__sidebar")).toBeVisible()
@@ -180,8 +187,10 @@ test("the pane's controls share the tab row, the pane runs edge to edge, and the
     (await box(page, ".ai-run-pane__expand")).left,
   )
 
-  // Collapsed: the tab row stays, the terminal goes.
+  // Collapsed: the tab row stays, still under the task list's edges, and the
+  // terminal goes.
   await page.locator(".ai-run-pane__collapse").click()
   await expect(page.locator(".ai-run-pane__panel .ai-run-pane__tabstrip").first()).toBeVisible()
   await expect(page.locator(".ai-run-pane .xterm").first()).toBeHidden()
+  expect(await alignedWithTaskList(page)).toBe(true)
 })
