@@ -171,6 +171,18 @@ function linkUserFonts(home: string): void {
   }
 }
 
+/**
+ * On macOS, Chromium keeps its storage key ("obsidian Key") in the login
+ * keychain, which it finds through the home folder. Under a home of
+ * Obsidian's own there is none, and macOS holds the launch up with a
+ * "keychain not found" dialog for the user to answer. The mock keychain keeps
+ * that key in memory instead -- and keeps the user's real keychain out of
+ * every test, home of its own or not.
+ */
+function platformArgs(): string[] {
+  return process.platform === "darwin" ? ["--use-mock-keychain"] : []
+}
+
 export async function launchObsidian(options: LaunchOptions): Promise<ObsidianSession> {
   const { configDir, vaultDir } = prepareDirectories(options.workDir)
   if (options.home) linkUserFonts(options.home)
@@ -178,7 +190,7 @@ export async function launchObsidian(options: LaunchOptions): Promise<ObsidianSe
 
   const child = spawn(
     options.obsidianExecutable,
-    ["--no-sandbox", `--user-data-dir=${configDir}`, `--remote-debugging-port=${port}`],
+    ["--no-sandbox", `--user-data-dir=${configDir}`, `--remote-debugging-port=${port}`, ...platformArgs()],
     {
       detached: true,
       stdio: "ignore",
