@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { TASK_FOLDER, openTaskChute, rowState, taskRow, todayKey } from "../helpers/aiTask"
+import { PLUGIN_ID, TASK_FOLDER, openTaskChute, rowState, taskRow, todayKey } from "../helpers/aiTask"
 
 // #181: comments written while working — the day's comments behind a button
 // at the bottom right of the task list (LEV-346), and a running task's
@@ -180,4 +180,84 @@ test("a task's comments come back after it is reset, the view reloads, and it is
   await row().locator(".play-stop-button").click()
   await expect.poll(() => rowState(row())).toBe("running")
   await expect(row().locator(".comment-button__count")).toHaveText("1")
+})
+
+// LEV-366: with a mouse, a done task's empty 💬 shows only while the pointer is
+// on its row; one with a comment stays shown, and a not-started task's stays hidden.
+test("a done task's empty comment button shows only while its row is hovered", async ({ obsidian }) => {
+  const { page } = obsidian
+  const withComment = await createTask(page, "Write report")
+  const withoutComment = await createTask(page, "Answer mail")
+  const notStarted = await createTask(page, "Weekly review")
+  await openTaskChute(page)
+  const button = (taskPath: string) => taskRow(page, taskPath).locator(".comment-button")
+  const shown = (taskPath: string) =>
+    button(taskPath).evaluate((el) => {
+      const style = getComputedStyle(el)
+      return style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) > 0
+    })
+  expect(await page.evaluate(() => window.matchMedia("(hover: hover)").matches)).toBe(true)
+
+  for (const taskPath of [withComment, withoutComment]) {
+    await taskRow(page, taskPath).locator(".play-stop-button").click()
+    await expect.poll(() => rowState(taskRow(page, taskPath))).toBe("running")
+    await taskRow(page, taskPath).locator(".play-stop-button").click()
+    await expect.poll(() => rowState(taskRow(page, taskPath))).toBe("done")
+  }
+  await button(withComment).click()
+  const modal = page.locator(".taskchute-comment-modal")
+  await modal.locator("textarea").fill("Outline done")
+  await modal.locator(".modal-button-container button.create").click()
+  await expect(button(withComment)).toHaveClass(/active/)
+  await expect(button(withoutComment)).toHaveClass(/no-comment/)
+
+  await page.locator(".top-bar-container").hover()
+  await expect.poll(() => shown(withComment)).toBe(true)
+  await expect.poll(() => shown(withoutComment)).toBe(false)
+  await expect.poll(() => shown(notStarted)).toBe(false)
+
+  await taskRow(page, withoutComment).locator(".task-name").hover()
+  await expect.poll(() => shown(withoutComment)).toBe(true)
+  await button(withoutComment).click()
+  await expect(modal.locator("textarea")).toHaveValue("")
+  await modal.locator(".modal-button-container button.cancel").click()
+
+  await taskRow(page, notStarted).locator(".task-name").hover()
+  await expect.poll(() => shown(notStarted)).toBe(false)
+})
+
+// LEV-366, on a phone: the empty 💬 is not seen either -- there is no hover to
+// bring it up -- but a tap where it sits still opens the comment.
+test("on a phone a done task's empty comment button is unseen but still opens the comment", async ({ obsidian }) => {
+  const { page } = obsidian
+  // Phone, not tablet: Obsidian decides by the window's width, so size it first.
+  await page.evaluate(() => {
+    const host = window as unknown as {
+      electron?: { remote?: { getCurrentWindow?: () => { setContentSize?: (w: number, h: number) => void } } }
+    }
+    host.electron?.remote?.getCurrentWindow?.()?.setContentSize?.(390, 844)
+  })
+  await page.evaluate(() => (window.app as unknown as { emulateMobile(on: boolean): void }).emulateMobile(true))
+  await page.waitForFunction(() => document.body.classList.contains("is-phone"), undefined, { timeout: 15_000 })
+  // Turning the emulation on reloads the plugins.
+  await page.waitForFunction((id) => !!window.app.plugins.plugins[id], PLUGIN_ID, { timeout: 15_000 })
+  // Obsidian's emulation leaves `(hover: none)` false; touch emulation is what turns it on.
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 })
+  expect(await page.evaluate(() => window.matchMedia("(hover: none)").matches)).toBe(true)
+
+  const taskPath = await createTask(page, "Answer mail")
+  await openTaskChute(page)
+  const row = taskRow(page, taskPath)
+  await row.locator(".play-stop-button").click()
+  await expect.poll(() => rowState(row)).toBe("running")
+  await row.locator(".play-stop-button").click()
+  await expect.poll(() => rowState(row)).toBe("done")
+  const button = row.locator(".comment-button")
+  await expect(button).toHaveClass(/no-comment/)
+
+  await row.locator(".task-name").hover()
+  await expect.poll(() => button.evaluate((el) => getComputedStyle(el).opacity)).toBe("0")
+  await button.click()
+  await expect(page.locator(".taskchute-comment-modal textarea")).toHaveValue("")
 })

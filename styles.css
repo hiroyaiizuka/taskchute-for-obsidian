@@ -3642,6 +3642,21 @@ body.is-phone .taskchute-modal .modal-button-container {
   visibility: visible;
 }
 
+/* With a mouse, an empty 💬 waits for the pointer on its row, like the rest of
+   the row's controls: always shown, it reads the same as one with comments
+   (LEV-366). The space stays, so the row does not shift. A touch screen has no
+   hover to fade it in from: see the `hover: none` block below. */
+@media (hover: hover) {
+  .comment-button.no-comment {
+    opacity: 0;
+  }
+
+  .task-item:hover .comment-button.no-comment,
+  .comment-button.no-comment:focus-visible {
+    opacity: 0.6;
+  }
+}
+
 /* プロジェクト表示コンポーネント全体 */
 /* Gives up its width before the task name does: the project is context, the
    name is the row. `margin-right` used to hold it off the clock -- the text
@@ -6616,6 +6631,13 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   .comment-button.no-comment:active,
   .task-item:hover .comment-button.no-comment:active {
     opacity: 1;
+  }
+
+  /* On a phone the empty 💬 goes unseen, as with a mouse, but stays where it
+     is: a tap there still opens the comment (LEV-366). A tablet keeps it shown. */
+  body.is-phone .comment-button.no-comment:not(:active),
+  body.is-phone .task-item:hover .comment-button.no-comment:not(:active) {
+    opacity: 0;
   }
 
   /* Idle/running state (disabled): gone, not merely invisible. A pointer
