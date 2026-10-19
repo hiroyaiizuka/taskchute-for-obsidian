@@ -2722,7 +2722,6 @@ export class TaskChuteView
       // The same width the prototype switched at: a phone, or a pane that narrow.
       isNarrow: () => root.getBoundingClientRect().width <= COMMENTS_NARROW_WIDTH_PX,
       isPhone: () => Platform.isPhone,
-      registerInterval: (id) => this.registerInterval(id),
       registerCleanup: (cleanup) => this.registerManagedDisposer(cleanup),
     })
     this.commentsController.mountDay(taskListArea)

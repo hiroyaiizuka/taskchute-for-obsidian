@@ -62,7 +62,10 @@ export type TaskListRendererHost = {
    * AI Task feature disabled) means 'mixed' — everything renders.
    */
   getAiTaskBoardView?: () => AiTaskBoardView
-  /** Comments while working (#181): the running row's 💬 and the panel under it. */
+  /**
+   * Comments while working (#181): the running row's 💬, and what opens from
+   * it, placed right after the row (a popover's anchor, or a narrow view's panel).
+   */
   getRunningComments?: (inst: TaskInstance) => { count: number; open: boolean } | null
   toggleRunningComments?: (inst: TaskInstance) => void
   renderRowComments?: (inst: TaskInstance) => HTMLElement | null

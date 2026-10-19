@@ -55,9 +55,8 @@ test("day-comments-hint", async ({ obsidian, recorder }) => {
   await dayInput(page).press("Enter")
   await expect(dayWindow(page).locator(".taskchute-comment-text")).toHaveText(["判断軸(ADR)の形成に役立てる", "1 行目\n2 行目"])
 
-  await recorder.chapter("④ Esc で閉じる", { sub: "ボタンに件数が出る" })
+  await recorder.chapter("④ Esc で閉じる", { sub: "ウィンドウが閉じる" })
   await page.keyboard.press("Escape")
   await expect(dayWindow(page)).toHaveCount(0)
-  await expect(dayButton(page).locator(".taskchute-day-comments-button__count")).toHaveText("2")
   await recorder.pause(1200)
 })

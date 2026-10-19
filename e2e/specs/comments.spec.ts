@@ -61,10 +61,10 @@ test("the day's comments button is off by default and appears once turned on", a
   await page.evaluate(() => window.app.workspace.detachLeavesOfType("taskchute-view"))
   await openTaskChute(page)
   await expect(dayButton(page)).toBeVisible()
-  await expect(dayButton(page).locator(".taskchute-day-comments-button__count")).toHaveCount(0)
+  await expect(dayButton(page)).toHaveText("")
 })
 
-test("a comment on the day is kept in the day state, counted on the button, and shown again after reopening", async ({ obsidian }) => {
+test("a comment on the day is kept in the day state, with no count on the button, and shown again after reopening", async ({ obsidian }) => {
   const { page, vaultDir } = obsidian
   await enableDayComments(page)
   await openTaskChute(page)
@@ -81,11 +81,10 @@ test("a comment on the day is kept in the day state, counted on the button, and 
 
   await page.keyboard.press("Escape")
   await expect(dayWindow(page)).toHaveCount(0)
-  await expect(dayButton(page).locator(".taskchute-day-comments-button__count")).toHaveText("1")
+  await expect(dayButton(page)).toHaveText("")
 
   await page.evaluate(() => window.app.workspace.detachLeavesOfType("taskchute-view"))
   await openTaskChute(page)
-  await expect(dayButton(page).locator(".taskchute-day-comments-button__count")).toHaveText("1")
   await dayButton(page).click()
   await expect(dayWindow(page).locator(".taskchute-comment-text")).toHaveText(["Finish the draft before lunch"])
 })
@@ -137,19 +136,20 @@ test("a running task takes comments, and the completion modal lists them", async
   await expect.poll(() => rowState(row)).toBe("running")
 
   await row.locator(".comment-button").click()
-  const panelInput = page.locator(".taskchute-task-comments textarea")
-  await expect(panelInput).toBeFocused()
-  await panelInput.fill("Outline done")
-  await panelInput.press("Enter")
+  const popoverInput = page.locator(".taskchute-task-comments-popover textarea")
+  await expect(popoverInput).toBeFocused()
+  await popoverInput.fill("Outline done")
+  await popoverInput.press("Enter")
 
-  await expect(row.locator(".comment-button__count")).toHaveText("1")
+  await expect(row.locator(".comment-button")).toHaveClass(/\bactive\b/)
+  await expect(row.locator(".comment-button")).toHaveText("💬")
   await expect.poll(() => readDayComments(vaultDir, today)).toEqual([
     expect.objectContaining({ text: "Outline done", instanceId: expect.any(String) }),
   ])
 
   await row.locator(".play-stop-button").click()
   await expect.poll(() => rowState(row)).toBe("done")
-  await expect(page.locator(".taskchute-task-comments")).toHaveCount(0)
+  await expect(page.locator(".taskchute-task-comments-popover")).toHaveCount(0)
 
   await row.locator(".comment-button").click()
   const recap = page.locator(".taskchute-comment-recap")
@@ -166,9 +166,9 @@ test("a task's comments come back after it is reset, the view reloads, and it is
   await row().locator(".play-stop-button").click()
   await expect.poll(() => rowState(row())).toBe("running")
   await row().locator(".comment-button").click()
-  await page.locator(".taskchute-task-comments textarea").fill("Outline done")
-  await page.locator(".taskchute-task-comments textarea").press("Enter")
-  await expect(row().locator(".comment-button__count")).toHaveText("1")
+  await page.locator(".taskchute-task-comments-popover textarea").fill("Outline done")
+  await page.locator(".taskchute-task-comments-popover textarea").press("Enter")
+  await expect(row().locator(".comment-button")).toHaveClass(/\bactive\b/)
 
   // Back to not started, then a fresh load of the view.
   await row().locator(".settings-task-button").click()
@@ -179,7 +179,126 @@ test("a task's comments come back after it is reset, the view reloads, and it is
 
   await row().locator(".play-stop-button").click()
   await expect.poll(() => rowState(row())).toBe("running")
-  await expect(row().locator(".comment-button__count")).toHaveText("1")
+  await expect(row().locator(".comment-button")).toHaveClass(/\bactive\b/)
+})
+
+// A running row's 💬 waits for the pointer on its row until the task has a
+// comment, like a done task's empty one (LEV-366); then it stays shown. Shown,
+// it lies flat: the filled button comes up only under the pointer.
+test("a running task's comment button shows on hover until its first comment, and lies flat", async ({ obsidian }) => {
+  const { page } = obsidian
+  const taskPath = await createTask(page, "Write report")
+  await openTaskChute(page)
+  const row = taskRow(page, taskPath)
+  await row.locator(".play-stop-button").click()
+  await expect.poll(() => rowState(row)).toBe("running")
+  const button = row.locator(".comment-button")
+  const look = () =>
+    button.evaluate((el) => {
+      const style = getComputedStyle(el)
+      return { opacity: style.opacity, shadow: style.boxShadow, background: style.backgroundColor }
+    })
+  expect(await page.evaluate(() => window.matchMedia("(hover: hover)").matches)).toBe(true)
+
+  await page.locator(".top-bar-container").hover()
+  await expect.poll(async () => (await look()).opacity).toBe("0")
+  await row.locator(".task-name").hover()
+  await expect.poll(async () => (await look()).opacity).toBe("0.6")
+  await button.hover()
+  await expect.poll(async () => (await look()).opacity).toBe("1")
+  expect((await look()).background).not.toBe("rgba(0, 0, 0, 0)")
+
+  await button.click()
+  const popoverInput = page.locator(".taskchute-task-comments-popover textarea")
+  await popoverInput.fill("Outline done")
+  await popoverInput.press("Enter")
+  await expect(button).toHaveClass(/\bactive\b/)
+  await button.click()
+  await expect(page.locator(".taskchute-task-comments-popover")).toHaveCount(0)
+
+  await page.locator(".top-bar-container").hover()
+  await expect.poll(look).toEqual({ opacity: "0.6", shadow: "none", background: "rgba(0, 0, 0, 0)" })
+})
+
+// The 💬 opens a popover under itself, laid out like the day's window: no row
+// moves, the comments pile up oldest first above an input that keeps its
+// size when focused, and Esc closes it.
+test("a running task's 💬 opens a popover under it that moves no row", async ({ obsidian }) => {
+  const { page } = obsidian
+  const taskPath = await createTask(page, "Write report")
+  await createTask(page, "Answer mail")
+  await createTask(page, "Weekly review")
+  await openTaskChute(page)
+  const row = taskRow(page, taskPath)
+  await row.locator(".play-stop-button").click()
+  await expect.poll(() => rowState(row)).toBe("running")
+  const rowTops = () =>
+    page.locator(".taskchute-view-root .task-item").evaluateAll((rows) => rows.map((el) => Math.round(el.getBoundingClientRect().top)))
+  const before = await rowTops()
+
+  const button = row.locator(".comment-button")
+  await button.click()
+  const popover = page.locator(".taskchute-task-comments-popover")
+  const input = popover.locator("textarea")
+  await expect(input).toBeFocused()
+  expect(await rowTops()).toEqual(before)
+  // Under the 💬, its right edge on the 💬's (once the opening animation is over).
+  await expect
+    .poll(async () => {
+      const [b, p] = await Promise.all([button.boundingBox(), popover.boundingBox()])
+      return Math.round(b!.x + b!.width - (p!.x + p!.width))
+    })
+    .toBe(0)
+  expect((await popover.boundingBox())!.y).toBeGreaterThan((await button.boundingBox())!.y + (await button.boundingBox())!.height)
+
+  const inputHeight = () => input.evaluate((el) => (el as HTMLElement).offsetHeight)
+  const height = await inputHeight()
+  for (const text of ["Outline done", "Asked for review"]) {
+    await input.fill(text)
+    await input.press("Enter")
+  }
+  await expect(popover.locator(".taskchute-comment-text")).toHaveText(["Outline done", "Asked for review"])
+  await expect(input).toBeFocused()
+  expect(await inputHeight()).toBe(height)
+  expect(await rowTops()).toEqual(before)
+
+  await input.press("Escape")
+  await expect(popover).toHaveCount(0)
+})
+
+// The popover's list has one size from the start, five one-line comments:
+// adding never moves its edge or its input, the sixth and older are a scroll
+// away, and each add keeps the newest in view.
+test("a running task's popover keeps its size: five comments fit, the sixth scrolls", async ({ obsidian }) => {
+  const { page } = obsidian
+  const taskPath = await createTask(page, "Write report")
+  await openTaskChute(page)
+  const row = taskRow(page, taskPath)
+  await row.locator(".play-stop-button").click()
+  await expect.poll(() => rowState(row)).toBe("running")
+  await row.locator(".comment-button").click()
+  const popover = page.locator(".taskchute-task-comments-popover")
+  const input = popover.locator("textarea")
+  await expect(input).toBeFocused()
+  const box = () =>
+    popover.evaluate((el) => {
+      const body = el.querySelector<HTMLElement>(".taskchute-day-comments-window__body")!
+      return {
+        height: (el as HTMLElement).offsetHeight,
+        scrolls: body.scrollHeight > body.clientHeight,
+        atEnd: Math.abs(body.scrollTop + body.clientHeight - body.scrollHeight) < 2,
+      }
+    })
+  const empty = await box()
+  expect(empty.scrolls).toBe(false)
+
+  for (let i = 1; i <= 6; i += 1) {
+    await input.fill(`Note ${i}`)
+    await input.press("Enter")
+    await expect(popover.locator(".taskchute-comment-text")).toHaveCount(i)
+    await expect.poll(box).toEqual({ height: empty.height, scrolls: i > 5, atEnd: true })
+  }
+  await expect(input).toBeFocused()
 })
 
 // LEV-366: with a mouse, a done task's empty 💬 shows only while the pointer is
