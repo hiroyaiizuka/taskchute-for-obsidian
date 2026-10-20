@@ -311,9 +311,44 @@ describe('AiTaskManager.startRun', () => {
     expect(record.status).toBe('stopped')
   })
 
+  // LEV-386: a note only asks. What the task modal can write reaches the CLI;
+  // anything else in ai_task_args is left out and reported.
+  test('passes only what the task modal can write, and reports the rest', async () => {
+    const harness = createHarness({
+      frontmatter: {
+        ai_task: true,
+        ai_task_args:
+          '--model sonnet --mcp-config evil.json --permission-mode auto --settings hooks.json',
+      },
+    })
+
+    const prepared = await harness.manager.prepareRun(makeTaskFile())
+
+    expect(prepared.extraArgs).toEqual(['--model', 'sonnet', '--permission-mode', 'auto'])
+    expect(prepared.ignoredArgs).toEqual(['--mcp-config', 'evil.json', '--settings', 'hooks.json'])
+    expect(prepared.skipPermissionsDowngraded).toBe(false)
+  })
+
+  test('runs a skip-permissions note in auto mode unless this device allowed it', async () => {
+    const harness = createHarness({
+      frontmatter: { ai_task: true, ai_task_args: '--dangerously-skip-permissions --model opus' },
+    })
+
+    const notAllowed = await harness.manager.prepareRun(makeTaskFile())
+    expect(notAllowed.extraArgs).toEqual(['--permission-mode', 'auto', '--model', 'opus'])
+    expect(notAllowed.skipPermissionsDowngraded).toBe(true)
+
+    const allowed = await harness.manager.prepareRun(makeTaskFile(), { allowSkipPermissions: true })
+    expect(allowed.extraArgs).toEqual(['--dangerously-skip-permissions', '--model', 'opus'])
+    expect(allowed.skipPermissionsDowngraded).toBe(false)
+
+    await harness.manager.startRun(makeTaskFile())
+    expect(harness.claude.last.request.extraArgs).toEqual(['--permission-mode', 'auto', '--model', 'opus'])
+  })
+
   test('starts a claude run and transitions starting -> running', async () => {
     const harness = createHarness({
-      frontmatter: { ai_task: true, ai_task_args: '--max-turns 1' },
+      frontmatter: { ai_task: true, ai_task_args: '--model sonnet' },
     })
     const statuses: string[] = []
     harness.manager.onChange((record) => statuses.push(record.status))
@@ -326,7 +361,7 @@ describe('AiTaskManager.startRun', () => {
       binaryPath: '/bin/claude',
       prompt: 'Do the thing',
       cwd: '/vault/base',
-      extraArgs: ['--max-turns', '1'],
+      extraArgs: ['--model', 'sonnet'],
     })
     expect(record.status).toBe('running')
     expect(record.pid).toBe(4321)
@@ -1164,7 +1199,7 @@ describe('AiTaskManager.followUp', () => {
 
   test('dispatches a resume run and appends the user text to the same record', async () => {
     const harness = createHarness({
-      frontmatter: { ai_task: true, ai_task_args: '--max-turns 1' },
+      frontmatter: { ai_task: true, ai_task_args: '--model sonnet' },
     })
     const record = await startFinishedRun(harness)
     const statuses: string[] = []
@@ -1178,7 +1213,7 @@ describe('AiTaskManager.followUp', () => {
       binaryPath: '/bin/claude',
       prompt: 'continue please',
       cwd: '/vault/base',
-      extraArgs: ['--max-turns', '1'],
+      extraArgs: ['--model', 'sonnet'],
       resumeSessionId: 'sess-1',
     })
     expect(record.events).toContainEqual({ kind: 'user-text', text: 'continue please' })

@@ -57,7 +57,7 @@ import TaskKeyboardController from "@/ui/task/TaskKeyboardController"
 import AccentContrastController from "@/ui/tasklist/AccentContrastController"
 import RoutineController from "@/features/routine/controllers/RoutineController"
 import TaskHeaderController from "@/ui/header/TaskHeaderController"
-import { showConfirmModal } from "@/ui/modals/ConfirmModal"
+import { showConfirmModal, type ConfirmModalOptions } from "@/ui/modals/ConfirmModal"
 import { showDisambiguateStopTimeDateModal } from "@/ui/modals/DisambiguateStopTimeDateModal"
 import TaskViewLayout from "@/ui/layout/TaskViewLayout"
 import { ReminderSettingsModal } from "@/features/reminder/modals/ReminderSettingsModal"
@@ -78,6 +78,11 @@ import {
 } from "@/features/ai-task/services/AiTaskManager"
 import { AiBinaryNotFoundError } from "@/features/ai-task/services/BinaryLocator"
 import { readAiTaskConfig } from "@/features/ai-task/services/AiTaskFrontmatterReader"
+import {
+  isSkipPermissionsAllowedOnThisDevice,
+  resolveSkipPermissionsForRun,
+  type AiRunTrigger,
+} from "@/features/ai-task/services/AiSkipPermissionsConsent"
 import { AiTaskEditService } from "@/features/ai-task/services/AiTaskEditService"
 import { AiTaskObsidianLinkCoordinator } from "@/features/ai-task/services/AiTaskObsidianLinkCoordinator"
 import { AiTaskLinkSync } from "@/features/ai-task/services/AiTaskLinkSync"
@@ -968,6 +973,7 @@ export class TaskChuteView
           }, reservation)
         : await manager.startRun(file, {
             mode,
+            allowSkipPermissions: isSkipPermissionsAllowedOnThisDevice(this.app),
             instanceId: inst.instanceId,
             cols: size.cols,
             rows: size.rows,
@@ -990,6 +996,7 @@ export class TaskChuteView
   private async prepareAiRunForInstance(
     inst: TaskInstance,
     manager: AiTaskManager,
+    trigger: AiRunTrigger,
   ): Promise<
     | { kind: 'not-needed' }
     | { kind: 'ready'; prepared: PreparedAiRun }
@@ -1006,7 +1013,19 @@ export class TaskChuteView
     try {
       const mode: AiRunMode =
         this.plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal'
-      const prepared = await manager.prepareRun(inst.task.file, { mode })
+      // LEV-386: the note only asks for skip-permissions; this device decides.
+      const allowSkipPermissions = await resolveSkipPermissionsForRun({
+        storage: this.app,
+        frontmatter: inst.task.frontmatter,
+        trigger,
+        confirm: () =>
+          showConfirmModal(this.app, this.skipPermissionsConfirmOptions(inst)),
+      })
+      const prepared = await manager.prepareRun(inst.task.file, {
+        mode,
+        allowSkipPermissions,
+      })
+      this.notifyAiRunArgs(prepared, trigger)
       return { kind: 'ready', prepared }
     } catch (error) {
       this.notifyAiRunError(error)
@@ -1386,6 +1405,7 @@ export class TaskChuteView
     const preflight = await this.prepareAiRunForInstance(
       target,
       managerAtDispatch,
+      'automatic',
     )
     if (preflight.kind === 'failed') return null
 
@@ -1554,7 +1574,7 @@ export class TaskChuteView
     manager: AiTaskManager,
   ): Promise<AmbientAiTaskStartedRun | null> {
     const startGeneration = this.beginAiStartAttempt(inst)
-    const preflight = await this.prepareAiRunForInstance(inst, manager)
+    const preflight = await this.prepareAiRunForInstance(inst, manager, 'automatic')
     if (preflight.kind === 'failed') return null
     let reservation: AiTaskStartReservation | undefined
     if (preflight.kind === 'ready') {
@@ -2028,6 +2048,55 @@ export class TaskChuteView
         }))
     }
     await Promise.all(recoveries)
+  }
+
+  /** Asked when the user starts a skip-permissions task this device has not allowed. */
+  private skipPermissionsConfirmOptions(inst: TaskInstance): ConfirmModalOptions {
+    const name = inst.task.file?.basename ?? inst.task.name
+    return {
+      title: this.tv(
+        "aiTask.skipPermissions.title",
+        'Run "{name}" with skip permissions?',
+        { name },
+      ),
+      message: this.tv(
+        "aiTask.skipPermissions.message",
+        "This task is set to skip permissions: the AI runs anything without asking.",
+      ),
+      description: this.tv(
+        "aiTask.skipPermissions.description",
+        'Allowing it turns skip permissions on for every AI task on this device, including ones that start automatically. It is kept on this device only (not synced); turn it off any time in the AI task settings.',
+      ),
+      confirmText: this.tv("aiTask.skipPermissions.allow", "Allow on this device"),
+      cancelText: this.tv("aiTask.skipPermissions.useAuto", "Run in auto mode this time"),
+      destructive: true,
+    }
+  }
+
+  /** What the run left out of the note, or ran differently (LEV-386). */
+  private notifyAiRunArgs(prepared: PreparedAiRun, trigger: AiRunTrigger): void {
+    const ignored = (prepared.ignoredArgs ?? []).join(" ")
+    if (ignored.length > 0) {
+      new Notice(
+        this.tv(
+          "aiTask.notices.argsIgnored",
+          '"{name}": arguments the task settings cannot set were not used: {args}',
+          {
+            name: prepared.taskName,
+            args: ignored.length > 200 ? `${ignored.slice(0, 200)}…` : ignored,
+          },
+        ),
+      )
+    }
+    if (prepared.skipPermissionsDowngraded === true && trigger === "automatic") {
+      new Notice(
+        this.tv(
+          "aiTask.notices.skipPermissionsDowngraded",
+          '"{name}" asks for skip permissions, which this device has not allowed, so it runs in auto mode. You can allow it in the AI task settings.',
+          { name: prepared.taskName },
+        ),
+      )
+    }
   }
 
   /** Once per manager: terminal mode fell back to conversation (Windows). */
@@ -3326,7 +3395,7 @@ export class TaskChuteView
     const startGeneration = this.beginAiStartAttempt(inst)
     const manager = this.plugin.aiTaskManager
     const preflight = manager
-      ? await this.prepareAiRunForInstance(inst, manager)
+      ? await this.prepareAiRunForInstance(inst, manager, 'manual')
       : { kind: 'not-needed' as const }
     // A broken/missing recipe must fail closed before timer persistence.
     if (preflight.kind === 'failed') return

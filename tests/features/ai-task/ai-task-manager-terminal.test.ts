@@ -229,6 +229,7 @@ describe('AiTaskManager terminal mode routing', () => {
 
     const record = await harness.manager.startRun(makeTaskFile(), {
       instanceId: 'inst-42',
+      allowSkipPermissions: true,
     })
 
     expect(harness.terminal.runs).toHaveLength(1)

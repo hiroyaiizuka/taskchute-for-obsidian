@@ -105,6 +105,9 @@ export const en = {
         "Windows .cmd/.bat/.ps1 shims cannot be used as manual CLI paths. Leave this empty for auto-detection or select the actual executable/package entrypoint.",
       retentionName: "Run log retention (days)",
       retentionDesc: "Run log notes older than this many days are deleted automatically.",
+      skipPermissionsName: "Allow skip permissions on this device",
+      skipPermissionsDesc:
+        "When on, every AI task set to skip permissions runs without asking, including ones that start automatically. This setting belongs to this device and is not synced. When off, starting such a task with ▶ asks first, and an automatic start runs it in auto mode.",
       previousRuntimeShutdownFailed:
         "The previous AI runtime could not be stopped safely. AI tasks remain disabled; please try again.",
     },
@@ -341,6 +344,15 @@ export const en = {
         runningPlaceholder: "Running…",
         unavailablePlaceholder: "Follow-up is not available for this run",
       },
+      skipPermissions: {
+        title: 'Run "{name}" with skip permissions?',
+        message:
+          "This task is set to skip permissions: the AI runs anything without asking.",
+        description:
+          'Allowing it turns skip permissions on for every AI task on this device, including ones that start automatically. It is kept on this device only (not synced); turn it off any time in the AI task settings.',
+        allow: "Allow on this device",
+        useAuto: "Run in auto mode this time",
+      },
       notices: {
         editFailed: "Could not load or save the AI task settings.",
         noPrompt: "No prompt section found. Add a \"## prompt\" heading to the task note.",
@@ -354,6 +366,9 @@ export const en = {
         shellUnavailable: "Terminal sessions are not available on this platform.",
         terminalFallback:
           "The embedded terminal is not available on this computer, so the AI run uses conversation mode.",
+        argsIgnored: '"{name}": arguments the task settings cannot set were not used: {args}',
+        skipPermissionsDowngraded:
+          '"{name}" asks for skip permissions, which this device has not allowed, so it runs in auto mode. You can allow it in the AI task settings.',
         shellStartFailed: "Failed to start terminal session: {message}",
         fileOpenFailed: "Could not open or save the file: {message}",
       },
