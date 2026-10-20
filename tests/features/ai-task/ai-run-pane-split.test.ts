@@ -25,6 +25,7 @@ import type { AiRunPaneControllerHost } from '@/features/ai-task/ui/AiRunPaneCon
 import type { AiRunChangeType } from '@/features/ai-task/services/AiTaskManager'
 import type { TerminalViewAdapterLike } from '@/features/ai-task/ui/TerminalViewAdapter'
 import type { AiRunRecord } from '@/features/ai-task/types'
+import type { AgentSessionListItem } from '@/features/ai-task/sessions/AgentSessionHistory'
 
 type ChangeListener = (record: AiRunRecord, changeType?: AiRunChangeType) => void
 type TerminalDataListener = (chunk: string) => void
@@ -1433,6 +1434,130 @@ describe('AiRunPaneController split panels', () => {
       expect(adapters[0].disposed).toBe(true)
       expect(adapters[1].disposed).toBe(true)
       expect(container.querySelector('.ai-run-pane')).toBeNull()
+    })
+  })
+
+  // LEV-381: a session resumed from the history joins the task shown, as +
+  // does, instead of taking over the panel as a tab set of its own.
+  describe('a session resumed from the history', () => {
+    const SESSION: AgentSessionListItem = {
+      host: 'claude',
+      id: 'session-1',
+      path: '/home/.claude/projects/p/session-1.jsonl',
+      cwd: '/vault',
+      title: 'weekly-journal',
+      updatedAt: Date.now(),
+      archived: false,
+    }
+
+    const tabRunIds = (): Array<string | null> =>
+      Array.from(
+        panels()[0].querySelectorAll<HTMLElement>('.ai-run-pane__tab'),
+      ).map((tab) => tab.getAttribute('data-run-id'))
+    const showTask = (runId: string): void =>
+      container
+        .querySelector<HTMLElement>(`.ai-run-pane__run[data-run-id="${runId}"]`)
+        ?.click()
+    const flush = async (): Promise<void> => {
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    }
+
+    let resumeAgentSession: jest.Mock
+
+    beforeEach(() => {
+      let sequence = 0
+      resumeAgentSession = jest.fn(
+        (options: { name: string; cwd: string; parentRunId?: string }) => {
+          sequence += 1
+          const record: AiRunRecord = {
+            id: `resumed-${sequence}`,
+            taskPath: '',
+            taskName: options.name,
+            cwd: options.cwd,
+            parentRunId: options.parentRunId,
+            host: 'shell',
+            mode: 'terminal',
+            status: 'running',
+            startedAt: Date.now(),
+            events: [],
+          }
+          manager.emit(record)
+          return Promise.resolve(record)
+        },
+      )
+      Object.assign(manager, {
+        resumeAgentSession,
+        supportsSessionResume: () => true,
+        getSessionHistory: () => ({
+          folder: '/vault',
+          history: {
+            canResume: () => Promise.resolve(true),
+            refresh: () => Promise.resolve(),
+            prepareSearch: () => Promise.resolve(),
+            page: () => Promise.resolve({ items: [SESSION], nextCursor: null }),
+          },
+        }),
+      })
+    })
+
+    async function resumeFromHistory(): Promise<void> {
+      container.querySelector<HTMLElement>('.ai-run-pane__sidebar-history')?.click()
+      await flush()
+      container.querySelector<HTMLElement>('.ai-session-history__resume')?.click()
+      await flush()
+      container.querySelector<HTMLElement>('.ai-run-pane__sidebar-history')?.click()
+    }
+
+    test('opens beside the task tab and stays there across task switches', async () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+      manager.emit(
+        createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }),
+      )
+      showTask('run-a')
+
+      await resumeFromHistory()
+
+      expect(resumeAgentSession).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'session-1', parentRunId: 'run-a' }),
+      )
+      expect(tabRunIds()).toEqual(['run-a', 'resumed-1'])
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('resumed-1')
+
+      showTask('run-b')
+      expect(tabRunIds()).toEqual(['run-b'])
+      showTask('run-a')
+      expect(tabRunIds()).toEqual(['run-a', 'resumed-1'])
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('resumed-1')
+    })
+
+    test('resumed from a + terminal, it joins that terminal’s task', async () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+
+      await resumeFromHistory()
+
+      expect(resumeAgentSession).toHaveBeenCalledWith(
+        expect.objectContaining({ parentRunId: 'run-a' }),
+      )
+      expect(tabRunIds()).toEqual(['run-a', 'shell-1', 'resumed-1'])
+    })
+
+    test('closes with the task it joined, as a + terminal does', async () => {
+      controller.mount(container)
+      const task = createRun({ id: 'run-a', taskName: 'AI Weekly Journal' })
+      manager.emit(task)
+      await resumeFromHistory()
+
+      task.status = 'succeeded'
+      manager.emit(task)
+      manager.emit(task, 'persisted')
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__run[data-run-id="run-a"] .ai-run-pane__run-close')
+        ?.click()
+
+      expect(manager.stopRun).toHaveBeenCalledWith('resumed-1')
     })
   })
 })

@@ -297,6 +297,29 @@ describe('AiTaskManager terminal mode routing', () => {
     )
   })
 
+  test('a resumed session joins the tab set of the run it was opened beside, while that run is known', async () => {
+    const harness = createTerminalHarness()
+    const task = await harness.manager.startRun(makeTaskFile(), { mode: 'terminal' })
+
+    const joined = await harness.manager.resumeAgentSession({
+      host: 'claude',
+      sessionId: 'abc-123',
+      cwd: '/work/project',
+      name: 'Plan the move',
+      parentRunId: task.id,
+    })
+    const unknown = await harness.manager.resumeAgentSession({
+      host: 'claude',
+      sessionId: 'abc-123',
+      cwd: '/work/project',
+      name: 'Plan the move',
+      parentRunId: 'ai-run-closed',
+    })
+
+    expect(joined.parentRunId).toBe(task.id)
+    expect(unknown.parentRunId).toBeUndefined()
+  })
+
   test('renderer transition preserves a broker-owned terminal run', async () => {
     const harness = createTerminalHarness()
     harness.terminal.isPersistent = true
