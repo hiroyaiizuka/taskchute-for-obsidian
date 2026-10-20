@@ -242,6 +242,7 @@ export const en = {
       stopAndClose: "Stop and close run",
       closeRow: {
         label: "Close all of this task's tabs",
+        terminalLabel: "Close all of this row's tabs",
         title: 'Close "{name}"?',
         messageOne: "This closes this row's tab.",
         messageMany: "This closes all {count} of this row's tabs.",
@@ -249,6 +250,7 @@ export const en = {
         runningTab: "• {name} (running)",
         keeps: "The task note and its run logs are kept.",
         keepsRunning: "Anything running is stopped. The task note and its run logs are kept.",
+        stopsRunning: "Anything running is stopped.",
         confirm: "Close all",
         cancel: "Cancel",
       },

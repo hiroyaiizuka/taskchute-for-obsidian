@@ -240,6 +240,7 @@ export const ja = {
       stopAndClose: "実行を停止して閉じる",
       closeRow: {
         label: "このタスクのタブをすべて閉じる",
+        terminalLabel: "この行のタブをすべて閉じる",
         title: "「{name}」を閉じますか？",
         messageOne: "この行のタブを閉じます。",
         messageMany: "この行のタブ {count} 個をすべて閉じます。",
@@ -247,6 +248,7 @@ export const ja = {
         runningTab: "・{name}（実行中）",
         keeps: "タスクのノートと実行ログは消えません。",
         keepsRunning: "動いているものは止まります。タスクのノートと実行ログは消えません。",
+        stopsRunning: "動いているものは止まります。",
         confirm: "すべて閉じる",
         cancel: "キャンセル",
       },

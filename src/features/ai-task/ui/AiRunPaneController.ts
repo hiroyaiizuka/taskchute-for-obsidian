@@ -2008,7 +2008,8 @@ export class AiRunPaneController {
       this.showRunInFocusedPanel(taskScopeRunId)
       return
     }
-    // A shell without a task has no row to click.
+    // A workspace with no row to click is selected directly: terminals whose
+    // task was not restored with them, for one.
     this.selectRunInPanel(panel, fallbackRunId)
     if (!this.isCollapsed()) this.ensureVisibleTerminalViews()
   }
@@ -2152,10 +2153,13 @@ export class AiRunPaneController {
     const target = isShell ? this.getFocusedPanel() : this.getPrimaryPanel()
     if (!sidebarEl || !target) return
 
-    const row = isShell
+    // Tasks have a row; so do terminals opened with no task to sit beside
+    // (LEV-385). Those opened beside a run show under that run's row.
+    const ownsRow = !isShell || record.parentRunId === undefined
+    const row = !ownsRow
       ? null
       : sidebarEl.createDiv({
-          cls: 'ai-run-pane__run',
+          cls: isShell ? 'ai-run-pane__run ai-run-pane__run--shell' : 'ai-run-pane__run',
           attr: {
             role: 'tab',
             tabindex: '-1',
@@ -2246,7 +2250,7 @@ export class AiRunPaneController {
     this.renderTerminalNotice(view, record, false)
     if (!isShell && !view.tabClosed && target.taskRunId === null) {
       target.taskRunId = record.id
-      target.taskScopeRunId = record.id
+      if (!this.showsTerminalRowScope(target)) target.taskScopeRunId = record.id
     }
     this.refreshRunRow(view, record)
     if (!isTerminal) {
@@ -2394,7 +2398,10 @@ export class AiRunPaneController {
     record: AiRunRecord,
   ): void {
     if (!view.tabClosed && !isClosableStatus(record.status)) return
-    const label = this.host.tv('aiTask.closeRow.label', "Close all of this task's tabs")
+    const label =
+      record.host === 'shell'
+        ? this.host.tv('aiTask.closeRow.terminalLabel', "Close all of this row's tabs")
+        : this.host.tv('aiTask.closeRow.label', "Close all of this task's tabs")
     const button = row.createEl('button', {
       cls: 'ai-run-pane__run-close',
       attr: { 'aria-label': label, title: label },
@@ -2469,10 +2476,14 @@ export class AiRunPaneController {
             { count },
           )
         : this.host.tv('aiTask.closeRow.messageOne', "This closes this row's tab.")
-    return {
-      title: this.host.tv('aiTask.closeRow.title', 'Close "{name}"?', { name }),
-      message: [summary, ...tabLines].join('\n'),
-      description: anyRunning
+    let description: string | undefined
+    if (record?.host === 'shell') {
+      // A terminal row has no task note to keep.
+      description = anyRunning
+        ? this.host.tv('aiTask.closeRow.stopsRunning', 'Anything running is stopped.')
+        : undefined
+    } else {
+      description = anyRunning
         ? this.host.tv(
             'aiTask.closeRow.keepsRunning',
             'Anything running is stopped. The task note and its run logs are kept.',
@@ -2480,7 +2491,12 @@ export class AiRunPaneController {
         : this.host.tv(
             'aiTask.closeRow.keeps',
             'The task note and its run logs are kept.',
-          ),
+          )
+    }
+    return {
+      title: this.host.tv('aiTask.closeRow.title', 'Close "{name}"?', { name }),
+      message: [summary, ...tabLines].join('\n'),
+      description,
       confirmText: this.host.tv('aiTask.closeRow.confirm', 'Close all'),
       cancelText: this.host.tv('aiTask.closeRow.cancel', 'Cancel'),
       destructive: true,
@@ -2694,8 +2710,9 @@ export class AiRunPaneController {
     // A Vertical Tab switches the complete task-local workspace. Its main
     // body is normalized into the shared primary panel; secondary panels
     // with the same scope become visible again, while every other task's
-    // split layout stays mounted but hidden.
-    if (record.host !== 'shell') {
+    // split layout stays mounted but hidden. Terminals opened with no task
+    // switch the same way from their own row, without taking the task slot.
+    if (view.row !== null) {
       const primary = this.getPrimaryPanel()
       if (!primary) return
       if (view.panelId !== primary.id) {
@@ -2713,7 +2730,7 @@ export class AiRunPaneController {
       }
       const stored = this.taskWorkspaceStates.get(runId)
       const storedPrimaryRunId = stored?.primarySelectedRunId
-      primary.taskRunId = runId
+      if (record.host !== 'shell') primary.taskRunId = runId
       primary.taskScopeRunId = runId
       const storedView = storedPrimaryRunId
         ? this.runViews.get(storedPrimaryRunId)
@@ -2825,12 +2842,15 @@ export class AiRunPaneController {
    * explicitly pressed + (or split, which creates its own shell panel).
    */
   private ensurePanelTaskSlot(panel: PanelView): void {
+    // While a terminal row's workspace is on screen the slot still holds a
+    // task (LEV-385); repairing the slot must not switch the screen to it.
+    const keepScope = this.showsTerminalRowScope(panel)
     const current = panel.taskRunId
     if (current !== null) {
       const view = this.runViews.get(current)
       const record = this.host.manager.getRun(current)
       if (view?.panelId === panel.id && record?.host !== 'shell') {
-        panel.taskScopeRunId = current
+        if (!keepScope) panel.taskScopeRunId = current
         return
       }
     }
@@ -2841,7 +2861,9 @@ export class AiRunPaneController {
       if (this.host.manager.getRun(runId)?.host === 'shell') continue
       panel.taskRunId = runId
     }
-    if (panel.taskRunId !== null) {
+    if (keepScope) {
+      // The terminal row's workspace stays.
+    } else if (panel.taskRunId !== null) {
       panel.taskScopeRunId = panel.taskRunId
     } else if (panel.selectedRunId !== null) {
       const selectedRecord = this.host.manager.getRun(panel.selectedRunId)
@@ -2854,9 +2876,27 @@ export class AiRunPaneController {
   }
 
   /**
+   * Whether the panel shows the workspace of a terminal opened with no task
+   * (a row of its own, LEV-385): its scope is such a terminal and the
+   * selected tab, in this panel, belongs to it.
+   */
+  private showsTerminalRowScope(panel: PanelView): boolean {
+    const scope = panel.taskScopeRunId
+    const selected = panel.selectedRunId
+    return (
+      scope !== null &&
+      selected !== null &&
+      this.runViews.get(scope)?.row != null &&
+      this.host.manager.getRun(scope)?.host === 'shell' &&
+      this.runViews.get(selected)?.panelId === panel.id &&
+      this.runBelongsToTaskScope(selected, scope)
+    )
+  }
+
+  /**
    * Stable owner key used by the task-local horizontal tab set. Top-level
-   * runs own themselves. A + terminal inherits parentRunId; an orphan shell
-   * (possible through an external quick-launch integration) owns itself.
+   * runs own themselves. A + terminal inherits parentRunId; one opened with
+   * no task owns itself, and has a row of its own (LEV-385).
    */
   private getTaskScopeRunId(record: AiRunRecord): string {
     return record.host === 'shell'
@@ -2865,19 +2905,21 @@ export class AiRunPaneController {
   }
 
   /**
-   * Resolve the one task row represented by the global Vertical Tabs rail.
-   * When the focused panel currently shows an explicit shell tab, retain its
-   * replaceable task slot as the roving target. A shell-only panel falls back
-   * to the first task row so the tablist never has zero keyboard stops.
+   * Resolve the one row represented by the global Vertical Tabs rail: the
+   * row of the workspace the focused panel shows. A terminal opened beside a
+   * run has no row of its own, so its owner's row (the panel's task scope)
+   * stands for it, then the panel's task slot. Otherwise the first row, so
+   * the tablist never has zero keyboard stops.
    */
   private getSelectedSidebarRunId(): string | null {
     const focused = this.getFocusedPanel()
-    const candidates = [focused?.selectedRunId, focused?.taskRunId]
+    const candidates = [
+      focused?.selectedRunId,
+      focused?.taskScopeRunId,
+      focused?.taskRunId,
+    ]
     for (const runId of candidates) {
-      if (!runId) continue
-      const view = this.runViews.get(runId)
-      const record = this.host.manager.getRun(runId)
-      if (view?.row && record?.host !== 'shell') return runId
+      if (runId && this.runViews.get(runId)?.row) return runId
     }
     if (this.activeTaskScopeRunId !== null) {
       const activeView = this.runViews.get(this.activeTaskScopeRunId)
