@@ -19,13 +19,18 @@ import {
   type ExecCaptureResult,
   type ProcessGateway,
 } from './NodeProcessGateway'
+import {
+  asdfShimDirectories,
+  KNOWN_BIN_DIRS,
+  miseShimDirectories,
+  voltaBinDirectories,
+} from './ToolInstallLocations'
 
 export const WHICH_TIMEOUT_MS = 10_000
 export const PROBE_TIMEOUT_MS = 2_000
 export const POSIX_BINARY_PATH_MARKER = '__TASKCHUTE_AI_BIN__'
 
 const PROBE_COMMAND = '/bin/test'
-const KNOWN_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin']
 const WINDOWS_PLATFORM = 'win32'
 
 /** Manually chosen CLI paths, keyed by each agent's setting. */
@@ -400,26 +405,14 @@ export class BinaryLocator {
     const command = getAiAgent(host).command
     if (typeof resolution !== 'string') return resolution
     const env = this.gateway.getBaseEnv()
-    const home = env['HOME']?.replace(/\/+$/u, '')
-    const candidates: string[] = []
-    if (resolution.includes('/mise/installs/')) {
-      const miseData = env['MISE_DATA_DIR']?.replace(/\/+$/u, '')
-      if (miseData) candidates.push(`${miseData}/shims/${command}`)
-      if (home) candidates.push(`${home}/.local/share/mise/shims/${command}`)
-    }
-    if (resolution.includes('/.asdf/installs/')) {
-      const asdfData = env['ASDF_DATA_DIR']?.replace(/\/+$/u, '')
-      if (asdfData) candidates.push(`${asdfData}/shims/${command}`)
-      if (home) candidates.push(`${home}/.asdf/shims/${command}`)
-    }
-    if (resolution.includes('/.volta/tools/')) {
-      const voltaHome = env['VOLTA_HOME']?.replace(/\/+$/u, '')
-      if (voltaHome) candidates.push(`${voltaHome}/bin/${command}`)
-      if (home) candidates.push(`${home}/.volta/bin/${command}`)
-    }
+    const directories: string[] = []
+    if (resolution.includes('/mise/installs/')) directories.push(...miseShimDirectories(env))
+    if (resolution.includes('/.asdf/installs/')) directories.push(...asdfShimDirectories(env))
+    if (resolution.includes('/.volta/tools/')) directories.push(...voltaBinDirectories(env))
     if (resolution.includes('/Cellar/') || resolution.includes('/homebrew/Cellar/')) {
-      candidates.push(`/opt/homebrew/bin/${command}`, `/usr/local/bin/${command}`)
+      directories.push(...KNOWN_BIN_DIRS)
     }
+    const candidates = directories.map((directory) => `${directory}/${command}`)
     return (await this.probeExecutablePaths(candidates)) ?? resolution
   }
 

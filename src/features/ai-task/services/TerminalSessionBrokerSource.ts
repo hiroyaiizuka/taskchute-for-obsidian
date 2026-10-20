@@ -24,6 +24,22 @@ import {
  *
  * The result is memoised, so the ~1 ms of compression is paid once per session
  * by the desktop runtime that actually spawns a broker.
+ *
+ * terminatedSessionIds: a terminate-unavailable for a session the broker does
+ * not know yet is remembered, and a later spawn of that id is refused. A
+ * renderer that gave up on a frozen broker has both the spawn and its
+ * termination queued in that broker's sockets, on different connections; when
+ * the broker resumes it may read them in either order, and the 'missing' it
+ * answered must stay true.
+ *
+ * spawnedUnderLease: that renderer may also have reloaded before the broker
+ * resumed, so its queued terminate-unavailable carries a lease that is no
+ * longer current. It is still honoured for a session spawned under that very
+ * lease (and for an id the broker has not seen, which only records the
+ * tombstone): it is the spawning renderer cleaning up its own spawn, not a
+ * stale renderer reaching into a session another one adopted. Without this a
+ * spawn read before the lease rotated would run with nobody to stop it, while
+ * a spawn read after it is refused by claimRendererLease as before.
  */
 let cachedBrokerSource: string | undefined
 
@@ -80,6 +96,7 @@ let ownerPythonHookReady = false;
 const marker = '__TASKCHUTE_AI_EXIT__';
 if (!descriptorPath || !/^[a-f0-9]{64}$/.test(token || '')) process.exit(64);
 const sessions = new Map();
+const terminatedSessionIds = new Set();
 const clients = new Set();
 let ownerWatchdog = null;
 let ownerWatchdogReady = false;
@@ -131,6 +148,14 @@ function rendererLeaseOf(message) {
     return null;
   }
   return { token, ownerId, generation };
+}
+function leaseKey(lease) {
+  return lease ? lease.ownerId + ' ' + lease.generation + ' ' + lease.token : '';
+}
+function spawnedUnderLease(id, message) {
+  const key = leaseKey(rendererLeaseOf(message));
+  const session = sessions.get(id);
+  return key !== '' && (!session || session.spawnLease === key);
 }
 function rendererLeaseIsCurrent(message) {
   const lease = rendererLeaseOf(message);
@@ -672,6 +697,8 @@ function pidOwnershipState(pid, identity, snapshot) {
         {
           encoding: 'utf8',
           maxBuffer: 4096,
+          timeout: posixProbeTimeoutMs(),
+          killSignal: 'SIGKILL',
           env: Object.assign({}, process.env, { LC_ALL: 'C', LANG: 'C' }),
         },
       ).trim();
@@ -1288,6 +1315,10 @@ function spawnSession(message, socket) {
     attachSession(message.sessionId, socket);
     return;
   }
+  if (terminatedSessionIds.has(message.sessionId)) {
+    send(socket, { type: 'error', sessionId: message.sessionId, message: 'Terminal session was already terminated' });
+    return;
+  }
   if (!ownerWatchdogReady) {
     send(socket, {
       type: 'error',
@@ -1452,6 +1483,7 @@ function spawnSession(message, socket) {
   }
   const session = {
     id: message.sessionId,
+    spawnLease: leaseKey(rendererLeaseOf(message)),
     child,
     clients: new Set([socket]),
     replayChunks: [],
@@ -1601,6 +1633,8 @@ function resizeSession(message) {
 function terminateUnavailableSession(id, socket) {
   const session = sessions.get(id);
   if (!session) {
+    if (terminatedSessionIds.size >= 4096) terminatedSessionIds.clear();
+    terminatedSessionIds.add(id);
     send(socket, { type: 'missing', sessionId: id });
     return;
   }
@@ -1732,7 +1766,11 @@ function handle(socket, message) {
     socket.destroy();
     return;
   }
-  if (!rendererLeaseIsCurrent(message)) {
+  const id = typeof message.sessionId === 'string' ? message.sessionId : '';
+  if (
+    !rendererLeaseIsCurrent(message) &&
+    !(message.op === 'terminate-unavailable' && spawnedUnderLease(id, message))
+  ) {
     // An old renderer socket may remain authenticated after a replacement.
     // Authentication proves only the vault broker secret; the monotonic
     // renderer lease is what prevents its delayed input/stop/resize from
@@ -1740,7 +1778,6 @@ function handle(socket, message) {
     socket.destroy();
     return;
   }
-  const id = typeof message.sessionId === 'string' ? message.sessionId : '';
   if (!/^[A-Za-z0-9._:-]{1,256}$/.test(id)) {
     send(socket, { type: 'error', message: 'Invalid session id' });
     return;

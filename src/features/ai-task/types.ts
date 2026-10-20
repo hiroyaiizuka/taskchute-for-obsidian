@@ -191,4 +191,24 @@ export interface AiRunRecord {
   pid?: number
   /** Human-readable failure summary, if any */
   errorMessage?: string
+  /**
+   * The latest thing the user should know about the terminal machinery
+   * itself (not the program in it). Shown by the pane beside the terminal,
+   * never written into the PTY stream.
+   */
+  terminalNotice?: AiTerminalNotice
+}
+
+/** A localized notice about a terminal run's machinery. */
+export interface AiTerminalNotice {
+  kind: 'start-failed' | 'connection-lost' | 'input-dropped' | 'interrupted'
+  /** Localized and ready to display. */
+  message: string
+  /** Strictly increasing across notices; a new value is a new notice. */
+  seq: number
+  /**
+   * Banner only, no Obsidian Notice: about a run restored at startup, which
+   * the user did not just do anything with.
+   */
+  quiet?: boolean
 }

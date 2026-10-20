@@ -263,6 +263,16 @@ interface RunView {
    * the manager's exit-time snapshot must never read a disposed adapter.
    */
   exitPersisted: boolean
+  /**
+   * Terminal runs only: the element xterm opens in. The run's notice banner
+   * is its sibling below, so a shown banner shrinks this host and xterm
+   * refits to the rows that remain instead of being painted over.
+   */
+  terminalHost: HTMLElement | null
+  /** Banner showing the run's terminal notice, beside (never inside) xterm. */
+  noticeEl: HTMLElement | null
+  /** `seq` of the notice last shown, so each one is shown and announced once. */
+  lastNoticeSeq: number | null
 }
 
 /** One side-by-side content panel (tab strip + bodies + selection) */
@@ -1671,6 +1681,7 @@ export class AiRunPaneController {
       this.refreshRunRow(existing, record)
       this.refreshTabsShowingRun(record.id)
     }
+    this.renderTerminalNotice(existing, record, true)
     if (!existing.isTerminal) {
       this.scheduleEventSync(record.id)
     }
@@ -1927,8 +1938,16 @@ export class AiRunPaneController {
       exitPersisted:
         this.host.manager.isRunExitPersisted?.(record.id) ??
         !ACTIVE_STATUSES.has(record.status),
+      terminalHost: isTerminal
+        ? body.createDiv({ cls: 'ai-run-pane__terminal-host' })
+        : null,
+      noticeEl: null,
+      lastNoticeSeq: null,
     }
     this.runViews.set(record.id, view)
+    // A notice the record already carried (e.g. at a pane remount) is shown
+    // but not announced again.
+    this.renderTerminalNotice(view, record, false)
     if (!isShell && target.taskRunId === null) {
       target.taskRunId = record.id
       target.taskScopeRunId = record.id
@@ -1987,6 +2006,54 @@ export class AiRunPaneController {
     event.preventDefault()
     this.showRunInFocusedPanel(targetRunId)
     target.focus()
+  }
+
+  /**
+   * Show what the manager knows about the terminal's machinery (why it
+   * failed, a lost connection, dropped input) as a dismissible banner below
+   * the terminal, and announce each new one with an Obsidian Notice unless it
+   * is quiet (a run restored at startup). The banner takes its own row, so
+   * xterm refits above it rather than losing its last rows under it. It is
+   * deliberately not written into xterm: a full-screen TUI would paint over
+   * it, and the text would replay with the terminal after a reload. A notice
+   * cleared from the record (the run ended normally) removes the banner.
+   */
+  private renderTerminalNotice(
+    view: RunView,
+    record: AiRunRecord,
+    announce: boolean,
+  ): void {
+    const notice = record.terminalNotice
+    if (!notice) {
+      view.noticeEl?.remove()
+      view.noticeEl = null
+      view.lastNoticeSeq = null
+      return
+    }
+    if (view.lastNoticeSeq === notice.seq) return
+    view.lastNoticeSeq = notice.seq
+    view.noticeEl?.remove()
+    const banner = view.body.createDiv({
+      cls: 'ai-run-pane__terminal-notice',
+      attr: { role: 'status', 'data-kind': notice.kind },
+    })
+    banner.createSpan({
+      cls: 'ai-run-pane__terminal-notice-text',
+      text: notice.message,
+    })
+    const dismissLabel = this.host.tv('aiTask.dismissNotice', 'Dismiss')
+    const dismiss = banner.createEl('button', {
+      cls: 'clickable-icon ai-run-pane__terminal-notice-close',
+      attr: { 'aria-label': dismissLabel, title: dismissLabel },
+    })
+    setIcon(dismiss, 'x')
+    dismiss.addEventListener('click', (event) => {
+      event.stopPropagation()
+      banner.remove()
+      if (view.noticeEl === banner) view.noticeEl = null
+    })
+    view.noticeEl = banner
+    if (announce && notice.quiet !== true) new Notice(notice.message)
   }
 
   /** Rebuild one sidebar row (status dot, truncated name, × control) */
@@ -2437,7 +2504,7 @@ export class AiRunPaneController {
           this.host.manager.resizeTerminal?.(runId, cols, rows)
         }) ?? (() => undefined)
       adapter.open(
-        view.body,
+        view.terminalHost ?? view.body,
         record?.cols ?? DEFAULT_TERMINAL_COLS,
         record?.rows ?? DEFAULT_TERMINAL_ROWS,
       )

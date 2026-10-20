@@ -12,10 +12,12 @@
 
 import type {
   AiRunExitOutcome,
+  AiTerminalFailureKind,
 } from './dispatchers/Dispatcher'
 import { Platform } from 'obsidian'
 
 import type { SpawnProcessRequest } from './NodeProcessGateway'
+import { listNodeExecutableCandidates } from './NodeExecutableLocator'
 import { buildTerminalBrokerSource } from './TerminalSessionBrokerSource'
 import {
   sleepWithStableTimer,
@@ -60,6 +62,10 @@ interface NodeNetModuleLike {
 }
 
 interface NodeFsModuleLike {
+  constants: { X_OK: number }
+  accessSync(path: string, mode: number): void
+  statSync(path: string): { isFile(): boolean }
+  readdirSync(path: string): string[]
   readFileSync(path: string, encoding: 'utf8'): string
   lstatSync(path: string): {
     dev: number
@@ -74,6 +80,7 @@ interface NodeFsModuleLike {
 
 interface NodeOsModuleLike {
   tmpdir(): string
+  homedir(): string
 }
 
 interface NodePathModuleLike {
@@ -90,6 +97,10 @@ interface NodeCryptoModuleLike {
 interface NodeChildProcessLike {
   unref(): void
   on(event: 'error', listener: (error: unknown) => void): void
+  on(
+    event: 'exit',
+    listener: (code: number | null, signal: string | null) => void,
+  ): void
 }
 
 interface NodeChildProcessModuleLike {
@@ -185,6 +196,36 @@ export interface TerminalBrokerSessionCallbacks {
    * termination completed before the ordinary attached frame was usable.
    */
   onUnavailable?(transcriptPath?: string): void
+  /**
+   * The session stopped answering and its termination is being confirmed.
+   * onUnavailable or onExit follows within the bounded confirmation window.
+   */
+  onConnectionLost?(): void
+  /** Keyboard input could not be delivered to the session. */
+  onInputDropped?(): void
+}
+
+/** This client's bookkeeping for one spawned or attached session. */
+interface SessionRecord {
+  /** Pid of the session's root process, as its broker reported it. */
+  pid?: number
+  /** The broker the session's spawn/attach frame was last written to. */
+  descriptor?: BrokerDescriptor
+  /** Input failed while the transport was reconnecting. */
+  inputLost: boolean
+  /** This outage has already been reported as dropped input. */
+  inputDropNotified: boolean
+}
+
+/** A session written off as unreachable, its termination being confirmed. */
+interface UnavailableSession {
+  callbacks: TerminalBrokerSessionCallbacks
+  /** The broker that owns it; resolved at recovery time while unknown. */
+  descriptor: BrokerDescriptor | null
+  /** Monotonic time it was first left unconfirmed. */
+  since: number
+  /** Recovery rounds that have tried it. */
+  attempts: number
 }
 
 interface UnavailableTerminationResult {
@@ -214,6 +255,24 @@ export interface TerminalBrokerClientOptions {
   unavailableRecoveryBaseMs?: number
   /** Maximum retry delay after repeated unavailable-session failures. */
   unavailableRecoveryMaxMs?: number
+  /** How long an unconfirmed termination is retried before it is given up. */
+  unavailableConfirmationGiveUpMs?: number
+  /** Attempts an unconfirmed termination gets before the window can end it. */
+  unavailableConfirmationMinAttempts?: number
+  /**
+   * Clock for the confirmation window; defaults to performance.now, which
+   * does not advance while the machine sleeps.
+   */
+  monotonicNow?(): number
+  /**
+   * Resolves once the login shell's PATH has been merged into getEnv(). Only
+   * awaited when no Node.js can be found without it.
+   */
+  prepareEnv?(): Promise<void>
+  /** Upper bound on the prepareEnv wait. */
+  prepareEnvTimeoutMs?: number
+  /** Test/embedding override for the Node.js executables to start the broker with. */
+  locateNode?(env: Record<string, string | undefined>): string[]
   /** Test/embedding override for the renderer crash-reconnect window. */
   idleTtlMs?: number
   /** Deterministic renderer-lease override used by lifecycle tests. */
@@ -236,6 +295,21 @@ const BROKER_SESSION_ACK_TIMEOUT_MS = 5_000
 const BROKER_UNAVAILABLE_TERMINATION_TIMEOUT_MS = 2_500
 const BROKER_UNAVAILABLE_RECOVERY_BASE_MS = 250
 const BROKER_UNAVAILABLE_RECOVERY_MAX_MS = 30_000
+/**
+ * An unconfirmed termination used to be retried forever, and while it was,
+ * every new terminal was refused and every keystroke dropped. Past this
+ * window the session is reported unavailable and its run turns interrupted;
+ * the termination requests already written stay queued for a broker that
+ * answers later.
+ */
+const BROKER_UNAVAILABLE_CONFIRMATION_GIVE_UP_MS = 60_000
+const BROKER_UNAVAILABLE_CONFIRMATION_MIN_ATTEMPTS = 5
+/** A login shell normally answers in a few seconds; a hung one must not hold a terminal. */
+const BROKER_PREPARE_ENV_TIMEOUT_MS = 12_000
+/** Broker exit code for "another broker already owns the descriptor". */
+const BROKER_EXIT_DESCRIPTOR_TAKEN = 65
+const NODE_NOT_FOUND_MESSAGE =
+  'Node.js was not found. The terminal needs Node.js to run; install it and open the terminal again.'
 // A renderer crash/relaunch can take longer than the old one-minute window.
 // App/plugin shutdown still uses authenticated cleanup, so this TTL is only
 // the bounded crash-recovery window—not the normal process lifetime.
@@ -318,15 +392,70 @@ function describeError(error: unknown): string {
   return String(error)
 }
 
+/** The broker could not be brought up at all; no session frame was sent. */
+export class TerminalBrokerStartError extends Error {
+  constructor(
+    readonly kind: Extract<
+      AiTerminalFailureKind,
+      'node-not-found' | 'broker-start-failed'
+    >,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'TerminalBrokerStartError'
+  }
+}
+
+function terminalFailureOf(error: unknown): AiTerminalFailureKind {
+  return error instanceof TerminalBrokerStartError
+    ? error.kind
+    : 'broker-start-failed'
+}
+
+function errorCode(error: unknown): string {
+  return error && typeof error === 'object' && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : ''
+}
+
+function locateNodeOnDisk(env: Record<string, string | undefined>): string[] {
+  const fs = loadFs()
+  let home = env['HOME']
+  if (!home) {
+    try {
+      home = loadOs().homedir() || undefined
+    } catch {
+      home = undefined
+    }
+  }
+  return listNodeExecutableCandidates(
+    process.platform ?? '',
+    { ...env, HOME: home },
+    {
+      isExecutableFile: (path) => {
+        try {
+          if (!fs.statSync(path).isFile()) return false
+          fs.accessSync(path, fs.constants.X_OK)
+          return true
+        } catch {
+          return false
+        }
+      },
+      listDirectory: (path) => {
+        try {
+          return fs.readdirSync(path)
+        } catch {
+          return []
+        }
+      },
+    },
+  )
+}
+
 function isConnectionRefusedError(error: unknown): boolean {
-  const code =
-    error && typeof error === 'object' && 'code' in error
-      ? String((error as { code?: unknown }).code)
-      : ''
-  const message = describeError(error)
   return (
-    code === 'ECONNREFUSED' ||
-    /(?:ECONNREFUSED|connection refused)/iu.test(message)
+    errorCode(error) === 'ECONNREFUSED' ||
+    /(?:ECONNREFUSED|connection refused)/iu.test(describeError(error))
   )
 }
 
@@ -392,10 +521,9 @@ export function getTerminalBrokerDescriptorPath(identity: string): string {
 export class TerminalSessionBrokerClient {
   private readonly descriptorPath: string
   private readonly callbacks = new Map<string, TerminalBrokerSessionCallbacks>()
-  private readonly sessionPids = new Map<string, number>()
+  private readonly sessionRecords = new Map<string, SessionRecord>()
   private readonly explicitlyStoppedSessionIds = new Set<string>()
-  private readonly pendingUnavailableTerminations =
-    new Map<string, TerminalBrokerSessionCallbacks>()
+  private readonly unavailableSessions = new Map<string, UnavailableSession>()
   private readonly pendingSessionAcks = new Map<
     string,
     {
@@ -423,7 +551,6 @@ export class TerminalSessionBrokerClient {
   private reconnectAttempts = 0
   private closing = false
   private shutdownCompletion: Promise<void> | null = null
-  private unavailableDescriptor: BrokerDescriptor | null = null
   private unavailableRecoveryPromise: Promise<void> | null = null
   private unavailableRecoveryAttempt = 0
   /**
@@ -568,17 +695,21 @@ export class TerminalSessionBrokerClient {
       })
       return
     }
-    if (this.pendingUnavailableTerminations.size > 0) {
+    // Only this session's own unconfirmed termination blocks it. Another
+    // session stuck in confirmation used to refuse every new terminal until
+    // the renderer reloaded.
+    if (this.unavailableSessions.has(sessionId)) {
       callbacks.onExit({
         status: 'failed',
         exitCode: null,
         signal: null,
         errorMessage:
-          'Terminal broker is recovering from an unconfirmed session failure',
+          'Terminal broker is still confirming that this session stopped',
+        terminalFailure: 'broker-start-failed',
       })
       return
     }
-    this.sessionPids.delete(sessionId)
+    this.sessionRecords.set(sessionId, { inputLost: false, inputDropNotified: false })
     this.explicitlyStoppedSessionIds.delete(sessionId)
     this.callbacks.set(sessionId, callbacks)
     const ackEpoch = this.prepareSessionAck(sessionId, 'spawn')
@@ -589,14 +720,11 @@ export class TerminalSessionBrokerClient {
       transcriptPath,
       initialInput,
     }).then(
-      () => this.armSessionAck(sessionId, ackEpoch),
-      (error: unknown) =>
-        this.handleSessionRequestFailure(
-          sessionId,
-          ackEpoch,
-          'spawn',
-          error,
-        ),
+      (descriptor) => {
+        this.sessionRecord(sessionId).descriptor = descriptor
+        this.armSessionAck(sessionId, ackEpoch)
+      },
+      (error: unknown) => this.failUnsentSpawn(sessionId, ackEpoch, error),
     )
   }
 
@@ -609,16 +737,19 @@ export class TerminalSessionBrokerClient {
       callbacks.onUnavailable?.()
       return
     }
-    if (this.pendingUnavailableTerminations.size > 0) {
+    if (this.unavailableSessions.has(sessionId)) {
       callbacks.onUnavailable?.()
       return
     }
-    this.sessionPids.delete(sessionId)
+    this.sessionRecords.set(sessionId, { inputLost: false, inputDropNotified: false })
     this.explicitlyStoppedSessionIds.delete(sessionId)
     this.callbacks.set(sessionId, callbacks)
     const ackEpoch = this.prepareSessionAck(sessionId, 'attach')
     void this.send({ op: 'attach', sessionId }, false).then(
-      () => this.armSessionAck(sessionId, ackEpoch),
+      (descriptor) => {
+        this.sessionRecord(sessionId).descriptor = descriptor
+        this.armSessionAck(sessionId, ackEpoch)
+      },
       (error: unknown) =>
         this.handleSessionRequestFailure(
           sessionId,
@@ -630,18 +761,57 @@ export class TerminalSessionBrokerClient {
   }
 
   write(sessionId: string, data: string): void {
-    if (
-      this.closing ||
-      this.pendingUnavailableTerminations.has(sessionId) ||
-      !isValidBrokerSessionId(sessionId)
-    ) {
+    if (this.closing || !isValidBrokerSessionId(sessionId)) return
+    const unreachable = this.unavailableSessions.get(sessionId)
+    if (unreachable) {
+      // The session is being written off; tell the user rather than letting
+      // the keystrokes vanish into a terminal that looks alive.
+      this.notifyInputDropped(sessionId, unreachable.callbacks)
       return
     }
     // Only an explicit spawn request may create the broker. A stale handle
     // must never resurrect an empty broker after the real session vanished.
     void this.send({ op: 'input', sessionId, data }, false).catch((error) => {
       this.options.log?.('warn', '[TerminalBroker] Input failed', error)
+      // Not reported at once: a reconnect is usually underway. It is reported
+      // once when the session reattaches or is written off.
+      const pending = this.unavailableSessions.get(sessionId)
+      if (pending) this.notifyInputDropped(sessionId, pending.callbacks)
+      else if (this.callbacks.has(sessionId)) {
+        this.sessionRecord(sessionId).inputLost = true
+      }
     })
+  }
+
+  /** At most once per outage; a recovered connection re-arms it. */
+  private notifyInputDropped(
+    sessionId: string,
+    callbacks: TerminalBrokerSessionCallbacks,
+  ): void {
+    const record = this.sessionRecord(sessionId)
+    record.inputLost = false
+    if (record.inputDropNotified) return
+    record.inputDropNotified = true
+    try {
+      callbacks.onInputDropped?.()
+    } catch (error) {
+      this.options.log?.('warn', '[TerminalBroker] Input-dropped callback failed', error)
+    }
+  }
+
+  private sessionRecord(sessionId: string): SessionRecord {
+    let record = this.sessionRecords.get(sessionId)
+    if (!record) {
+      record = { inputLost: false, inputDropNotified: false }
+      this.sessionRecords.set(sessionId, record)
+    }
+    return record
+  }
+
+  /** Drop every per-session record once the session is over for this client. */
+  private forgetSession(sessionId: string): void {
+    this.sessionRecords.delete(sessionId)
+    this.explicitlyStoppedSessionIds.delete(sessionId)
   }
 
   resize(
@@ -651,7 +821,7 @@ export class TerminalSessionBrokerClient {
   ): void {
     if (
       this.closing ||
-      this.pendingUnavailableTerminations.has(sessionId) ||
+      this.unavailableSessions.has(sessionId) ||
       !isValidBrokerSessionId(sessionId)
     ) {
       return
@@ -670,7 +840,7 @@ export class TerminalSessionBrokerClient {
   stop(sessionId: string, force: boolean): void {
     if (this.closing || !isValidBrokerSessionId(sessionId)) return
     this.explicitlyStoppedSessionIds.add(sessionId)
-    if (this.pendingUnavailableTerminations.has(sessionId)) {
+    if (this.unavailableSessions.has(sessionId)) {
       // Interrupt an already sleeping exponential-backoff generation. Merely
       // scheduling an immediate retry used to return early while its Promise
       // existed, making an explicit user stop wait up to 30 seconds.
@@ -793,13 +963,15 @@ export class TerminalSessionBrokerClient {
     const target =
       this.descriptor ??
       this.lastAuthenticatedDescriptor ??
-      this.unavailableDescriptor ??
+      this.firstPendingDescriptor() ??
       this.readDescriptor()
     if (!target) {
       this.detach()
       return
     }
-    const childPids = Array.from(this.sessionPids.values())
+    const childPids = Array.from(this.sessionRecords.values())
+      .map((record) => record.pid)
+      .filter((pid): pid is number => pid !== undefined)
     const timeoutMs =
       this.options.shutdownTimeoutMs ?? BROKER_SHUTDOWN_TIMEOUT_MS
     let requestError: unknown
@@ -824,9 +996,15 @@ export class TerminalSessionBrokerClient {
       }
     } finally {
       this.detach()
-      this.pendingUnavailableTerminations.clear()
-      this.unavailableDescriptor = null
+      this.unavailableSessions.clear()
     }
+  }
+
+  private firstPendingDescriptor(): BrokerDescriptor | null {
+    for (const pending of this.unavailableSessions.values()) {
+      if (pending.descriptor) return pending.descriptor
+    }
+    return null
   }
 
   detach(): void {
@@ -842,12 +1020,14 @@ export class TerminalSessionBrokerClient {
     this.receiveBuffer = ''
     this.clearAllSessionAcks()
     this.explicitlyStoppedSessionIds.clear()
+    this.sessionRecords.clear()
   }
 
+  /** Resolves with the broker the frame was written to. */
   private async send(
     message: BrokerClientCommand,
     allowBrokerStart = true,
-  ): Promise<void> {
+  ): Promise<BrokerDescriptor> {
     if (this.closing) {
       throw new Error('Terminal broker client is shutting down')
     }
@@ -876,6 +1056,7 @@ export class TerminalSessionBrokerClient {
       throw new Error('Terminal broker request exceeds the IPC limit')
     }
     socket.write(`${frame}\n`)
+    return descriptor
   }
 
   private ensureConnected(): Promise<NodeSocketLike> {
@@ -938,24 +1119,90 @@ export class TerminalSessionBrokerClient {
       }
     }
 
-    this.spawnBroker()
-    const deadline =
-      Date.now() + (this.options.startupTimeoutMs ?? BROKER_STARTUP_TIMEOUT_MS)
-    let lastError: unknown = new Error('Terminal broker did not start')
-    while (Date.now() < deadline) {
-      await wait(BROKER_RETRY_MS)
-      if (generation !== this.transportGeneration) {
-        throw new Error('Terminal broker connection was superseded')
-      }
-      const descriptor = this.readDescriptor()
-      if (!descriptor) continue
-      try {
-        return await this.connect(descriptor, generation)
-      } catch (error) {
-        lastError = error
-      }
+    const candidates = await this.resolveNodeCandidates()
+    if (generation !== this.transportGeneration) {
+      throw new Error('Terminal broker connection was superseded')
     }
-    throw lastError
+    if (candidates.length === 0) {
+      throw new TerminalBrokerStartError('node-not-found', NODE_NOT_FOUND_MESSAGE)
+    }
+    const launchFailures: string[] = []
+    let allMissing = true
+    for (const nodePath of candidates) {
+      const launch = this.spawnBroker(nodePath)
+      const deadline =
+        Date.now() + (this.options.startupTimeoutMs ?? BROKER_STARTUP_TIMEOUT_MS)
+      let lastError: unknown = new TerminalBrokerStartError(
+        'broker-start-failed',
+        'Terminal broker did not start',
+      )
+      while (Date.now() < deadline) {
+        await wait(BROKER_RETRY_MS)
+        if (generation !== this.transportGeneration) {
+          throw new Error('Terminal broker connection was superseded')
+        }
+        const descriptor = this.readDescriptor()
+        if (descriptor) {
+          try {
+            return await this.connect(descriptor, generation)
+          } catch (error) {
+            lastError = error
+          }
+          continue
+        }
+        // A Node.js that cannot even start (ENOENT, a broken shim, too old
+        // for the program) fails within moments; try the next one instead of
+        // spending the whole startup window on it.
+        if (launch.failure !== null) break
+      }
+      if (launch.failure === null) throw lastError
+      if (!launch.failure.missing) allMissing = false
+      launchFailures.push(`${nodePath}: ${launch.failure.detail}`)
+      this.options.log?.(
+        'warn',
+        '[TerminalBroker] Broker failed to start with this Node.js',
+        nodePath,
+        launch.failure.detail,
+      )
+    }
+    throw allMissing
+      ? new TerminalBrokerStartError('node-not-found', NODE_NOT_FOUND_MESSAGE)
+      : new TerminalBrokerStartError(
+        'broker-start-failed',
+        `Terminal broker could not start (${launchFailures.join('; ')})`,
+      )
+  }
+
+  /**
+   * Node.js executables to start the broker with. When nothing is found with
+   * the PATH at hand, wait (bounded) for the login shell's PATH and look again
+   * — a Dock-launched Obsidian has no node on its own PATH, and version
+   * managers such as nvm only appear in the login shell's.
+   */
+  private async resolveNodeCandidates(): Promise<string[]> {
+    const locate = (env: Record<string, string | undefined>): string[] =>
+      this.options.locateNode?.(env) ?? locateNodeOnDisk(env)
+    const currentEnv = (): Record<string, string | undefined> =>
+      this.options.getEnv?.() ?? { ...process.env }
+    const found = locate(currentEnv())
+    if (found.length > 0 || !this.options.prepareEnv) return found
+    let timer: StableTimeoutId | null = null
+    try {
+      await Promise.race([
+        this.options.prepareEnv(),
+        new Promise<void>((resolve) => {
+          timer = stableTimeoutSource.setTimeout(
+            resolve,
+            this.options.prepareEnvTimeoutMs ?? BROKER_PREPARE_ENV_TIMEOUT_MS,
+          )
+        }),
+      ])
+    } catch (error) {
+      this.options.log?.('warn', '[TerminalBroker] Login shell PATH unavailable', error)
+    } finally {
+      if (timer !== null) stableTimeoutSource.clearTimeout(timer)
+    }
+    return locate(currentEnv())
   }
 
   private connect(
@@ -1071,33 +1318,38 @@ export class TerminalSessionBrokerClient {
     const callbacks = this.callbacks.get(sessionId)
     if (!callbacks) return
     switch (message.type) {
-      case 'attached':
+      case 'attached': {
         this.clearSessionAck(sessionId)
+        const record = this.sessionRecord(sessionId)
         if (
           typeof message.pid === 'number' &&
           Number.isInteger(message.pid) &&
           message.pid > 0
         ) {
-          this.sessionPids.set(sessionId, message.pid)
+          record.pid = message.pid
         }
+        // The connection is back. Input typed while it was down never
+        // arrived: say so once, then let a later outage report again.
+        if (record.inputLost) this.notifyInputDropped(sessionId, callbacks)
+        record.inputDropNotified = false
         callbacks.onAttached?.(message.pid, message.transcriptPath)
         if (message.replay.length > 0) callbacks.onData(message.replay)
         if (message.status === 'completed') {
           this.callbacks.delete(sessionId)
-          this.sessionPids.delete(sessionId)
+          this.forgetSession(sessionId)
           if (message.outcome) callbacks.onExit(message.outcome)
           else callbacks.onUnavailable?.()
           this.detachIfNoSessions()
         }
         break
+      }
       case 'data':
         callbacks.onData(message.data)
         break
       case 'exit':
         this.clearSessionAck(sessionId)
         this.callbacks.delete(sessionId)
-        this.sessionPids.delete(sessionId)
-        this.explicitlyStoppedSessionIds.delete(sessionId)
+        this.forgetSession(sessionId)
         callbacks.onExit(message.outcome)
         this.detachIfNoSessions()
         break
@@ -1108,21 +1360,20 @@ export class TerminalSessionBrokerClient {
       case 'missing':
         this.clearSessionAck(sessionId)
         this.callbacks.delete(sessionId)
-        this.sessionPids.delete(sessionId)
-        this.explicitlyStoppedSessionIds.delete(sessionId)
+        this.forgetSession(sessionId)
         callbacks.onUnavailable?.()
         this.detachIfNoSessions()
         break
       case 'error':
         this.clearSessionAck(sessionId)
         this.callbacks.delete(sessionId)
-        this.sessionPids.delete(sessionId)
-        this.explicitlyStoppedSessionIds.delete(sessionId)
+        this.forgetSession(sessionId)
         callbacks.onExit({
           status: 'failed',
           exitCode: null,
           signal: null,
           errorMessage: message.message,
+          terminalFailure: 'broker-refused',
         })
         this.detachIfNoSessions()
         break
@@ -1186,32 +1437,67 @@ export class TerminalSessionBrokerClient {
     }
   }
 
-  private spawnBroker(): void {
+  /**
+   * Start a broker with one Node.js. The returned record turns non-null once
+   * that Node.js has proven unable to run it: a spawn error, or an exit before
+   * any descriptor appeared (except losing the descriptor race to a broker
+   * another renderer started, which leaves a usable descriptor behind).
+   */
+  private spawnBroker(nodePath: string): {
+    failure: { missing: boolean; detail: string } | null
+  } {
+    const launch: { failure: { missing: boolean; detail: string } | null } = {
+      failure: null,
+    }
     const token = loadCrypto().randomBytes(32).toString('hex')
     const env = this.options.getEnv?.() ?? { ...process.env }
-    const child = loadChildProcess().spawn(
-      'node',
-      ['-e', buildTerminalBrokerSource()],
-      {
-        detached: true,
-        windowsHide: true,
-        env: {
-          ...env,
-          TASKCHUTE_BROKER_DESCRIPTOR: this.descriptorPath,
-          TASKCHUTE_BROKER_TOKEN: token,
-          TASKCHUTE_BROKER_TTL_MS: String(Math.max(
-            5_000,
-            this.options.idleTtlMs ??
-              BROKER_RENDERER_RECONNECT_TTL_MS,
-          )),
+    let child: NodeChildProcessLike
+    try {
+      child = loadChildProcess().spawn(
+        nodePath,
+        ['-e', buildTerminalBrokerSource()],
+        {
+          detached: true,
+          windowsHide: true,
+          env: {
+            ...env,
+            TASKCHUTE_BROKER_DESCRIPTOR: this.descriptorPath,
+            TASKCHUTE_BROKER_TOKEN: token,
+            TASKCHUTE_BROKER_TTL_MS: String(Math.max(
+              5_000,
+              this.options.idleTtlMs ??
+                BROKER_RENDERER_RECONNECT_TTL_MS,
+            )),
+          },
+          stdio: 'ignore',
         },
-        stdio: 'ignore',
-      },
-    )
+      )
+    } catch (error) {
+      launch.failure = {
+        missing: errorCode(error) === 'ENOENT',
+        detail: describeError(error),
+      }
+      return launch
+    }
     child.on('error', (error) => {
       this.options.log?.('warn', '[TerminalBroker] Spawn failed', error)
+      launch.failure ??= {
+        missing: errorCode(error) === 'ENOENT',
+        detail: describeError(error),
+      }
+    })
+    child.on('exit', (code, signal) => {
+      if (code === BROKER_EXIT_DESCRIPTOR_TAKEN) return
+      launch.failure ??= {
+        missing: false,
+        detail:
+          code === null
+            ? `exited on signal ${signal ?? 'unknown'}`
+            : `exited with code ${String(code)}`,
+      }
     })
     child.unref()
+    return launch
   }
 
   private async waitForBrokerStopped(
@@ -1293,6 +1579,35 @@ export class TerminalSessionBrokerClient {
     }
   }
 
+  /**
+   * send() rejects only before it writes the frame (startup, connect, or the
+   * frame-size check), so a rejected spawn provably created no process: fail
+   * it at once with the reason. Routing it through unavailable-session
+   * recovery instead made a missing Node.js look like a session to confirm.
+   */
+  private failUnsentSpawn(
+    sessionId: string,
+    epoch: number,
+    error: unknown,
+  ): void {
+    const pending = this.pendingSessionAcks.get(sessionId)
+    if (!pending || pending.epoch !== epoch) return
+    this.clearSessionAck(sessionId)
+    const callbacks = this.callbacks.get(sessionId)
+    if (!callbacks) return
+    this.callbacks.delete(sessionId)
+    this.forgetSession(sessionId)
+    this.options.log?.('warn', '[TerminalBroker] Spawn handshake failed', error)
+    callbacks.onExit({
+      status: 'failed',
+      exitCode: null,
+      signal: null,
+      errorMessage: describeError(error),
+      terminalFailure: terminalFailureOf(error),
+    })
+    this.detachIfNoSessions()
+  }
+
   private handleSessionRequestFailure(
     sessionId: string,
     epoch: number,
@@ -1306,6 +1621,7 @@ export class TerminalSessionBrokerClient {
     if (!callbacks) return
     this.callbacks.delete(sessionId)
     const descriptor =
+      this.sessionRecords.get(sessionId)?.descriptor ??
       this.lastAuthenticatedDescriptor ??
       this.descriptor ??
       this.readDescriptor()
@@ -1319,14 +1635,14 @@ export class TerminalSessionBrokerClient {
       // therefore could not have created a CLI. For restore, the broker
       // contract keeps its trusted descriptor for the full session lifetime;
       // without one there is no authentic process owner to address.
-      this.sessionPids.delete(sessionId)
-      this.explicitlyStoppedSessionIds.delete(sessionId)
+      this.forgetSession(sessionId)
       if (operation === 'spawn') {
         callbacks.onExit({
           status: 'failed',
           exitCode: null,
           signal: null,
           errorMessage: describeError(error),
+          terminalFailure: terminalFailureOf(error),
         })
       } else {
         callbacks.onUnavailable?.()
@@ -1350,6 +1666,7 @@ export class TerminalSessionBrokerClient {
     this.callbacks.delete(sessionId)
     this.clearSessionAck(sessionId)
     const descriptor =
+      this.sessionRecords.get(sessionId)?.descriptor ??
       this.lastAuthenticatedDescriptor ??
       this.descriptor ??
       this.readDescriptor()
@@ -1357,7 +1674,7 @@ export class TerminalSessionBrokerClient {
       this.terminateUnavailableSessions(descriptor, [[sessionId, callbacks]])
       return
     }
-    this.sessionPids.delete(sessionId)
+    this.forgetSession(sessionId)
     this.options.log?.(
       'warn',
       '[TerminalBroker] Stop could not reach an existing session',
@@ -1368,7 +1685,12 @@ export class TerminalSessionBrokerClient {
   }
 
   private detachIfNoSessions(): void {
-    if (this.callbacks.size === 0) {
+    // detach() abandons pending terminations without notifying anyone, which
+    // would leave their runs "running" forever. Wait until they settle.
+    if (
+      this.callbacks.size === 0 &&
+      this.unavailableSessions.size === 0
+    ) {
       this.detach()
     }
   }
@@ -1396,28 +1718,60 @@ export class TerminalSessionBrokerClient {
    * control connection that receives no replay/data, force each live session
    * down, and notify the renderer only after the broker confirms child exit.
    *
-   * Older brokers do not understand terminate-unavailable. If the control
-   * exchange times out, use their existing authenticated shutdown command;
-   * its handler kills all owned process groups before acknowledging. This
-   * intentionally favors eliminating an orphan AI process over preserving
-   * unrelated sessions after protocol corruption.
+   * Recovery is strictly per session and per broker. Each pending session
+   * remembers the broker its frames were written to, and only a
+   * session-scoped terminate-unavailable is ever sent to it. There is no
+   * broker-wide fallback any more: an authenticated `shutdown` kills every
+   * group the broker owns, so it took down healthy terminals opened beside
+   * the stuck one, and when the broker was frozen the queued frame did it
+   * later, on resume, to sessions started after this one was given up.
+   * Every released broker (2.1.0 onward) implements terminate-unavailable,
+   * which is what the fallback existed to work around.
    */
   private terminateUnavailableSessions(
     descriptor: BrokerDescriptor | null,
     sessions: Array<[string, TerminalBrokerSessionCallbacks]>,
   ): void {
     if (sessions.length === 0) return
-    if (descriptor) this.unavailableDescriptor = descriptor
     for (const [sessionId, callbacks] of sessions) {
-      this.pendingUnavailableTerminations.set(sessionId, callbacks)
+      const existing = this.unavailableSessions.get(sessionId)
+      if (existing) {
+        existing.callbacks = callbacks
+        continue
+      }
+      this.unavailableSessions.set(sessionId, {
+        callbacks,
+        descriptor:
+          this.sessionRecords.get(sessionId)?.descriptor ?? descriptor,
+        since: this.monotonicNow(),
+        attempts: 0,
+      })
+      try {
+        callbacks.onConnectionLost?.()
+      } catch (error) {
+        this.options.log?.(
+          'warn',
+          '[TerminalBroker] Connection-lost callback failed',
+          error,
+        )
+      }
+      // Keystrokes typed while the transport was reconnecting are lost for
+      // good once the session is written off; say so now.
+      if (this.sessionRecords.get(sessionId)?.inputLost) {
+        this.notifyInputDropped(sessionId, callbacks)
+      }
     }
     this.scheduleUnavailableRecovery(true)
+  }
+
+  private monotonicNow(): number {
+    return this.options.monotonicNow?.() ?? window.performance.now()
   }
 
   private scheduleUnavailableRecovery(immediate: boolean): void {
     if (
       this.closing ||
-      this.pendingUnavailableTerminations.size === 0 ||
+      this.unavailableSessions.size === 0 ||
       this.unavailableRecoveryPromise
     ) {
       return
@@ -1456,10 +1810,7 @@ export class TerminalSessionBrokerClient {
           return
         }
         this.unavailableRecoveryPromise = null
-        if (
-          !this.closing &&
-          this.pendingUnavailableTerminations.size > 0
-        ) {
+        if (!this.closing && this.unavailableSessions.size > 0) {
           this.unavailableRecoveryAttempt += 1
           this.scheduleUnavailableRecovery(false)
         }
@@ -1471,23 +1822,28 @@ export class TerminalSessionBrokerClient {
     if (
       this.closing ||
       generation !== this.unavailableRecoveryGeneration ||
-      this.pendingUnavailableTerminations.size === 0
+      this.unavailableSessions.size === 0
     ) {
       return
     }
-    const sessions = Array.from(this.pendingUnavailableTerminations.entries())
-    const descriptor =
-      this.unavailableDescriptor ??
+    // A session written off before any broker was known (no descriptor at
+    // the time) is addressed to whichever broker is known now; it answers
+    // 'missing' for a session it never had, which settles it.
+    const fallback =
       this.lastAuthenticatedDescriptor ??
+      this.descriptor ??
       this.readDescriptor()
-    if (descriptor) this.unavailableDescriptor = descriptor
+    for (const pending of this.unavailableSessions.values()) {
+      if (!pending.descriptor && fallback) pending.descriptor = fallback
+    }
+    const sessions = Array.from(this.unavailableSessions.entries())
     const results = new Map<string, UnavailableTerminationResult>()
-    let fallbackShutdownConfirmed = false
-    if (descriptor) {
+    for (const group of this.groupByOwningBroker(sessions)) {
+      if (!group.descriptor) continue
       try {
         await this.requestUnavailableTermination(
-          descriptor,
-          sessions.map(([sessionId]) => sessionId),
+          group.descriptor,
+          group.sessions.map(([sessionId]) => sessionId),
           results,
         )
       } catch (error) {
@@ -1498,82 +1854,147 @@ export class TerminalSessionBrokerClient {
         )
         if (
           isConnectionRefusedError(error) &&
-          sessions.length > 0 &&
-          sessions.every(([sessionId]) =>
+          group.sessions.every(([sessionId]) =>
             this.explicitlyStoppedSessionIds.has(sessionId)) &&
-          this.removeDescriptorIfMatches(descriptor)
+          this.removeDescriptorIfMatches(group.descriptor)
         ) {
           // A broker writes its descriptor only after listen() succeeds.
           // Therefore a refused descriptor plus an explicit user stop means
           // this is stale (possibly a reused live PID), not a process we may
           // signal. Remove only the matching descriptor and reconcile the UI;
           // never kill descriptor.pid.
-          for (const [sessionId, callbacks] of sessions) {
-            this.settleUnavailableSession(sessionId, callbacks)
+          for (const [sessionId, pending] of group.sessions) {
+            this.settleUnavailableSession(sessionId, pending)
           }
-          return
         }
-        fallbackShutdownConfirmed =
-          await this.shutdownAuthenticatedBroker(descriptor, sessions)
       }
-    }
-    if (
-      this.closing ||
-      generation !== this.unavailableRecoveryGeneration
-    ) {
-      return
-    }
-    for (const [sessionId, callbacks] of sessions) {
       if (
         this.closing ||
         generation !== this.unavailableRecoveryGeneration
       ) {
         return
       }
-      if (this.pendingUnavailableTerminations.get(sessionId) !== callbacks) {
-        continue
+    }
+    for (const [sessionId, pending] of sessions) {
+      if (
+        this.closing ||
+        generation !== this.unavailableRecoveryGeneration
+      ) {
+        return
       }
+      if (this.unavailableSessions.get(sessionId) !== pending) continue
       const result = results.get(sessionId)
-      // A result is an individual broker acknowledgement. For sessions that
-      // never received one, authenticated shutdown is the only confirmation
-      // that the broker-owned process is gone. If both control paths fail,
-      // leave the renderer record active instead of falsely repainting it as
-      // interrupted while an unattended CLI may still be alive.
-      if (result === undefined && !fallbackShutdownConfirmed) {
-        continue
+      // A result is an individual broker acknowledgement. Without one, only
+      // proof that the session's own broker is gone confirms the process is
+      // gone; otherwise leave the record active instead of falsely
+      // repainting it as interrupted while an unattended CLI may be alive.
+      if (result !== undefined || this.isUnavailableSessionConfirmedGone(sessionId, pending)) {
+        this.settleUnavailableSession(sessionId, pending, result)
       }
-      this.settleUnavailableSession(sessionId, callbacks, result)
     }
 
     const remaining = sessions.filter(
-      ([sessionId, callbacks]) =>
-        this.pendingUnavailableTerminations.get(sessionId) === callbacks,
+      ([sessionId, pending]) => this.unavailableSessions.get(sessionId) === pending,
     )
     if (
       !this.closing &&
       generation === this.unavailableRecoveryGeneration &&
-      remaining.length > 0 &&
-      this.areUnavailableProcessesConfirmedGone(descriptor, remaining)
-    ) {
-      for (const [sessionId, callbacks] of remaining) {
-        this.settleUnavailableSession(sessionId, callbacks)
-      }
-    } else if (
-      !this.closing &&
-      generation === this.unavailableRecoveryGeneration &&
       remaining.length > 0
     ) {
-      this.options.log?.(
-        'warn',
-        '[TerminalBroker] Session termination remains unconfirmed; retrying with backoff',
-        remaining.map(([sessionId]) => sessionId),
-      )
+      for (const [, pending] of remaining) pending.attempts += 1
+      const expired = this.expiredUnavailableSessions(remaining)
+      if (expired.length > 0) {
+        this.giveUpUnavailableSessions(expired)
+      }
+      if (expired.length < remaining.length) {
+        this.options.log?.(
+          'warn',
+          '[TerminalBroker] Session termination remains unconfirmed; retrying with backoff',
+          remaining
+            .filter((entry) => !expired.includes(entry))
+            .map(([sessionId]) => sessionId),
+        )
+      }
     }
 
-    if (this.pendingUnavailableTerminations.size === 0) {
+    if (this.unavailableSessions.size === 0) {
       this.unavailableRecoveryAttempt = 0
-      this.unavailableDescriptor = null
       this.lastAuthenticatedDescriptor = null
+      if (
+        !this.closing &&
+        generation === this.unavailableRecoveryGeneration
+      ) {
+        this.detachIfNoSessions()
+      }
+    }
+  }
+
+  /** Pending sessions grouped by the broker that owns them. */
+  private groupByOwningBroker(
+    sessions: Array<[string, UnavailableSession]>,
+  ): Array<{
+    descriptor: BrokerDescriptor | null
+    sessions: Array<[string, UnavailableSession]>
+  }> {
+    const groups = new Map<string, {
+      descriptor: BrokerDescriptor | null
+      sessions: Array<[string, UnavailableSession]>
+    }>()
+    for (const entry of sessions) {
+      const descriptor = entry[1].descriptor
+      const key = descriptor
+        ? `${String(descriptor.pid)}:${String(descriptor.port)}:${descriptor.token}`
+        : ''
+      const group = groups.get(key) ?? { descriptor, sessions: [] }
+      group.sessions.push(entry)
+      groups.set(key, group)
+    }
+    return Array.from(groups.values())
+  }
+
+  /**
+   * Past the window, measured on a clock that stops while the Mac sleeps,
+   * and only after enough real attempts. Wall-clock time would count the
+   * night and write a session off on the first attempt after wake — which is
+   * exactly when its broker is most likely to answer again.
+   */
+  private expiredUnavailableSessions(
+    sessions: Array<[string, UnavailableSession]>,
+  ): Array<[string, UnavailableSession]> {
+    const giveUpMs =
+      this.options.unavailableConfirmationGiveUpMs ??
+      BROKER_UNAVAILABLE_CONFIRMATION_GIVE_UP_MS
+    const minAttempts =
+      this.options.unavailableConfirmationMinAttempts ??
+      BROKER_UNAVAILABLE_CONFIRMATION_MIN_ATTEMPTS
+    const now = this.monotonicNow()
+    return sessions.filter(([, pending]) =>
+      pending.attempts >= minAttempts && now - pending.since >= giveUpMs,
+    )
+  }
+
+  /**
+   * Stop confirming and report the sessions unavailable. Whatever kept the
+   * broker from answering (a frozen process, a lost socket) has outlasted the
+   * window; the alternative was a terminal that looked alive but swallowed
+   * every keystroke, and no new terminal until a reload. Every attempt that
+   * reached a broker wrote its session-scoped terminate-unavailable request
+   * into that broker's socket before timing out, so a broker that resumes
+   * reads them and stops the session — and, remembering the id, refuses a
+   * stale spawn of it too. A session whose broker could never be reached at
+   * all had nothing to stop it with; only that broker's own owner watchdog
+   * and guards can, which they do when it dies.
+   */
+  private giveUpUnavailableSessions(
+    sessions: Array<[string, UnavailableSession]>,
+  ): void {
+    this.options.log?.(
+      'warn',
+      '[TerminalBroker] Gave up confirming session termination; reporting it unavailable',
+      sessions.map(([sessionId]) => sessionId),
+    )
+    for (const [sessionId, pending] of sessions) {
+      this.settleUnavailableSession(sessionId, pending)
     }
   }
 
@@ -1585,9 +2006,8 @@ export class TerminalSessionBrokerClient {
     this.unavailableRecoveryGeneration += 1
     this.unavailableRecoveryPromise = null
     if (!clearPending) return
-    this.pendingUnavailableTerminations.clear()
+    this.unavailableSessions.clear()
     this.unavailableRecoveryAttempt = 0
-    this.unavailableDescriptor = null
   }
 
   private invalidateUnavailableRecoverySchedule(): void {
@@ -1596,13 +2016,13 @@ export class TerminalSessionBrokerClient {
 
   private settleUnavailableSession(
     sessionId: string,
-    callbacks: TerminalBrokerSessionCallbacks,
+    pending: UnavailableSession,
     result?: UnavailableTerminationResult,
   ): void {
-    if (this.pendingUnavailableTerminations.get(sessionId) !== callbacks) return
-    this.pendingUnavailableTerminations.delete(sessionId)
-    this.sessionPids.delete(sessionId)
-    this.explicitlyStoppedSessionIds.delete(sessionId)
+    if (this.unavailableSessions.get(sessionId) !== pending) return
+    this.unavailableSessions.delete(sessionId)
+    this.forgetSession(sessionId)
+    const callbacks = pending.callbacks
     try {
       if (
         result &&
@@ -1625,20 +2045,26 @@ export class TerminalSessionBrokerClient {
     }
   }
 
-  private areUnavailableProcessesConfirmedGone(
-    descriptor: BrokerDescriptor | null,
-    sessions: Array<[string, TerminalBrokerSessionCallbacks]>,
+  /**
+   * Whether a pending session is provably gone without a broker answer: its
+   * own broker is dead and has lost its descriptor (its guards reap their
+   * targets when the broker pipe closes, and the owner watchdog reaps the
+   * rest), and, when the broker ever reported one, the session pid is dead
+   * too. A pid that never arrived (the session died before 'attached') is
+   * covered by the first condition. Another broker's death proves nothing.
+   */
+  private isUnavailableSessionConfirmedGone(
+    sessionId: string,
+    pending: UnavailableSession,
   ): boolean {
-    if (descriptor && this.isProcessAlive(descriptor.pid) !== false) {
-      return false
+    const descriptor = pending.descriptor
+    if (descriptor) {
+      if (this.isProcessAlive(descriptor.pid) !== false) return false
+      if (descriptorsEqual(this.readDescriptor(), descriptor)) return false
     }
-    if (descriptor && descriptorsEqual(this.readDescriptor(), descriptor)) {
-      return false
-    }
-    return sessions.every(([sessionId]) => {
-      const pid = this.sessionPids.get(sessionId)
-      return pid !== undefined && this.isProcessAlive(pid) === false
-    })
+    const pid = this.sessionRecords.get(sessionId)?.pid
+    if (pid !== undefined) return this.isProcessAlive(pid) === false
+    return descriptor !== null || this.readDescriptor() === null
   }
 
   private requestUnavailableTermination(
@@ -1743,43 +2169,6 @@ export class TerminalSessionBrokerClient {
         }
       })
     })
-  }
-
-  /**
-   * Compatibility fallback for an older authenticated broker that does not
-   * implement terminate-unavailable. Use its existing authenticated shutdown
-   * command instead of signalling descriptor.pid directly: a stale
-   * descriptor whose pid has been reused must never kill an unrelated OS
-   * process. Broker shutdown synchronously SIGKILLs every owned process group
-   * before acknowledging.
-   */
-  private async shutdownAuthenticatedBroker(
-    descriptor: BrokerDescriptor,
-    sessions: Array<[string, TerminalBrokerSessionCallbacks]>,
-  ): Promise<boolean> {
-    const childPids = sessions
-      .map(([sessionId]) => this.sessionPids.get(sessionId))
-      .filter((pid): pid is number => pid !== undefined)
-    const timeoutMs =
-      this.options.unavailableTerminationTimeoutMs ??
-      BROKER_UNAVAILABLE_TERMINATION_TIMEOUT_MS
-    try {
-      await this.requestAuthenticatedBrokerShutdown(
-        descriptor,
-        timeoutMs,
-      )
-      // Older brokers can remove the descriptor and ACK before their child
-      // tree actually disappears. Reuse the same truthful broker+known-child
-      // confirmation as explicit app shutdown.
-      return await this.waitForBrokerStopped(descriptor, childPids, timeoutMs)
-    } catch (error) {
-      this.options.log?.(
-        'warn',
-        '[TerminalBroker] Authenticated broker shutdown failed',
-        error,
-      )
-      return false
-    }
   }
 
   private requestAuthenticatedBrokerShutdown(
@@ -1971,6 +2360,7 @@ export class TerminalSessionBrokerClient {
           const ackEpoch = this.prepareSessionAck(sessionId, 'attach')
           try {
             socket.write(`${JSON.stringify(frame)}\n`)
+            this.sessionRecord(sessionId).descriptor = descriptor
             this.armSessionAck(sessionId, ackEpoch)
           } catch (error) {
             this.handleSessionRequestFailure(

@@ -8344,6 +8344,48 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
 .ai-run-pane__body--terminal.is-active {
   display: flex;
+  /* xterm's host above, the run's notice banner (when any) below it. */
+  flex-direction: column;
+}
+
+.ai-run-pane__terminal-host {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Terminal-machinery notices (LEV-377): a row of their own below xterm, so
+   the terminal refits above them instead of losing rows underneath. */
+.ai-run-pane__terminal-notice {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin: 0 8px 8px;
+  padding: 4px 4px 4px 10px;
+  border-radius: var(--radius-s);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-smaller);
+}
+
+.ai-run-pane__terminal-notice-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-run-pane__terminal-notice[data-kind="start-failed"],
+.ai-run-pane__terminal-notice[data-kind="interrupted"] {
+  border-color: var(--text-error);
+}
+
+.ai-run-pane__terminal-notice[data-kind="connection-lost"],
+.ai-run-pane__terminal-notice[data-kind="input-dropped"] {
+  border-color: var(--text-warning);
 }
 
 .ai-run-pane__body--terminal .xterm {

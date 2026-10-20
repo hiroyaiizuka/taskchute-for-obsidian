@@ -56,6 +56,12 @@ import type { RecipeContextSnapshot } from '@/features/recipe/services/RecipeDel
 import { buildRecipeDelegationPrompt } from '@/features/recipe/services/RecipeDelegationContextBuilder'
 import { assertAiRunLaunchSize } from './AiRunLaunchSizeGuard'
 import {
+  terminalConnectionLostNotice,
+  terminalFailureNotice,
+  terminalInputDroppedNotice,
+  terminalInterruptedNotice,
+} from './TerminalNotices'
+import {
   AI_RUN_SESSION_SAVE_IDLE_DELAY_MS,
   type AiRunSessionSnapshot,
   type AiRunSessionStateStore,
@@ -954,6 +960,10 @@ export class AiTaskManager {
                 undefined,
                 transcriptPath,
               ),
+            onConnectionLost: () =>
+              this.setTerminalNotice(internal, terminalConnectionLostNotice()),
+            onInputDropped: () =>
+              this.setTerminalNotice(internal, terminalInputDroppedNotice()),
           },
         )
         record.terminalSessionId = terminalHandle.sessionId
@@ -1260,6 +1270,10 @@ export class AiTaskManager {
               undefined,
               transcriptPath,
             ),
+          onConnectionLost: () =>
+            this.setTerminalNotice(internal, terminalConnectionLostNotice()),
+          onInputDropped: () =>
+            this.setTerminalNotice(internal, terminalInputDroppedNotice()),
         },
       )
       record.terminalSessionId = terminalHandle.sessionId
@@ -1389,6 +1403,10 @@ export class AiTaskManager {
             this.handleTerminalAttached(internal, pid, transcriptPath),
           onUnavailable: (transcriptPath) =>
             this.markTerminalUnavailable(internal, undefined, transcriptPath),
+          onConnectionLost: () =>
+            this.setTerminalNotice(internal, terminalConnectionLostNotice()),
+          onInputDropped: () =>
+            this.setTerminalNotice(internal, terminalInputDroppedNotice()),
         },
       )
       record.terminalSessionId = terminalHandle.sessionId
@@ -2498,6 +2516,14 @@ export class AiTaskManager {
     internal.exitPersisted = false
 
     const record = internal.record
+    // Every exit replaces the notice: a lost connection or dropped input
+    // belongs to the live session, not to a run that then ended normally.
+    // A failure of the terminal machinery itself says why, so the failed tab
+    // does not just show an empty screen.
+    record.terminalNotice =
+      outcome.terminalFailure !== undefined && record.mode === 'terminal'
+        ? terminalFailureNotice(outcome.terminalFailure, outcome.errorMessage)
+        : undefined
     record.status = outcome.status
     record.endedAt = Date.now()
     record.exitCode = outcome.exitCode
@@ -2506,6 +2532,22 @@ export class AiTaskManager {
     }
     this.notifyChange(record)
     this.queueExitPersist(internal)
+  }
+
+  /**
+   * Tell the user something about a live terminal's machinery. It goes on
+   * the record for the pane to show; the broker client already limits how
+   * often each kind can fire.
+   */
+  private setTerminalNotice(
+    internal: InternalRun,
+    notice: NonNullable<AiRunRecord['terminalNotice']>,
+  ): void {
+    if (this.disposed || internal.exited || internal.record.mode !== 'terminal') {
+      return
+    }
+    internal.record.terminalNotice = notice
+    this.notifyChange(internal.record)
   }
 
   /**
@@ -2909,20 +2951,34 @@ export class AiTaskManager {
       this.runs.set(record.id, internal)
       this.runSequence += 1
       if (canAttachLiveTerminal) {
+        // Until the broker confirms the reattach, anything wrong is about a
+        // run restored at startup: show it on the run, but pop no Notice for
+        // something the user did not just do.
+        let reattached = false
         try {
           const terminalHandle = dispatcher.attach!(
             record.terminalSessionId ?? '',
             {
               onData: (chunk) => this.handleTerminalData(internal, chunk),
               onExit: (outcome) => this.handleExit(internal, outcome),
-              onAttached: (pid, transcriptPath) =>
-                this.handleTerminalAttached(internal, pid, transcriptPath),
+              onAttached: (pid, transcriptPath) => {
+                reattached = true
+                this.handleTerminalAttached(internal, pid, transcriptPath)
+              },
               onUnavailable: (transcriptPath) =>
                 this.markTerminalUnavailable(
                   internal,
                   replay,
                   transcriptPath,
+                  { quiet: !reattached },
                 ),
+              onConnectionLost: () =>
+                this.setTerminalNotice(
+                  internal,
+                  terminalConnectionLostNotice(!reattached),
+                ),
+              onInputDropped: () =>
+                this.setTerminalNotice(internal, terminalInputDroppedNotice()),
             },
           )
           if (!internal.exited) {
@@ -2935,7 +2991,7 @@ export class AiTaskManager {
             '[AiTaskManager] Failed to attach restored terminal',
             error,
           )
-          this.markTerminalUnavailable(internal, replay)
+          this.markTerminalUnavailable(internal, replay, undefined, { quiet: true })
           normalizedActiveState = true
         }
       }
@@ -2955,6 +3011,7 @@ export class AiTaskManager {
     internal: InternalRun,
     fallbackReplay?: string,
     trustedTranscriptPath?: string,
+    notice: { quiet?: boolean } = {},
   ): void {
     if (this.disposed) {
       // A late broker callback belongs to an old manager lifetime. Never let
@@ -2992,6 +3049,9 @@ export class AiTaskManager {
         chunks: fallbackReplay.length > 0 ? [fallbackReplay] : [],
         totalLength: fallbackReplay.length,
       }
+    }
+    if (internal.record.mode === 'terminal') {
+      internal.record.terminalNotice = terminalInterruptedNotice(notice.quiet === true)
     }
     const record = internal.record
     if (

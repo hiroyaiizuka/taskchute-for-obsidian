@@ -286,6 +286,14 @@ export const en = {
         discardConfirmation: "You have unsaved changes. Discard them?",
       },
       tabUntitled: "Untitled run",
+      dismissNotice: "Dismiss",
+      terminalNotice: {
+        nodeNotFound: "Node.js was not found. The terminal needs Node.js to run. Install Node.js, then open the terminal again.",
+        startFailed: "The terminal could not start: {error}",
+        connectionLost: "Lost the connection to this terminal. Confirming that its process has stopped…",
+        inputDropped: "Input was not sent: the connection to this terminal is lost.",
+        interrupted: "This terminal can no longer be reached, so it was stopped.",
+      },
       contentTab: {
         terminal: "Terminal",
         events: "Events",
