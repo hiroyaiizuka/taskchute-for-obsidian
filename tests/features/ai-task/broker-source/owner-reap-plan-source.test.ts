@@ -86,6 +86,13 @@ const plan = context as unknown as {
     sessionGuardAlive: boolean
     trustworthy: boolean
   }) => string
+  planReapGiveUp: (summary: {
+    listed: boolean
+    matching: number
+    unknown: boolean
+    sessionGuardAlive: boolean
+    trustworthy: boolean
+  }) => boolean
   reapRetryDelayMs: (elapsedMs: number) => number
   resolveUnprovenSentinel: (
     identity: Identity | null,
@@ -525,6 +532,35 @@ describe('planReapOutcome', () => {
     ['a record could not be read', { trustworthy: false }],
   ])('retries while %s', (_name, overrides) => {
     expect(plan.planReapOutcome(summary(overrides))).toBe('retry')
+  })
+})
+
+// LEV-378: a record file the watchdog will not read is never parsed, so
+// nothing in it can ever be reaped. When it is the only thing between the
+// session and 'cleanup', waiting cannot change the answer; anything else keeps
+// the watchdog trying.
+describe('planReapGiveUp', () => {
+  const summary = (overrides = {}) => ({
+    listed: true,
+    matching: 0,
+    unknown: false,
+    sessionGuardAlive: false,
+    trustworthy: false,
+    ...overrides,
+  })
+
+  test('may give up when an unreadable record is all that is left', () => {
+    expect(plan.planReapGiveUp(summary())).toBe(true)
+  })
+
+  test.each([
+    ['something was just signalled', { matching: 1 }],
+    ['an owner is unknown, as when ps fails', { unknown: true }],
+    ['the guard is still finishing its own cleanup', { sessionGuardAlive: true }],
+    ['every record was read (cleanup decides)', { trustworthy: true }],
+    ['the record directory could not even be listed', { listed: false }],
+  ])('never while %s', (_name, overrides) => {
+    expect(plan.planReapGiveUp(summary(overrides))).toBe(false)
   })
 })
 

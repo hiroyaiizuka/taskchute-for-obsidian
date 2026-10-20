@@ -1756,6 +1756,53 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     }
   })
 
+  // LEV-378: a child that closes after the broker removed the owner record
+  // must not bring the file back. appendFileSync created it again, readable by
+  // everyone, and the owner watchdog then refused to trust it and spun forever.
+  test('the Node ownership hook never recreates a removed owner record', async () => {
+    const unique = `owner-hook-recreate-${process.pid}-${Date.now()}-${Math.random()}`
+    const identity = `broker-integration-${unique}`
+    const exited = deferred<void>()
+    let output = ''
+    const client = new TerminalSessionBrokerClient({ identity })
+    const nodeCode =
+      "const cp=require('child_process');const fs=require('fs');" +
+      'const file=process.env.TASKCHUTE_BROKER_OWNER_PID_FILE;' +
+      "const child=cp.spawn('/bin/sleep',['0.3']);" +
+      // The broker removes the record when the session is done; do it early.
+      'fs.unlinkSync(file);' +
+      "child.on('close',()=>setTimeout(()=>{" +
+      "let mode='none';try{mode=(fs.statSync(file).mode&0o777).toString(8)}catch(_){}" +
+      "console.log('OWNER_FILE:'+mode)},100));"
+
+    try {
+      client.start(
+        `session-${unique}`,
+        {
+          command: '/bin/sh',
+          args: ['-c', `node -e ${JSON.stringify(nodeCode)}`],
+          env: { ...process.env },
+          stdinMode: 'pipe',
+        },
+        `/tmp/taskchute-broker-integration-${unique}.log`,
+        undefined,
+        {
+          onData: (data) => {
+            output += data
+          },
+          onExit: () => exited.resolve(),
+          onUnavailable: () =>
+            exited.reject(new Error('Owner-hook session was unavailable')),
+        },
+      )
+
+      await withTimeout(exited.promise)
+      expect(output).toContain('OWNER_FILE:none')
+    } finally {
+      await client.shutdown().catch(() => undefined)
+    }
+  })
+
   test('two renderer clients can shut down the same live broker concurrently', async () => {
     const unique = `concurrent-shutdown-${process.pid}-${Date.now()}-${Math.random()}`
     const identity = `broker-integration-${unique}`
