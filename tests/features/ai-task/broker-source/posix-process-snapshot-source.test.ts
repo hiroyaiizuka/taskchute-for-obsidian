@@ -157,7 +157,10 @@ describe('posixSnapshotPsArgs', () => {
   })
 
   test.each(PROGRAMS)('every ps the %s program runs is bounded', (_name, source) => {
-    const calls = source.split("'/bin/ps'").slice(1)
+    // The broker reaches ps through psPath (a test hook whose default is
+    // '/bin/ps'); a call passes it as the first argument, the definition does
+    // not. The other programs name the path directly.
+    const calls = source.split(/'\/bin\/ps'(?!;)|\bpsPath(?=,)/).slice(1)
 
     expect(calls.length).toBeGreaterThan(0)
     for (const call of calls) {
