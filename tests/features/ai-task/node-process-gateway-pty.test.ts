@@ -64,7 +64,7 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
     '/usr/bin/script -q -F "$0" /bin/sh -c ' +
     `'tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; ` +
     `trap "trap - HUP TERM; kill -9 0" HUP TERM; ` +
-    `"$0" "$@" <&0 & child=$!; wait "$child"' "$@"; st=$?; ` +
+    `exec 7<&0; "$0" "$@" <&7 7<&- & child=$!; exec 7<&-; wait "$child"' "$@"; st=$?; ` +
     `printf '${TERMINAL_EXIT_SENTINEL}%s\\n' "$st" >&2; kill -9 0 2>/dev/null; }`
 
   // Run first inside util-linux `script` (see the LEV-388 tests below).
@@ -135,7 +135,7 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
     expect(wrapper).toContain('kill -9 0 2>/dev/null')
     expect(wrapper).toContain(
       `/usr/bin/script -qefc ${posixQuote(
-        `${LINUX_RESTORE_SHELL}tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; trap "trap - HUP TERM; kill -9 0" HUP TERM; '/bin/claude' '--dangerously-skip-permissions' 'do it' <&0 & child=$!; wait "$child"`,
+        `${LINUX_RESTORE_SHELL}tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; trap "trap - HUP TERM; kill -9 0" HUP TERM; exec 7<&0; '/bin/claude' '--dangerously-skip-permissions' 'do it' <&7 7<&- & child=$!; exec 7<&-; wait "$child"`,
       )} "$0"`,
     )
   })
@@ -151,7 +151,7 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
 
     expect(command.args[1]).toContain(
       posixQuote(
-        `${LINUX_RESTORE_SHELL}tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; trap "trap - HUP TERM; kill -9 0" HUP TERM; '/bin/claude' 'it'\\''s; rm -rf /' <&0 & child=$!; wait "$child"`,
+        `${LINUX_RESTORE_SHELL}tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; trap "trap - HUP TERM; kill -9 0" HUP TERM; exec 7<&0; '/bin/claude' 'it'\\''s; rm -rf /' <&7 7<&- & child=$!; exec 7<&-; wait "$child"`,
       ),
     )
   })

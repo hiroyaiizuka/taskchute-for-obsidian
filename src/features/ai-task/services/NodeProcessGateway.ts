@@ -161,6 +161,18 @@ export const LINUX_STDIN_PUMP = 'dd bs=65536'
  */
 export const MAX_TRANSCRIPT_READ_BYTES = 8 * 1024 * 1024
 
+/**
+ * Runs the CLI in the background, so HUP/TERM can take its whole group down,
+ * and waits for it. Its stdin goes through fd 7: a non-interactive dash
+ * (/bin/sh on Debian and Ubuntu, where `script` runs its command on Linux,
+ * and a possible /bin/sh on macOS) gives a background job /dev/null before
+ * applying its redirections, so `<&0` alone hands the CLI /dev/null and
+ * nothing typed ever reaches it (LEV-388).
+ */
+export const PTY_SUPERVISOR =
+  'trap "trap - HUP TERM; kill -9 0" HUP TERM; ' +
+  'exec 7<&0; "$0" "$@" <&7 7<&- & child=$!; exec 7<&-; wait "$child"'
+
 /** Names makeTempFilePath tries before giving up on taken ones */
 const MAX_TEMP_FILE_ATTEMPTS = 8
 
@@ -1765,9 +1777,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     const sttyPreamble = `stty rows ${rows} cols ${cols} 2>/dev/null`
     const ptyPreamble =
       `tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; ${sttyPreamble}`
-    const ptySupervisor =
-      'trap "trap - HUP TERM; kill -9 0" HUP TERM; ' +
-      '"$0" "$@" <&0 & child=$!; wait "$child"'
+    const ptySupervisor = PTY_SUPERVISOR
     const brokerWatchdog =
       'if [ "${TASKCHUTE_BROKER_WATCH_FD:-}" = "3" ]; then ' +
       '(IFS= read -r _ <&3; kill -9 0 2>/dev/null) & fi; '
