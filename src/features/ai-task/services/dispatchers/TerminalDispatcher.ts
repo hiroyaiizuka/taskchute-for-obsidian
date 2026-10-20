@@ -87,6 +87,13 @@ export interface TerminalRunCallbacks {
    * path may accompany abnormal termination when attach replay was unusable.
    */
   onUnavailable?(transcriptPath?: string): void
+  /**
+   * Persistent session stopped answering; its termination is being confirmed
+   * and onUnavailable/onExit follows within a bounded time.
+   */
+  onConnectionLost?(): void
+  /** Keyboard input could not be delivered to the session. */
+  onInputDropped?(): void
 }
 
 export interface TerminalRunHandle {

@@ -459,3 +459,139 @@ describe('AiTaskManager dispose covers shell sessions (zombie guard)', () => {
     expect(harness.writeTerminalRunLog).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * When the terminal machinery itself fails, the terminal used to show nothing:
+ * a red tab over an empty screen, and keystrokes that went nowhere. The
+ * manager now puts a localized notice on the run record for the pane to show.
+ * It never goes into the PTY stream: a full-screen TUI would be corrupted by
+ * it, and it would replay with the terminal after a reload.
+ */
+describe('AiTaskManager terminal machinery notices', () => {
+  function replayOf(
+    harness: ReturnType<typeof createShellHarness>,
+    runId: string,
+  ): string {
+    const chunks: string[] = []
+    const unsubscribe = harness.manager.onTerminalData(runId, (chunk) => chunks.push(chunk))
+    unsubscribe()
+    return chunks.join('')
+  }
+
+  test('a missing Node.js fails the shell with a notice, not terminal output', () => {
+    const harness = createShellHarness()
+    const record = harness.manager.startShellSession()
+
+    harness.terminal.last.exit({
+      status: 'failed',
+      exitCode: null,
+      signal: null,
+      errorMessage: 'Node.js was not found.',
+      terminalFailure: 'node-not-found',
+    })
+
+    const run = harness.manager.getRun(record.id)
+    expect(run?.status).toBe('failed')
+    expect(run?.terminalNotice).toMatchObject({ kind: 'start-failed' })
+    expect(run?.terminalNotice?.message).toContain('Node.js was not found. The terminal needs Node.js to run.')
+    expect(replayOf(harness, record.id)).toBe('')
+  })
+
+  test('any other start failure carries the broker reason', () => {
+    const harness = createShellHarness()
+    const record = harness.manager.startShellSession()
+
+    harness.terminal.last.exit({
+      status: 'failed',
+      exitCode: null,
+      signal: null,
+      errorMessage: 'Terminal process owner watchdog is unavailable',
+      terminalFailure: 'broker-refused',
+    })
+
+    expect(harness.manager.getRun(record.id)?.terminalNotice?.message).toBe(
+      'The terminal could not start: Terminal process owner watchdog is unavailable',
+    )
+  })
+
+  test('an ordinary non-zero exit carries no notice', () => {
+    const harness = createShellHarness()
+    const record = harness.manager.startShellSession()
+    harness.terminal.last.emitData('bye\r\n')
+
+    harness.terminal.last.exit({
+      status: 'failed',
+      exitCode: 1,
+      signal: null,
+      errorMessage: 'Process exited with code 1',
+    })
+
+    expect(harness.manager.getRun(record.id)?.terminalNotice).toBeUndefined()
+    expect(replayOf(harness, record.id)).toBe('bye\r\n')
+  })
+
+  test('a lost connection and dropped input update the notice and notify listeners', () => {
+    const harness = createShellHarness()
+    const record = harness.manager.startShellSession()
+    const callbacks = harness.terminal.last.callbacks
+    const notices: string[] = []
+    harness.manager.onChange((changed) => {
+      if (changed.id === record.id && changed.terminalNotice) {
+        notices.push(changed.terminalNotice.kind)
+      }
+    })
+
+    callbacks.onConnectionLost?.()
+    callbacks.onInputDropped?.()
+
+    expect(notices).toEqual(['connection-lost', 'input-dropped'])
+    // Still running: termination is being confirmed, not yet given up.
+    expect(harness.manager.getRun(record.id)?.status).toBe('running')
+    expect(replayOf(harness, record.id)).toBe('')
+  })
+
+  test('a run that then ends normally drops its connection notice', () => {
+    const harness = createShellHarness()
+    const record = harness.manager.startShellSession()
+    harness.terminal.last.callbacks.onConnectionLost?.()
+    expect(harness.manager.getRun(record.id)?.terminalNotice?.kind).toBe('connection-lost')
+
+    harness.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+
+    expect(harness.manager.getRun(record.id)?.terminalNotice).toBeUndefined()
+  })
+
+  test('notices raised in the same millisecond still get distinct, increasing sequence numbers', () => {
+    const harness = createShellHarness()
+    const record = harness.manager.startShellSession()
+    const seqs: number[] = []
+    harness.manager.onChange((changed) => {
+      if (changed.id === record.id && changed.terminalNotice) seqs.push(changed.terminalNotice.seq)
+    })
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_800_000_000_000)
+    try {
+      harness.terminal.last.callbacks.onConnectionLost?.()
+      harness.terminal.last.callbacks.onInputDropped?.()
+    } finally {
+      now.mockRestore()
+    }
+
+    expect(seqs).toHaveLength(2)
+    expect(seqs[1]).toBeGreaterThan(seqs[0] ?? Infinity)
+  })
+
+  test('giving up on the session marks it interrupted with a notice', () => {
+    const harness = createShellHarness()
+    const record = harness.manager.startShellSession()
+
+    harness.terminal.last.callbacks.onUnavailable?.()
+
+    const run = harness.manager.getRun(record.id)
+    expect(run?.status).toBe('interrupted')
+    expect(run?.terminalNotice).toMatchObject({
+      kind: 'interrupted',
+      message: 'This terminal can no longer be reached, so it was stopped.',
+    })
+    expect(replayOf(harness, record.id)).toBe('')
+  })
+})

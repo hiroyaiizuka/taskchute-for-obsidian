@@ -36,6 +36,19 @@ export interface AiRunRequest {
 
 export type AiRunEndStatus = 'succeeded' | 'failed' | 'stopped'
 
+/**
+ * Why a terminal session never got a process: the terminal machinery failed,
+ * not the program inside it. The terminal shows these, because otherwise the
+ * user sees nothing but a red tab and an empty screen.
+ */
+export type AiTerminalFailureKind =
+  /** No Node.js to run the terminal broker with. */
+  | 'node-not-found'
+  /** The broker could not be started or reached. */
+  | 'broker-start-failed'
+  /** The broker refused the session. */
+  | 'broker-refused'
+
 export interface AiRunExitOutcome {
   status: AiRunEndStatus
   exitCode: number | null
@@ -43,6 +56,8 @@ export interface AiRunExitOutcome {
   errorMessage?: string
   /** Present only when the OS never launched the requested executable. */
   launchError?: ProcessLaunchError
+  /** Present only when the terminal machinery, not the program, failed. */
+  terminalFailure?: AiTerminalFailureKind
 }
 
 export interface AiRunCallbacks {
