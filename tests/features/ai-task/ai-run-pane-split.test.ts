@@ -382,6 +382,68 @@ describe('AiRunPaneController split panels', () => {
       expect(panels()).toHaveLength(2)
     })
 
+    test('once split, the sidebar cannot be dragged wide enough to squeeze the panels', () => {
+      controller.mount(container)
+      manager.emit(createRun())
+      const layout = container.querySelector<HTMLElement>('.ai-run-pane__layout')!
+      Object.defineProperty(layout, 'clientWidth', { configurable: true, value: 1000 })
+      const handle = container.querySelector<HTMLElement>('.ai-run-pane__sidebar-resizer')!
+      const widthProperty = (): string =>
+        container.querySelector<HTMLElement>('.ai-run-pane')!.style.getPropertyValue('--tc-ai-sidebar-width')
+      const drag = (toX: number): void => {
+        for (const [type, x] of [['pointerdown', 500], ['pointermove', toX], ['pointerup', toX]] as const) {
+          const event = new MouseEvent(type, { clientX: x, bubbles: true, button: 0 })
+          Object.defineProperty(event, 'pointerId', { value: 1 })
+          handle.dispatchEvent(event)
+        }
+      }
+
+      // One panel: half the row, 500px, capped at 480px.
+      drag(900)
+      expect(widthProperty()).toBe('480px')
+      drag(100)
+      expect(widthProperty()).toBe('80px')
+
+      splitButton()?.click()
+      expect(panels()).toHaveLength(2)
+
+      // Two panels keep 320px each: 1000 - 640 = 360px for the sidebar.
+      drag(900)
+      expect(widthProperty()).toBe('360px')
+      expect(handle.getAttribute('aria-valuemax')).toBe(String(1000 - SPLIT_MIN_PANEL_WIDTH_PX * 2))
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+      expect(widthProperty()).toBe('360px')
+    })
+
+    test('a sidebar drag refits the terminal once, when it settles, not per snap crossing', () => {
+      controller.mount(container)
+      manager.emit(createRun())
+      const adapter = adapters[0]
+      const handle = container.querySelector<HTMLElement>('.ai-run-pane__sidebar-resizer')!
+      const send = (type: string, x: number): void => {
+        const event = new MouseEvent(type, { clientX: x, bubbles: true, button: 0 })
+        Object.defineProperty(event, 'pointerId', { value: 1 })
+        handle.dispatchEvent(event)
+      }
+      adapter.fit.mockClear()
+
+      send('pointerdown', 500)
+      // Closed, open, closed, open again: four snap crossings.
+      for (const x of [300, 450, 300, 450]) send('pointermove', x)
+      expect(adapter.fit).not.toHaveBeenCalled()
+      send('pointerup', 450)
+      expect(adapter.fit).toHaveBeenCalled()
+
+      // Cancelled after crossing: one refit, back where it started.
+      adapter.fit.mockClear()
+      send('pointerdown', 500)
+      send('pointermove', 300)
+      expect(adapter.fit).not.toHaveBeenCalled()
+      send('pointercancel', 300)
+      expect(adapter.fit).toHaveBeenCalledTimes(1)
+      expect(container.querySelector('.ai-run-pane')!.classList.contains('is-sidebar-collapsed')).toBe(false)
+    })
+
     test('a shell start failure rolls the split back with a Notice and a clean sidebar', () => {
       controller.mount(container)
       manager.emit(createRun({ id: 'run-a' }))

@@ -241,6 +241,7 @@ export const ja = {
       togglePane: "AI実行ペインを開閉",
       resizePane: "AI実行ペインの高さを調整",
       toggleSidebar: "ターミナルサイドバーを開閉",
+      resizeSidebar: "ターミナルサイドバーの幅を調整",
       expandPane: "AI実行ペインを拡大",
       restorePane: "AI実行ペインの高さを戻す",
       splitPane: "実行ペインを分割",
