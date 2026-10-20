@@ -471,6 +471,24 @@ describe('NodeProcessGateway temp file helpers', () => {
     }
   })
 
+  test('readAndDeleteFile never follows a link planted under a temp-file name', async () => {
+    const gateway = new NodeProcessGateway()
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskchute-link-target-'))
+    const target = path.join(dir, 'secret.txt')
+    const link = gateway.makeTempFilePath('gateway-planted-link')
+    try {
+      fs.writeFileSync(target, 'keep me secret', 'utf8')
+      fs.symlinkSync(target, link)
+
+      await expect(gateway.readAndDeleteFile(link)).rejects.toThrow('regular file')
+
+      expect(fs.readFileSync(target, 'utf8')).toBe('keep me secret')
+    } finally {
+      fs.rmSync(link, { force: true })
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   test('readPtyTtyPath reads the sidecar of its own temp files only', async () => {
     const gateway = new NodeProcessGateway()
     const own = gateway.makeTempFilePath('gateway-tty-sidecar')

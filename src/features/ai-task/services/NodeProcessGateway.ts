@@ -275,6 +275,7 @@ interface FsModuleLike {
     ): Promise<NodeDirectoryEntryLike[]>
     realpath(path: string): Promise<string>
     stat(path: string): Promise<NodeStatsLike>
+    lstat(path: string): Promise<NodeStatsLike>
     open(path: string, flags: 'r' | 'r+'): Promise<NodeFileHandleLike>
     unlink(path: string): Promise<void>
   }
@@ -669,7 +670,6 @@ async function readTranscriptTail(path: string, fileSize: number): Promise<strin
   }
 }
 
-/** Temp-file-name-safe prefix (path separators and shell metachars removed) */
 /**
  * Whether `path` is one makeTempFilePath hands out: directly in the OS temp
  * directory, a sanitized prefix, the unique suffix and .log. A transcript
@@ -685,6 +685,7 @@ function isGatewayTempFilePath(path: string): boolean {
   )
 }
 
+/** Temp-file-name-safe prefix (path separators and shell metachars removed) */
 function sanitizeTempPrefix(prefix: string): string {
   const cleaned = prefix.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '')
   return cleaned.length > 0 ? cleaned : 'taskchute-ai'
@@ -1885,7 +1886,10 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     }
     const fs = loadFsModule().promises
     try {
-      const size = (await fs.stat(path)).size
+      // A link planted under the name (a shared /tmp) is never followed.
+      const stats = await fs.lstat(path)
+      if (!stats.isFile()) throw new Error('Not a regular file; not read')
+      const size = stats.size
       if (size <= MAX_TRANSCRIPT_READ_BYTES) {
         return await fs.readFile(path, 'utf8')
       }

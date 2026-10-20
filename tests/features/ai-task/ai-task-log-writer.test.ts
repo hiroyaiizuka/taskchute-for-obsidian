@@ -301,6 +301,25 @@ describe('AiTaskLogWriter.writeRunLog', () => {
     expect(content).toContain('````text\nwarning ``` not a fence\n````')
   })
 
+  test('keeps a reported field with a newline on its own list line', async () => {
+    const harness = createHarness()
+
+    await harness.writer.writeRunLog(
+      makeRecord({
+        events: [
+          { kind: 'init', sessionId: 's\n```dataviewjs', model: 'm\r\n![x](https://evil.example/p.png)' },
+          { kind: 'tool-use', toolName: 'Bash\n<iframe src="https://evil.example">', input: {} },
+        ],
+      }),
+    )
+    const content = harness.created[0].content
+
+    expect(content).toContain('- [init] model m ![x](https://evil.example/p.png) session s ```dataviewjs')
+    expect(content).toContain('- [tool] Bash <iframe src="https://evil.example">')
+    expect(content).not.toContain('\n```dataviewjs')
+    expect(content).not.toContain('\n<iframe')
+  })
+
   test('renders user follow-up text as a quoted user line in the transcript', async () => {
     const harness = createHarness()
     const events: AiStreamEvent[] = [

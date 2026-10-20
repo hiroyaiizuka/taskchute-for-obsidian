@@ -134,6 +134,15 @@ function composeFrontmatter(record: AiRunRecord): string[] {
   return lines
 }
 
+/**
+ * A list line built from fields the CLI reports (tool name, model, session,
+ * result): a newline in one would end the line and render the rest as live
+ * Markdown (LEV-387).
+ */
+function oneLine(text: string): string {
+  return text.replace(/[\r\n]+/g, ' ')
+}
+
 function composeInitLine(event: Extract<AiStreamEvent, { kind: 'init' }>): string {
   const parts = ['- [init]']
   if (event.model !== undefined) parts.push(`model ${event.model}`)
@@ -169,7 +178,7 @@ function composeTranscriptLines(events: AiStreamEvent[]): string[] {
         lines.push(...fencedText(event.text), '')
         break
       case 'tool-use':
-        lines.push(`- [tool] ${event.toolName}`)
+        lines.push(oneLine(`- [tool] ${event.toolName}`))
         break
       case 'tool-result':
         lines.push(`- [tool result]${event.isError === true ? ' (error)' : ''}`)
@@ -178,10 +187,10 @@ function composeTranscriptLines(events: AiStreamEvent[]): string[] {
         lines.push(`> user: ${event.text}`, '')
         break
       case 'init':
-        lines.push(composeInitLine(event))
+        lines.push(oneLine(composeInitLine(event)))
         break
       case 'result':
-        lines.push(composeResultLine(event))
+        lines.push(oneLine(composeResultLine(event)))
         break
       case 'elision':
         lines.push(`- [${event.omittedCount} events omitted]`)
