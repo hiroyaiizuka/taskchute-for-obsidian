@@ -574,7 +574,7 @@ describe('AiRunPaneController split panels', () => {
 
       container
         .querySelector<HTMLButtonElement>(
-          '.ai-run-pane__run[data-run-id="run-a"] .ai-run-pane__run-close',
+          '.ai-run-pane__tab[data-run-id="run-a"] .ai-run-pane__tab-close',
         )
         ?.click()
 
@@ -583,10 +583,10 @@ describe('AiRunPaneController split panels', () => {
       // screen as a dead panel.
       expect(panels()).toHaveLength(1)
       expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('shell-1')
-      // run-a's row stays for shell-1, opened beside it, with no × of its
-      // own left (LEV-382).
+      // run-a's row stays for shell-1, opened beside it (LEV-382), with a ×
+      // that closes what is left (LEV-383).
       expect(rows()).toHaveLength(1)
-      expect(rows()[0].querySelector('.ai-run-pane__run-close')).toBeNull()
+      expect(rows()[0].querySelector('.ai-run-pane__run-close')).not.toBeNull()
       expect(adapters[1].disposed).toBe(false)
       expect(
         container.querySelector('.ai-run-pane')?.classList.contains('is-hidden'),
@@ -1306,7 +1306,7 @@ describe('AiRunPaneController split panels', () => {
       expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('run-a')
     })
 
-    test('closing a parent AI run leaves its shell tabs running, under its row until the last one closes', () => {
+    test("closing a parent AI run's tab leaves its shell tabs running, under its row until the last one closes", () => {
       controller.mount(container)
       const parent = createRun({ id: 'run-a', cwd: '/workspace/project' })
       manager.emit(parent)
@@ -1318,7 +1318,7 @@ describe('AiRunPaneController split panels', () => {
 
       container
         .querySelector<HTMLButtonElement>(
-          '.ai-run-pane__run[data-run-id="run-a"] .ai-run-pane__run-close',
+          '.ai-run-pane__tab[data-run-id="run-a"] .ai-run-pane__tab-close',
         )
         ?.click()
       manager.emit(parent, 'persisted')
@@ -1574,7 +1574,7 @@ describe('AiRunPaneController split panels', () => {
       manager.emit(task)
       manager.emit(task, 'persisted')
       container
-        .querySelector<HTMLButtonElement>('.ai-run-pane__run[data-run-id="run-a"] .ai-run-pane__run-close')
+        .querySelector<HTMLButtonElement>('.ai-run-pane__tab[data-run-id="run-a"] .ai-run-pane__tab-close')
         ?.click()
 
       expect(manager.stopRun).not.toHaveBeenCalledWith('resumed-1')
@@ -1612,9 +1612,10 @@ describe('AiRunPaneController split panels', () => {
       expect(tabRunIds()).toEqual(['resumed-1', 'shell-1'])
       // The tab beside the closed one is shown.
       expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('resumed-1')
+      // The row stays, with a × for the tabs that remain (LEV-383).
       const row = container.querySelector('.ai-run-pane__run[data-run-id="run-a"]')
       expect(row).not.toBeNull()
-      expect(row?.querySelector('.ai-run-pane__run-close')).toBeNull()
+      expect(row?.querySelector('.ai-run-pane__run-close')).not.toBeNull()
 
       // Over to the other task and back: the row shows them again.
       showTask('run-b')
@@ -1661,6 +1662,113 @@ describe('AiRunPaneController split panels', () => {
       expect(tabRunIds()).toEqual(['resumed-1'])
       showTask('run-b')
       expect(tabRunIds()).toEqual(['run-b'])
+    })
+
+    // LEV-383: the row's × asks, then closes every tab of the row.
+    describe("the row's ×", () => {
+      const pressRowClose = (runId: string): void =>
+        container
+          .querySelector<HTMLButtonElement>(`.ai-run-pane__run[data-run-id="${runId}"] .ai-run-pane__run-close`)
+          ?.click()
+      const finish = (runId: string): void => {
+        const record = manager.getRun(runId)
+        if (!record) throw new Error(`${runId} missing`)
+        record.status = 'stopped'
+        manager.emit(record)
+        manager.emit(record, 'persisted')
+      }
+
+      let answer: boolean
+      let confirm: jest.Mock
+
+      beforeEach(() => {
+        answer = false
+        confirm = jest.fn(() => Promise.resolve(answer))
+        Object.assign(host, { confirm })
+      })
+
+      async function journalWithTwoBeside(): Promise<void> {
+        controller.mount(container)
+        manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+        manager.emit(
+          createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }),
+        )
+        showTask('run-a')
+        await resumeFromHistory()
+        container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+        expect(tabRunIds()).toEqual(['run-a', 'resumed-1', 'shell-1'])
+      }
+
+      test('asks first, naming the task and each tab; no leaves everything as it was', async () => {
+        await journalWithTwoBeside()
+
+        pressRowClose('run-a')
+        await flush()
+
+        expect(confirm).toHaveBeenCalledTimes(1)
+        const options = confirm.mock.calls[0]?.[0] as {
+          title: string
+          message: string
+          description: string
+          confirmText: string
+          destructive: boolean
+        }
+        expect(options.title).toBe('Close "AI Weekly Journal"?')
+        expect(options.message.split('\n')).toEqual([
+          "This closes all 3 of the task's tabs.",
+          '・AI Weekly Journal (running)',
+          '・👑 weekly-journal (running)',
+          '・Terminal (running)',
+        ])
+        expect(options.description).toBe(
+          'Anything running is stopped. The task note and its run logs are kept.',
+        )
+        expect(options.confirmText).toBe('Close all')
+        expect(options.destructive).toBe(true)
+        expect(manager.stopRun).not.toHaveBeenCalled()
+        expect(tabRunIds()).toEqual(['run-a', 'resumed-1', 'shell-1'])
+      })
+
+      test('yes closes every tab of the row and the row with them; other rows stay', async () => {
+        await journalWithTwoBeside()
+        answer = true
+
+        pressRowClose('run-a')
+        await flush()
+
+        expect(manager.stopRun.mock.calls.map(([runId]) => runId as string).sort()).toEqual([
+          'resumed-1',
+          'run-a',
+          'shell-1',
+        ])
+        for (const runId of ['run-a', 'resumed-1', 'shell-1']) finish(runId)
+        expect(rows().map((r) => r.getAttribute('data-run-id'))).toEqual(['run-b'])
+        expect(manager.getRun('run-a')).toBeUndefined()
+        expect(tabRunIds()).toEqual(['run-b'])
+      })
+
+      test('a row whose own tab is closed closes the tabs that remain', async () => {
+        await journalWithTwoBeside()
+        container
+          .querySelector<HTMLButtonElement>('.ai-run-pane__tab[data-run-id="run-a"] .ai-run-pane__tab-close')
+          ?.click()
+        finish('run-a')
+        manager.stopRun.mockClear()
+        answer = true
+
+        pressRowClose('run-a')
+        await flush()
+
+        const options = confirm.mock.calls[0]?.[0] as { message: string }
+        expect(options.message.split('\n')[0]).toBe("This closes all 2 of the task's tabs.")
+        expect(manager.stopRun.mock.calls.map(([runId]) => runId as string).sort()).toEqual([
+          'resumed-1',
+          'shell-1',
+        ])
+        finish('resumed-1')
+        finish('shell-1')
+        expect(rows().map((r) => r.getAttribute('data-run-id'))).toEqual(['run-b'])
+      })
     })
   })
 })

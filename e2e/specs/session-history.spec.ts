@@ -317,3 +317,71 @@ test("closing a task's own tab keeps the tabs opened beside it, and its row", as
   await expect(sidebarRow("AI Weekly Journal")).toHaveCount(0, { timeout: 20_000 })
   await expect(sidebarRow("AI Weekly Review")).toHaveCount(1)
 })
+
+// LEV-383: the × on a task's row asks first, then closes every tab of the row
+// — the task's own, a session resumed beside it and a + terminal — and the
+// row with them. Cancel and Escape leave everything as it was.
+test("the row's × asks first, then closes every tab of the row", async ({ obsidian, home }, testInfo) => {
+  const { page } = obsidian
+  const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
+  writeSessions(home!, vault)
+  await enableAiTasks(page, writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed"), "terminal")
+  const journal = await createAiTask(page, "AI Weekly Journal")
+  const review = await createAiTask(page, "AI Weekly Review")
+  await openTaskChute(page)
+
+  const sidebarRow = (name: string) => page.locator(".ai-run-pane__run", { hasText: name })
+  const dialog = page.locator(".modal-container .taskchute-confirm-modal")
+  // The × shows on hover, as for a person moving the pointer over the row.
+  const pressRowClose = async (name: string) => {
+    await sidebarRow(name).hover()
+    await sidebarRow(name).locator(".ai-run-pane__run-close").click()
+  }
+  await taskRow(page, journal).locator(".play-stop-button").click()
+  await expect(sidebarRow("AI Weekly Journal")).toHaveCount(1)
+  await taskRow(page, review).locator(".play-stop-button").click()
+  await expect(sidebarRow("AI Weekly Review")).toHaveCount(1)
+  const journalRunId = (await sidebarRow("AI Weekly Journal").getAttribute("data-run-id"))!
+  const reviewRunId = (await sidebarRow("AI Weekly Review").getAttribute("data-run-id"))!
+
+  // AI Weekly Journal, a session resumed beside it, and a + terminal.
+  await sidebarRow("AI Weekly Journal").click()
+  await openHistory(page)
+  await page.locator(".ai-session-history__row", { hasText: "引っ越しの準備" }).locator(".ai-session-history__resume").click()
+  await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(1)
+  await page.locator(".ai-run-pane__sidebar-history").click()
+  await page.locator(".ai-run-pane__panel:not([hidden]) .ai-run-pane__add").click()
+  await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(2)
+  const [resumed, terminal] = await childRunIds(page, journalRunId)
+  const rowRunIds = [journalRunId, resumed, terminal]
+  await expect.poll(() => tabRunIds(page)).toEqual(rowRunIds)
+
+  // The row's ×: a dialog naming the task and counting its three tabs (each
+  // listed under the name its tab shows, which for a terminal follows what
+  // runs in it). Cancel keeps all.
+  await pressRowClose("AI Weekly Journal")
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('Close "AI Weekly Journal"?')
+  await expect(dialog).toContainText("This closes all 3 of the task's tabs.")
+  await expect(dialog).toContainText("・AI Weekly Journal (running)")
+  await dialog.getByRole("button", { name: "Cancel" }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => runStatuses(page, rowRunIds)).toEqual(["running", "running", "running"])
+  await expect.poll(() => tabRunIds(page)).toEqual(rowRunIds)
+
+  // Escape is a cancel too.
+  await pressRowClose("AI Weekly Journal")
+  await expect(dialog).toBeVisible()
+  await page.keyboard.press("Escape")
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => runStatuses(page, rowRunIds)).toEqual(["running", "running", "running"])
+
+  // Close all: every tab of the row goes, and the row with them.
+  await pressRowClose("AI Weekly Journal")
+  await dialog.getByRole("button", { name: "Close all" }).click()
+  await expect(sidebarRow("AI Weekly Journal")).toHaveCount(0, { timeout: 20_000 })
+  await expect.poll(() => runStatuses(page, rowRunIds), { timeout: 20_000 }).toEqual([null, null, null])
+  // The other task is untouched.
+  await expect(sidebarRow("AI Weekly Review")).toHaveCount(1)
+  await expect.poll(() => runStatuses(page, [reviewRunId])).toEqual(["running"])
+})

@@ -107,13 +107,17 @@ test("ai-link-sync", async ({ obsidian, recorder }, testInfo) => {
 
   await recorder.chapter("⑤ AI 実行ペインの × で止める", {
     sub: "両方とも完了になる（この課題の元のバグ）",
-    say: "AI 実行ペインのバツで止めます。両方とも完了になります。以前は、人間タスクだけが実行中のまま残っていました。",
+    say: "AI 実行ペインのバツで止めます。確認が出るので、すべて閉じるを押します。両方とも完了になります。以前は、人間タスクだけが実行中のまま残っていました。",
   })
   const runRow = page.locator(".ai-run-pane__run").filter({ hasText: AI })
   await runRow.waitFor()
   // The × takes pointer events only while its row is hovered.
   await recorder.hover(runRow)
   await recorder.click(runRow.locator(".ai-run-pane__run-close"))
+  // The row's × asks first (LEV-383).
+  await recorder.click(
+    page.locator(".modal-container .taskchute-confirm-modal").getByRole("button", { name: "すべて閉じる" }),
+  )
   await expectBoth("done")
 
   // Not recorded: "the AI process finishes on its own". In the terminal a CLI

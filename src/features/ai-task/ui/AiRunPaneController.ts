@@ -33,15 +33,16 @@
  * merged into the primary instead (the reference reducer removes any panel
  * whose last tab closes — a dead primary never stays on screen).
  *
- * × semantics (tab and sidebar row alike): on an ACTIVE run it requests a
- * stop AND closes the run's view in one action — the teardown waits for the
- * manager's 'persisted' notification (the end of the log persist chain), so
- * the exit-time terminal snapshot is always taken from a live adapter. On
- * an already-finished run it closes immediately. Runs that reach 'stopped'
- * keep auto-closing on 'persisted' even without a × click; stopped runs
- * never regain a view on a mount replay. Closing a task run leaves the
- * terminals opened beside it (+, split, resumed) open: its sidebar row stays
- * as the way back to them until the last of them closes.
+ * × semantics: a tab's × closes that run; the sidebar row's × asks first,
+ * then does the same for every tab of the row (LEV-383). On an ACTIVE run it
+ * requests a stop AND closes the run's view in one action — the teardown
+ * waits for the manager's 'persisted' notification (the end of the log
+ * persist chain), so the exit-time terminal snapshot is always taken from a
+ * live adapter. On an already-finished run it closes immediately. Runs that
+ * reach 'stopped' keep auto-closing on 'persisted' even without a × click;
+ * stopped runs never regain a view on a mount replay. Closing a task run's
+ * tab leaves the terminals opened beside it (+, split, resumed) open: its
+ * sidebar row stays as the way back to them until the last of them closes.
  *
  * The expand toggle fills the available view height (.is-expanded on the
  * pane, the --expanded chrome class on the host container). xterm follows
@@ -140,6 +141,7 @@ import { AgentSessionHistoryView } from './AgentSessionHistoryView'
 import { getAiAgent } from '../agents'
 import type { AgentSessionHistory, AgentSessionListItem } from '../sessions/AgentSessionHistory'
 import type { ScopedTranslator } from '@/i18n'
+import type { ConfirmModalOptions } from '@/ui/modals/ConfirmModal'
 
 export interface AiRunPaneManagerLike {
   getRuns(): AiRunRecord[]
@@ -236,6 +238,12 @@ export interface AiRunPaneControllerHost {
    */
   saveLocalStorage?: (key: string, value: unknown) => void
   loadLocalStorage?: (key: string) => unknown
+  /**
+   * Ask the user before a row's × closes every tab of the row (LEV-383);
+   * resolves true to go ahead. Optional so plain fakes keep working — without
+   * it the row's × closes them at once.
+   */
+  confirm?: (options: ConfirmModalOptions) => Promise<boolean>
 }
 
 /** Live terminal wiring of one terminal-mode run view */
@@ -349,6 +357,20 @@ const STATUS_FALLBACK_LABELS: Record<AiRunStatus, string> = {
 /** Pixel slack when deciding whether the body is pinned to the bottom */
 /** Statuses after which a run's session file has changed for good. */
 const TERMINAL_RUN_STATUSES: ReadonlySet<AiRunStatus> = new Set(['succeeded', 'failed', 'stopped'])
+
+/**
+ * Whether a run's × may be offered: stop-and-close while active, close once
+ * finished. A run in the stopped mid-persist window gets none — its view
+ * auto-closes on 'persisted'.
+ */
+function isClosableStatus(status: AiRunStatus): boolean {
+  return (
+    ACTIVE_STATUSES.has(status) ||
+    status === 'interrupted' ||
+    status === 'succeeded' ||
+    status === 'failed'
+  )
+}
 
 /** What the pane's left sidebar shows: the runs, the workspace files, or past sessions. */
 type SidebarMode = 'runs' | 'files' | 'history'
@@ -2292,9 +2314,104 @@ export class AiRunPaneController {
       text: name,
       attr: { title: name },
     })
-    // A row whose own tab is closed has nothing of its own left to close.
-    if (!view.tabClosed) {
-      this.appendCloseControl(row, record, 'ai-run-pane__run-close')
+    this.appendRowCloseControl(row, view, record)
+  }
+
+  /**
+   * The row's ×: after the user confirms, it closes every tab of the row —
+   * the task's own and the terminals opened beside it (+, split, resumed) —
+   * and the row goes with the last of them (LEV-383). A row whose own tab is
+   * already closed keeps it for the tabs that remain.
+   */
+  private appendRowCloseControl(
+    row: HTMLElement,
+    view: RunView,
+    record: AiRunRecord,
+  ): void {
+    if (!view.tabClosed && !isClosableStatus(record.status)) return
+    const label = this.host.tv('aiTask.closeRow.label', "Close all of this task's tabs")
+    const button = row.createEl('button', {
+      cls: 'ai-run-pane__run-close',
+      attr: { 'aria-label': label, title: label },
+    })
+    setIcon(button, 'x')
+    button.addEventListener('click', (event) => {
+      event.stopPropagation()
+      void this.requestCloseRow(record.id)
+    })
+  }
+
+  /** The row's ×, once the user says yes: close each tab of the row. */
+  private async requestCloseRow(runId: string): Promise<void> {
+    const tabRunIds = this.rowTabRunIds(runId)
+    if (tabRunIds.length === 0) return
+    if (this.host.confirm) {
+      const confirmed = await this.host.confirm(
+        this.closeRowConfirmOptions(runId, tabRunIds),
+      )
+      if (!confirmed) return
+    }
+    // Whatever closed while the dialog was open is skipped.
+    for (const tabRunId of this.rowTabRunIds(runId)) {
+      this.requestCloseRun(tabRunId)
+    }
+  }
+
+  /**
+   * The tabs a row stands for, wherever they are shown: the task's own
+   * (unless closed) and the terminals opened beside it.
+   */
+  private rowTabRunIds(runId: string): string[] {
+    const view = this.runViews.get(runId)
+    if (!view) return []
+    const runIds = view.tabClosed ? [] : [runId]
+    for (const childRunId of this.runViews.keys()) {
+      if (this.host.manager.getRun(childRunId)?.parentRunId === runId) {
+        runIds.push(childRunId)
+      }
+    }
+    return runIds
+  }
+
+  private closeRowConfirmOptions(
+    runId: string,
+    tabRunIds: string[],
+  ): ConfirmModalOptions {
+    const labels = this.runTabFallbackLabels()
+    const record = this.host.manager.getRun(runId)
+    const name = record ? runTabLabel(record, labels) : ''
+    let anyRunning = false
+    const tabLines = tabRunIds.map((tabRunId) => {
+      const tab = this.host.manager.getRun(tabRunId)
+      const tabName = tab ? runTabLabel(tab, labels) : tabRunId
+      if (!tab || !ACTIVE_STATUSES.has(tab.status)) return `・${tabName}`
+      anyRunning = true
+      return `・${this.host.tv('aiTask.closeRow.runningTab', '{name} (running)', { name: tabName })}`
+    })
+    const count = tabRunIds.length
+    const summary =
+      count > 1
+        ? this.host.tv(
+            'aiTask.closeRow.messageMany',
+            "This closes all {count} of the task's tabs.",
+            { count },
+          )
+        : this.host.tv('aiTask.closeRow.messageOne', "This closes the task's tab.")
+    return {
+      title: this.host.tv('aiTask.closeRow.title', 'Close "{name}"?', { name }),
+      message: [summary, ...tabLines].join('\n'),
+      description: anyRunning
+        ? this.host.tv(
+            'aiTask.closeRow.keepsRunning',
+            'Anything running is stopped. The task note and its run logs are kept.',
+          )
+        : this.host.tv(
+            'aiTask.closeRow.keeps',
+            'The task note and its run logs are kept.',
+          ),
+      confirmText: this.host.tv('aiTask.closeRow.confirm', 'Close all'),
+      cancelText: this.host.tv('aiTask.closeRow.cancel', 'Cancel'),
+      destructive: true,
     }
   }
 
@@ -2467,16 +2584,8 @@ export class AiRunPaneController {
     record: AiRunRecord,
     cls: string,
   ): void {
-    const isActive = ACTIVE_STATUSES.has(record.status)
-    if (
-      !isActive &&
-      record.status !== 'interrupted' &&
-      record.status !== 'succeeded' &&
-      record.status !== 'failed'
-    ) {
-      return
-    }
-    const label = isActive
+    if (!isClosableStatus(record.status)) return
+    const label = ACTIVE_STATUSES.has(record.status)
       ? this.host.tv('aiTask.stopAndClose', 'Stop and close run')
       : this.host.tv('aiTask.closeTab', 'Close run tab')
     const button = parent.createEl('button', {
