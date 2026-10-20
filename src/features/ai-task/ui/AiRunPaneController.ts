@@ -483,7 +483,7 @@ export class AiRunPaneController {
    * which terminal status the run ends with.
    */
   private readonly pendingCloseRunIds = new Set<string>()
-  /** While set, terminals that come up do not take the keyboard (moveOnToTask). */
+  /** While set, terminals that come up do not take the keyboard (closeRun). */
   private holdTerminalFocus = false
   private containerEl: HTMLElement | null = null
   private root: HTMLElement | null = null
@@ -1971,16 +1971,26 @@ export class AiRunPaneController {
    */
   private closeRun(runId: string): void {
     const parentRunId = this.host.manager.getRun(runId)?.parentRunId
-    this.closeRunView(runId)
-    // A closed task has no workspace to come back to.
-    if (!this.runViews.has(runId)) this.taskWorkspaceStates.delete(runId)
-    // The last terminal beside a closed tab takes its row with it.
-    if (
-      parentRunId !== undefined &&
-      this.runViews.get(parentRunId)?.tabClosed === true &&
-      !this.hasChildRunViews(parentRunId)
-    ) {
-      this.closeRun(parentRunId)
+    // Whatever terminal comes up in its place leaves the keyboard where it
+    // is when it is somewhere outside this pane: a close that came on its
+    // own (the run stopped, its log was written) must not pull typing out of
+    // a note into a terminal.
+    const held = this.holdTerminalFocus
+    this.holdTerminalFocus = held || this.keyboardIsElsewhere()
+    try {
+      this.closeRunView(runId)
+      // A closed task has no workspace to come back to.
+      if (!this.runViews.has(runId)) this.taskWorkspaceStates.delete(runId)
+      // The last terminal beside a closed tab takes its row with it.
+      if (
+        parentRunId !== undefined &&
+        this.runViews.get(parentRunId)?.tabClosed === true &&
+        !this.hasChildRunViews(parentRunId)
+      ) {
+        this.closeRun(parentRunId)
+      }
+    } finally {
+      this.holdTerminalFocus = held
     }
   }
 
@@ -1988,32 +1998,30 @@ export class AiRunPaneController {
    * The task on screen closed and another task comes up: the switch a click
    * on its row makes — its workspace, remembered tab, split panels and
    * terminals, even ones never shown since the pane was built (LEV-384).
-   * The keyboard stays where it is when it is somewhere outside this pane:
-   * a close that came on its own (the run stopped, its log was written)
-   * must not pull typing out of a note into a terminal.
    */
   private moveOnToTask(
     panel: PanelView,
     fallbackRunId: string,
     taskScopeRunId: string,
   ): void {
+    if (this.runViews.get(taskScopeRunId)?.row) {
+      this.showRunInFocusedPanel(taskScopeRunId)
+      return
+    }
+    // A shell without a task has no row to click.
+    this.selectRunInPanel(panel, fallbackRunId)
+    if (!this.isCollapsed()) this.ensureVisibleTerminalViews()
+  }
+
+  /** Whether the keyboard is in something outside this pane (a note, say). */
+  private keyboardIsElsewhere(): boolean {
     const doc = this.root?.ownerDocument
     const activeElement = doc?.activeElement ?? null
-    this.holdTerminalFocus =
+    return (
       activeElement !== null &&
       activeElement !== doc?.body &&
-      !this.root?.contains(activeElement)
-    try {
-      if (this.runViews.get(taskScopeRunId)?.row) {
-        this.showRunInFocusedPanel(taskScopeRunId)
-      } else {
-        // A shell without a task has no row to click.
-        this.selectRunInPanel(panel, fallbackRunId)
-        if (!this.isCollapsed()) this.ensureVisibleTerminalViews()
-      }
-    } finally {
-      this.holdTerminalFocus = false
-    }
+      this.root?.contains(activeElement) !== true
+    )
   }
 
   /** closeRun for the run itself; its parent's row is closeRun's to close. */

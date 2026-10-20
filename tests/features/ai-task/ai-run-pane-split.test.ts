@@ -663,6 +663,31 @@ describe('AiRunPaneController split panels', () => {
       note.remove()
     })
 
+    test('leaves the keyboard in a note when a split terminal moves into the primary panel', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+      manager.emit(createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }))
+      showTask('run-a')
+      splitButton()?.click()
+      panels()[0].querySelector<HTMLElement>('.ai-run-pane__tab[data-run-id="run-a"]')?.click()
+      const splitTerminal = adapters.find((adapter) =>
+        bodyOf('shell-1')?.contains(adapter.opened?.container ?? null),
+      )
+      if (!splitTerminal) throw new Error('split terminal missing')
+      splitTerminal.focus.mockClear()
+      const note = document.body.createEl('input')
+      note.focus()
+
+      // The task stops on its own: its split terminal takes the primary
+      // panel, and the keyboard stays in the note.
+      finish('run-a')
+
+      expect(tabRunIds()).toEqual(['shell-1'])
+      expect(splitTerminal.focus).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(note)
+      note.remove()
+    })
+
     test("brings back the tab the next task had selected", () => {
       controller.mount(container)
       manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
