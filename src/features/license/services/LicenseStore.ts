@@ -129,6 +129,13 @@ export interface LicenseStorageBridge {
   saveLocalStorage?: (key: string, value: unknown) => void
 }
 
+/**
+ * The activation code, kept on this device beside the token (LEV-389). It used
+ * to live in the plugin settings, which a vault syncs: anyone given the vault's
+ * .obsidian folder could read it, take seats, or renew ahead of its owner.
+ */
+export const LICENSE_CODE_STORAGE_KEY = 'taskchute-plus.license-code'
+
 /** Written and removed only to find out whether the store accepts writes. */
 const STORAGE_PROBE_KEY = 'taskchute-plus.license-storage-probe'
 
@@ -317,6 +324,38 @@ export class LicenseStore {
     // the first activation. An id already in the record needs no rewrite —
     // that would clobber whatever a sibling vault wrote in between.
     if (stored === undefined) this.writeRecord(initial)
+  }
+
+  /** The activation code this device was activated with, if any. */
+  getCode(): string | undefined {
+    let raw: unknown
+    try {
+      raw = this.bridge.loadLocalStorage?.(LICENSE_CODE_STORAGE_KEY)
+    } catch {
+      return undefined
+    }
+    // The raw store hands back the JSON text; Obsidian's App parses it for us.
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw) as unknown
+      } catch {
+        return undefined
+      }
+    }
+    if (typeof raw !== 'object' || raw === null) return undefined
+    const code = (raw as Record<string, unknown>)['code']
+    return typeof code === 'string' && code.trim().length > 0 ? code.trim() : undefined
+  }
+
+  setCode(code: string | undefined): void {
+    try {
+      this.bridge.saveLocalStorage?.(
+        LICENSE_CODE_STORAGE_KEY,
+        code !== undefined && code.trim().length > 0 ? { code: code.trim() } : null,
+      )
+    } catch {
+      // Storage is best-effort: losing it costs entering the code again.
+    }
   }
 
   /** Stable for the lifetime of this device, created on first access. */

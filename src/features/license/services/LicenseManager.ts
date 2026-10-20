@@ -77,7 +77,7 @@ export type ActivationResult =
 export interface LicenseManagerDeps {
   client: LicenseApiClient
   store: LicenseStore
-  /** Reads and writes settings.licenseCode, which is synced via data.json. */
+  /** Reads and writes the activation code, kept on this device (LEV-389). */
   getCode: () => string | undefined
   setCode: (code: string | undefined) => Promise<void>
   platform?: string
