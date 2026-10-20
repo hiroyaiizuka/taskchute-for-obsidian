@@ -60,6 +60,7 @@ import { AiTrustFolderControl } from "@/features/ai-task/ui/AiTrustFolderControl
 import {
   approveFolderOnThisDevice,
   folderKey,
+  isFolderApprovedOnThisDevice,
   resolveTaskFolder,
 } from "@/features/ai-task/services/AiFolderConsent"
 import type { Recipe, RecipeService } from "@/features/recipe/services/RecipeService"
@@ -1514,16 +1515,19 @@ export default class TaskCreationController {
         const folder = resolveTaskFolder(savedCwd(), vault)
         const changed =
           folderTouched && folder !== undefined && folderKey(folder) !== keyOf(initialValue?.cwd)
-        // A folder only other notes name is theirs, not a choice made here.
+        // A folder that notes name (this one included) and this device never
+        // used or allowed came from the vault, not from a choice made here.
         const own = new Set(workingDirectoryHistory.getStoredDirectories().map(keyOf))
         const key = folder === undefined ? undefined : folderKey(folder)
         const namedByNotesOnly =
           key !== undefined &&
+          folder !== undefined &&
           !own.has(key) &&
+          !isFolderApprovedOnThisDevice(storageApp, folder, false) &&
           candidateDirectories.some((entry) => typeof entry === "string" && keyOf(entry) === key)
         const folderChosen = changed && !namedByNotesOnly
         // Trust is the user's only when they ticked it here, for a folder that
-        // is theirs: chosen here, or kept and not one only other notes name.
+        // is theirs: chosen here, or kept and used or allowed on this device.
         const trust =
           trustsFolder() && trustTouched && (changed ? folderChosen : !namedByNotesOnly)
         if (folderChosen) workingDirectorySelect.commitHistory()

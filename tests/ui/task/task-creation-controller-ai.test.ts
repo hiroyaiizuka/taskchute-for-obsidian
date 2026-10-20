@@ -2041,10 +2041,12 @@ describe('approving the working folder on this device', () => {
       '08:45',
       expect.objectContaining({ cwd: undefined, args: ['--sandbox', 'disabled', '--trust'] }),
     )
+    // The folder the user reset to is theirs; the trust is still the note's.
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([['/vault']])
     expect(saved(saveLocalStorage, TRUSTED)).toEqual([])
   })
 
-  test('trust ticked here for a folder only other notes name is not approved', async () => {
+  test('trust ticked here for a folder notes name but this device never used is not approved', async () => {
     const { host, aiTaskEditService, saveLocalStorage } = createHost(
       {},
       { defaultWorkingDirectory: '/vault', workingDirectoryCandidates: ['/Users/other/evil'] },
@@ -2058,11 +2060,34 @@ describe('approving the working folder on this device', () => {
     })
     const modal = await openEditModal(host, inst)
 
-    modal.querySelector<HTMLInputElement>('.ai-task-trust__checkbox')!.click()
+    const trust = modal.querySelector<HTMLInputElement>('.ai-task-trust__checkbox')!
+    trust.click()
+    expect(trust.checked).toBe(true)
     await submit(modal)
 
     expect(saved(saveLocalStorage, APPROVED)).toEqual([])
     expect(saved(saveLocalStorage, TRUSTED)).toEqual([])
+  })
+
+  test('trust ticked here for a folder this device already allowed is approved', async () => {
+    const { host, aiTaskEditService, saveLocalStorage, loadLocalStorage } = createHost(
+      {},
+      { defaultWorkingDirectory: '/vault', workingDirectoryCandidates: ['/srv/repo'] },
+    )
+    loadLocalStorage.mockImplementation((key: string) => (key === APPROVED ? ['/srv/repo'] : null))
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue({
+      ...existingCodexEditValue(file),
+      host: 'cursor' as const,
+      args: ['--sandbox', 'disabled'],
+      cwd: '/srv/repo',
+    })
+    const modal = await openEditModal(host, inst)
+
+    modal.querySelector<HTMLInputElement>('.ai-task-trust__checkbox')!.click()
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([['/srv/repo']])
   })
 
   test("a folder from this device's own recent list is approved by picking it", async () => {
