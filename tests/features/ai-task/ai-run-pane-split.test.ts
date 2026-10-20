@@ -2053,5 +2053,108 @@ describe('AiRunPaneController split panels', () => {
         expect(rows().map((r) => r.getAttribute('data-run-id'))).toEqual(['run-b'])
       })
     })
+
+    // LEV-385: with no task running, a resumed session (and a + terminal
+    // beside it) belongs to no task. It used to have no row, so once a task
+    // started there was no way back to it.
+    describe('opened with no task', () => {
+      const rowIds = (): Array<string | null> =>
+        rows().map((r) => r.getAttribute('data-run-id'))
+      const selectedRowId = (): string | null =>
+        rows().find((r) => r.getAttribute('aria-selected') === 'true')?.getAttribute('data-run-id') ?? null
+
+      async function terminalsWithNoTask(): Promise<void> {
+        controller.mount(container)
+        await resumeFromHistory()
+        container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+        expect(manager.getRun('resumed-1')?.parentRunId).toBeUndefined()
+        expect(manager.getRun('shell-1')?.parentRunId).toBe('resumed-1')
+      }
+
+      test('the resumed session gets a row; the + terminal beside it does not', async () => {
+        await terminalsWithNoTask()
+
+        expect(rowIds()).toEqual(['resumed-1'])
+        expect(tabRunIds()).toEqual(['resumed-1', 'shell-1'])
+        expect(selectedRowId()).toBe('resumed-1')
+      })
+
+      test('a task started afterwards leaves their row to come back to', async () => {
+        await terminalsWithNoTask()
+
+        // As TaskChuteView does when a task starts.
+        manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+        controller.openRun('run-a')
+        expect(tabRunIds()).toEqual(['run-a'])
+        expect(rowIds()).toEqual(['resumed-1', 'run-a'])
+        expect(selectedRowId()).toBe('run-a')
+
+        showTask('resumed-1')
+        expect(tabRunIds()).toEqual(['resumed-1', 'shell-1'])
+        // The tab shown when the task took over is shown again.
+        expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('shell-1')
+        expect(selectedRowId()).toBe('resumed-1')
+        expect(manager.stopRun).not.toHaveBeenCalled()
+
+        showTask('run-a')
+        expect(tabRunIds()).toEqual(['run-a'])
+        expect(selectedRowId()).toBe('run-a')
+      })
+
+      test('closing the task on screen moves on to them', async () => {
+        await terminalsWithNoTask()
+        const task = createRun({ id: 'run-a', taskName: 'AI Weekly Journal' })
+        manager.emit(task)
+        controller.openRun('run-a')
+
+        task.status = 'succeeded'
+        manager.emit(task)
+        manager.emit(task, 'persisted')
+        container
+          .querySelector<HTMLButtonElement>('.ai-run-pane__tab[data-run-id="run-a"] .ai-run-pane__tab-close')
+          ?.click()
+
+        expect(rowIds()).toEqual(['resumed-1'])
+        expect(tabRunIds()).toEqual(['resumed-1', 'shell-1'])
+        expect(selectedRowId()).toBe('resumed-1')
+      })
+
+      test("their row's × is worded for terminals, and closes both", async () => {
+        const confirm: jest.Mock = jest.fn(() => Promise.resolve(true))
+        Object.assign(host, { confirm })
+        await terminalsWithNoTask()
+        manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+        controller.openRun('run-a')
+
+        const close = container.querySelector<HTMLButtonElement>(
+          '.ai-run-pane__run[data-run-id="resumed-1"] .ai-run-pane__run-close',
+        )
+        expect(close?.getAttribute('aria-label')).toBe("Close all of this row's tabs")
+        close?.click()
+        await flush()
+
+        const options = confirm.mock.calls[0]?.[0] as {
+          title: string
+          message: string
+          description?: string
+        }
+        expect(options.title).toBe('Close "👑 weekly-journal"?')
+        expect(options.message.split('\n')[0]).toBe("This closes all 2 of this row's tabs.")
+        expect(options.description).toBe('Anything running is stopped.')
+        expect(manager.stopRun.mock.calls.map(([runId]) => runId as string).sort()).toEqual([
+          'resumed-1',
+          'shell-1',
+        ])
+        for (const runId of ['resumed-1', 'shell-1']) {
+          const record = manager.getRun(runId)
+          if (!record) throw new Error(`${runId} missing`)
+          record.status = 'stopped'
+          manager.emit(record)
+          manager.emit(record, 'persisted')
+        }
+        expect(rowIds()).toEqual(['run-a'])
+        expect(manager.stopRun).not.toHaveBeenCalledWith('run-a')
+      })
+    })
   })
 })

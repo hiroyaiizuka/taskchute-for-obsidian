@@ -421,3 +421,59 @@ test("closing the task on screen shows the next task's terminal at once", async 
   await expect.poll(() => tabRunIds(page)).toEqual([reviewRunId])
   await expect(terminalOf(reviewRunId)).toBeVisible()
 })
+
+// LEV-385: with no task running, a session resumed from the history and a +
+// terminal opened beside it belong to no task. Starting a task afterwards
+// switches the pane to that task; the terminals must keep a row of their own
+// to come back to (and to close), not run on with no way back.
+test("terminals opened with no task keep a row of their own once a task starts", async ({ obsidian, home }, testInfo) => {
+  const { page } = obsidian
+  const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
+  writeSessions(home!, vault)
+  await enableAiTasks(page, writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed"), "terminal")
+  const journal = await createAiTask(page, "AI Weekly Journal")
+  await openTaskChute(page)
+
+  const runRow = (runId: string) => page.locator(`.ai-run-pane__run[data-run-id="${runId}"]`)
+  const sidebarRow = (name: string) => page.locator(".ai-run-pane__run", { hasText: name })
+  const dialog = page.locator(".modal-container .taskchute-confirm-modal")
+
+  // Nothing running: resume a session, then + beside it.
+  await openHistory(page)
+  await page.locator(".ai-session-history__row", { hasText: "引っ越しの準備" }).locator(".ai-session-history__resume").click()
+  await expect.poll(() => resumedRunId(page, "👑 引っ越しの準備"), { timeout: 20_000 }).not.toBeNull()
+  const resumed = (await resumedRunId(page, "👑 引っ越しの準備"))!
+  await page.locator(".ai-run-pane__sidebar-history").click()
+  await page.locator(".ai-run-pane__panel:not([hidden]) .ai-run-pane__add").click()
+  await expect.poll(() => childRunIds(page, resumed), { timeout: 20_000 }).toHaveLength(1)
+  const [terminal] = await childRunIds(page, resumed)
+  await expect.poll(() => tabRunIds(page)).toEqual([resumed, terminal])
+  // The terminals have a row from the start.
+  await expect.soft(runRow(resumed)).toHaveCount(1)
+
+  // A task starts and the pane shows it.
+  await taskRow(page, journal).locator(".play-stop-button").click()
+  await expect(sidebarRow("AI Weekly Journal")).toHaveCount(1)
+  const journalRunId = (await sidebarRow("AI Weekly Journal").getAttribute("data-run-id"))!
+  await sidebarRow("AI Weekly Journal").click()
+  await expect.poll(() => tabRunIds(page)).toEqual([journalRunId])
+
+  // The terminals' row is still there, and brings them back.
+  await expect(runRow(resumed)).toHaveCount(1)
+  await runRow(resumed).click()
+  await expect.poll(() => tabRunIds(page)).toEqual([resumed, terminal])
+  await expect.poll(() => runStatuses(page, [resumed, terminal])).toEqual(["running", "running"])
+  await sidebarRow("AI Weekly Journal").click()
+  await expect.poll(() => tabRunIds(page)).toEqual([journalRunId])
+
+  // Its × closes both terminals and the row; the task is untouched.
+  await runRow(resumed).hover()
+  await runRow(resumed).locator(".ai-run-pane__run-close").click()
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText("This closes all 2 of this row's tabs.")
+  await dialog.getByRole("button", { name: "Close all" }).click()
+  await expect(runRow(resumed)).toHaveCount(0, { timeout: 20_000 })
+  await expect.poll(() => runStatuses(page, [resumed, terminal]), { timeout: 20_000 }).toEqual([null, null])
+  await expect(sidebarRow("AI Weekly Journal")).toHaveCount(1)
+  await expect.poll(() => runStatuses(page, [journalRunId])).toEqual(["running"])
+})
