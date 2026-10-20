@@ -35,6 +35,16 @@ const tracePath = process.env.TASKCHUTE_OWNER_WATCH_TRACE || '';
 const forcePsFailure =
   process.env.TASKCHUTE_OWNER_WATCH_TEST_PS_FAILURE === '1';
 const ownerReadLimit = 16 * 1024 * 1024;
+// Test hook: how long an unreadable record alone may hold the reap (planReapGiveUp).
+const giveUpMsRaw = Number(process.env.TASKCHUTE_OWNER_WATCH_TEST_GIVE_UP_MS);
+const reapGiveUpMs =
+  Number.isFinite(giveUpMsRaw) && giveUpMsRaw > 0 ? giveUpMsRaw : 2 * 60 * 1000;
+let giveUpSince = null;
+// Does not advance while the Mac sleeps, unlike Date.now().
+function monotonicMs() {
+  const time = process.hrtime();
+  return time[0] * 1000 + time[1] / 1e6;
+}
 let input = '';
 let disarmed = false;
 let finished = false;
@@ -288,10 +298,12 @@ function removeFile(target) {
   } catch (_) {}
 }
 
-function cleanupArtifacts(files) {
+function cleanupArtifacts(files, keepHooks) {
   for (const target of files) removeFile(target);
-  removeFile(hookPath);
-  removeFile(pythonHookDir);
+  if (!keepHooks) {
+    removeFile(hookPath);
+    removeFile(pythonHookDir);
+  }
   try {
     const stats = trustedStats(descriptorPath, 'file');
     if (!stats) return;
@@ -326,12 +338,22 @@ function reapUntilGone(startedAt) {
   for (const target of signalPlan.kill) {
     signalOwned(target.pid, target.target);
   }
-  const outcome = planReapOutcome({
+  const summary = {
     matching: signalPlan.kill.length,
     unknown: rootPlan.unknown || signalPlan.unknown,
     sessionGuardAlive: rootPlan.sessionGuardAlive,
     trustworthy: records.trustworthy,
-  });
+  };
+  const reapOutcome = planReapOutcome(summary);
+  if (reapOutcome === 'retry' && planReapGiveUp(summary)) {
+    if (giveUpSince === null) giveUpSince = monotonicMs();
+  } else {
+    giveUpSince = null;
+  }
+  const outcome =
+    giveUpSince !== null && monotonicMs() - giveUpSince >= reapGiveUpMs
+      ? 'give-up'
+      : reapOutcome;
   trace({
     elapsed,
     platform: process.platform,
@@ -343,8 +365,10 @@ function reapUntilGone(startedAt) {
     kill: signalPlan.kill,
     outcome,
   });
-  if (outcome === 'cleanup') {
-    cleanupArtifacts(records.files);
+  if (outcome !== 'retry') {
+    // Giving up keeps the hooks: a process named only in an unreadable record
+    // may still be alive, and its next node or python would load them.
+    cleanupArtifacts(records.files, outcome === 'give-up');
     process.exit(0);
     return;
   }

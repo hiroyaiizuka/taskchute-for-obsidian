@@ -123,6 +123,30 @@ let cachedBrokerSource: string | undefined
  * broker forever. Parsed identities remain in ownedPids and are still
  * reaped; only the unusable channel is abandoned after bounded retries.
  *
+ * Note O: The Node hook appends to the owner record without creating it
+ * (O_WRONLY | O_APPEND, like the Python hook). A child can close after the
+ * broker removed the record at the end of the session; appendFileSync then
+ * created the file again, readable by everyone, and the owner watchdog,
+ * which trusts only private files, never declared the session clean
+ * (LEV-378).
+ *
+ * Note P: Shutdown is idempotent across renderer generations. Every
+ * authenticated client receives the same completion ACK after all live
+ * children close; a second request must not sit until its local timeout.
+ *
+ * Note Q: POSIX ENOENT and similar launch failures are emitted
+ * asynchronously rather than thrown from cp.spawn(). Install an error
+ * listener before inspecting pid so a failed pending spawn cannot crash the
+ * broker.
+ *
+ * Note R: The wrapper sentinel can arrive after ChildProcess.exit but before
+ * stdio close. Recompute after the final stderr drain so non-zero CLI
+ * outcomes cannot be frozen as a successful root exit.
+ *
+ * Note S: Tree-snapshot entries are consumed immediately, before PID reuse
+ * is realistic. Hook-file entries can outlive their parent, so validate
+ * their process birth time before signalling a numeric PID.
+ *
  * LEV-379: ps and lsof answer in seconds on a busy Mac, longer right after
  * wake, and the broker serves every terminal from one event loop. So when a
  * session ends or is force-stopped, the evidence a decision about its
@@ -760,9 +784,7 @@ function pidOwnershipState(pid, identity, snapshot, probes) {
   if (liveness === 'dead') return 'dead';
   if (liveness === 'unknown') return 'unknown';
   if (identity && identity.kind === 'unknown') return 'unknown';
-  // Tree-snapshot entries are consumed immediately, before PID reuse is
-  // realistic. Hook-file entries can outlive their parent, so validate their
-  // process birth time before signalling a numeric PID.
+  // Note S (buildTerminalBrokerSource).
   if (
     !identity ||
     !Number.isFinite(identity.lower) ||
@@ -1108,7 +1130,8 @@ function writeOwnerHook() {
     "  if (!file) return child;",
     "  const startedAt = Number.isFinite(startedAfter) ? startedAfter : Date.now();",
     "  const startedAtLower = Number.isFinite(startedBefore) ? startedBefore : startedAt;",
-    "  const append = active => { try { fs.appendFileSync(file, JSON.stringify({ pid: child.pid, startedAt, startedAtLower, active, kind: 'process', parentPid: process.pid, processGroup, commandHint: hint, sentinelFd: sentinel && sentinel.sentinelFd, sentinelPath: sentinel && sentinel.sentinelPath }) + '\\n'); } catch (_) {} };",
+    // Note O (buildTerminalBrokerSource).
+    "  const append = active => { let fd; try { fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND); fs.writeSync(fd, JSON.stringify({ pid: child.pid, startedAt, startedAtLower, active, kind: 'process', parentPid: process.pid, processGroup, commandHint: hint, sentinelFd: sentinel && sentinel.sentinelFd, sentinelPath: sentinel && sentinel.sentinelPath }) + '\\n'); } catch (_) {} finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (_) {} } } };",
     "  append(true);",
     "  child.once('close', () => append(false));",
     "  return child;",
@@ -1428,9 +1451,7 @@ function finish(session, code, signal, streamsClosed) {
   if (streamsClosed) {
     session.childClosed = true;
     consumeStderr(session, '', true);
-    // The wrapper sentinel can arrive after ChildProcess.exit but before
-    // stdio close. Recompute after the final stderr drain so non-zero CLI
-    // outcomes cannot be frozen as a successful root exit.
+    // Note R (buildTerminalBrokerSource).
     session.outcome = outcomeFor(session, code, signal);
   }
   if (session.finishing) return;
@@ -1596,9 +1617,7 @@ function spawnSession(message, socket) {
     send(socket, { type: 'error', sessionId: message.sessionId, message: String(error && error.message || error) });
     return;
   }
-  // POSIX ENOENT and similar launch failures are emitted asynchronously
-  // rather than thrown from cp.spawn(). Install an error listener before
-  // inspecting pid so a failed pending spawn cannot crash the broker.
+  // Note Q (buildTerminalBrokerSource).
   child.once('error', () => {});
   const guardControl =
     child.stdio && child.stdio[guardControlFd]
@@ -1842,9 +1861,7 @@ function handle(socket, message) {
       socket.destroy();
       return;
     }
-    // Shutdown is idempotent across renderer generations. Every authenticated
-    // client receives the same completion ACK after all live children close;
-    // a second request must not sit until its local timeout.
+    // Note P (buildTerminalBrokerSource).
     if (shuttingDown) {
       // Note L (buildTerminalBrokerSource).
       if (shutdownAckReady) send(socket, { type: 'shutdown-ack' });

@@ -42,6 +42,17 @@
  * that kills the program before it can report anything.
  *
  * Keep this plain ES2018 — nothing transpiles the contents of this template.
+ *
+ * `planReapGiveUp` (LEV-378) ends one kind of retrying: when the only thing
+ * keeping the session from 'cleanup' is a record file the watchdog will not
+ * read (one readable by others, which an old Node hook left behind after the
+ * broker had removed it). Nothing in such a file can ever be reaped — it is
+ * never parsed — so waiting cannot change the answer, and another round only
+ * spends two ps a second for as long as the Mac stays up. Everything else
+ * still retries: a process just signalled, a live guard, and any owner whose
+ * state is unknown, which is where a failing ps lands. The watchdog gives up
+ * only after that answer has held for a while on a clock that does not run
+ * during sleep, so a burst of rounds right after wake cannot end it.
  */
 export const OWNER_REAP_PLAN_SOURCE =
   String.raw`function ownerRecordLimitBytes() {
@@ -323,7 +334,8 @@ function planReapSignals(states, expanded, context) {
 }
 // Anything short of proven-and-gone retries: a transient ps/readdir failure
 // must never read as "clean" or abandon the last recovery actor. Permanent
-// corruption preserves this guard and the owner evidence for diagnosis.
+// corruption preserves this guard and the owner evidence for diagnosis — except
+// a record file it will not read and nothing else, which planReapGiveUp ends.
 function planReapOutcome(summary) {
   return (
     summary.matching === 0 &&
@@ -331,6 +343,14 @@ function planReapOutcome(summary) {
     !summary.sessionGuardAlive &&
     summary.trustworthy
   ) ? 'cleanup' : 'retry';
+}
+function planReapGiveUp(summary) {
+  return (
+    summary.matching === 0 &&
+    !summary.unknown &&
+    !summary.sessionGuardAlive &&
+    !summary.trustworthy
+  );
 }
 function reapRetryDelayMs(elapsedMs) {
   const elapsed = Math.max(0, Number.isFinite(elapsedMs) ? elapsedMs : 0);

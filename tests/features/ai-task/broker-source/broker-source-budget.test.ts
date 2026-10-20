@@ -30,10 +30,12 @@ const MAX_ARG_STRLEN = 32 * 4096
  * Because the guard and watchdog reach the broker compressed, roughly 3KB of
  * growth in either of them costs the broker 1KB.
  *
- * The broker sits ~7KB under this budget and ~18KB under the kernel limit. It
- * had ~13KB of cushion before the owner-reap logic was split into testable
- * fragments, which cost ~6KB across the three programs — the shared code is
- * spliced into each of them, so deduplicating it saves less than it reads like.
+ * The broker sits ~1.3KB under this budget and ~12KB under the kernel limit
+ * (October 2026). It had ~13KB of cushion before the owner-reap logic was split
+ * into testable fragments, which cost ~6KB across the three programs — the
+ * shared code is spliced into each of them, so deduplicating it saves less than
+ * it reads like. LEV-379 and LEV-378 had to move comments out of the broker
+ * template into the "Note A…S" block beside buildTerminalBrokerSource to fit.
  * Anything approaching this budget again should move text out of the templates
  * rather than raise it: comments inside them ship inside argv.
  */

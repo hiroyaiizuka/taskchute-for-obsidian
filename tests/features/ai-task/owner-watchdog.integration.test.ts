@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -10,6 +10,7 @@ import {
   isAlive,
   waitUntil,
   waitUntilAllGone,
+  withTimeout,
 } from './brokerTestUtils'
 
 /**
@@ -144,6 +145,90 @@ afterEach(() => {
 })
 
 describe('the owner watchdog after a broker crash', () => {
+  /**
+   * LEV-378. A record file the watchdog cannot trust — here one readable by
+   * others, the shape the Node hook used to leave when it appended to a file
+   * the broker had already removed — kept it from ever declaring the session
+   * clean. It retried every second, two ps a round, for as long as the Mac
+   * stayed up. When that file is all that is left, it now gives up after a
+   * while and clears up.
+   */
+  const leftoverRecord = (ownerFile: string, pid: number): string =>
+    `${JSON.stringify({
+      pid,
+      startedAt: Date.now() - 60_000,
+      startedAtLower: Date.now() - 60_001,
+      active: false,
+      kind: 'process',
+      parentPid: 999_999_997,
+      processGroup: pid,
+      commandHint: 'node',
+      sentinelFd: 4,
+      sentinelPath: ownerFile,
+    })}\n`
+
+  test('gives up on a record it cannot trust once nothing else is left', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'owner-watchdog-untrusted-'))
+    try {
+      const prefix = join(directory, 'owner-session')
+      const ownerFile = `${prefix}-leftover.jsonl`
+      const descriptorPath = join(directory, 'descriptor.json')
+      const tracePath = join(directory, 'trace.jsonl')
+      writeFileSync(
+        descriptorPath,
+        JSON.stringify({ pid: BROKER_PID_STANDIN, token: 'watchdog-test-token' }),
+        { mode: 0o600 },
+      )
+      writeFileSync(ownerFile, leftoverRecord(ownerFile, 999_999_998))
+      chmodSync(ownerFile, 0o644)
+
+      const watchdog = crashInto(
+        { childPid: -1, descriptorPath, directory, ownerFile, prefix },
+        { TASKCHUTE_OWNER_WATCH_TEST_GIVE_UP_MS: '1500', TASKCHUTE_OWNER_WATCH_TRACE: tracePath },
+      )
+
+      expect(await withTimeout(exitOf(watchdog), 30_000, 'the watchdog exiting')).toBe(0)
+      expect(existsSync(ownerFile)).toBe(false)
+      // It retried first, untrusting the record, and only then gave up.
+      const outcomes = readFileSync(tracePath, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => (JSON.parse(line) as { outcome: string; trustworthy: boolean }))
+      expect(outcomes.length).toBeGreaterThan(2)
+      expect(outcomes.slice(0, -1).every((round) => round.outcome === 'retry')).toBe(true)
+      expect(outcomes.every((round) => !round.trustworthy)).toBe(true)
+      expect(outcomes[outcomes.length - 1]?.outcome).toBe('give-up')
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('never gives up while a recorded owner is unknown, as when ps fails', async () => {
+    const session = startSession('unknown')
+    try {
+      const leftover = `${session.prefix}-leftover.jsonl`
+      writeFileSync(leftover, leftoverRecord(leftover, 999_999_998))
+      chmodSync(leftover, 0o644)
+
+      const watchdog = crashInto(session, {
+        TASKCHUTE_OWNER_WATCH_TEST_GIVE_UP_MS: '300',
+        TASKCHUTE_OWNER_WATCH_TEST_PS_FAILURE: '1',
+      })
+      let exited = false
+      watchdog.once('exit', () => {
+        exited = true
+      })
+      await new Promise((resolve) => setTimeout(resolve, 3_000))
+
+      // Still at it, and the evidence naming the live child is still there.
+      expect(exited).toBe(false)
+      expect(isAlive(session.childPid)).toBe(true)
+      expect(existsSync(session.ownerFile)).toBe(true)
+    } finally {
+      rmSync(session.directory, { recursive: true, force: true })
+    }
+  })
+
   test('reaps the recorded child and clears the session artifacts', async () => {
     const session = startSession('plain')
     const watchdog = crashInto(session)
