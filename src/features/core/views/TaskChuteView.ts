@@ -2050,7 +2050,6 @@ export class TaskChuteView
     await Promise.all(recoveries)
   }
 
-  /** Once per manager: terminal mode fell back to conversation (Windows). */
   /** Asked when the user starts a skip-permissions task this device has not allowed. */
   private skipPermissionsConfirmOptions(inst: TaskInstance): ConfirmModalOptions {
     const name = inst.task.file?.basename ?? inst.task.name
@@ -2062,13 +2061,13 @@ export class TaskChuteView
       ),
       message: this.tv(
         "aiTask.skipPermissions.message",
-        "This task is set to skip permissions: the AI runs anything without asking. Use it on this device?",
+        "This task is set to skip permissions: the AI runs anything without asking.",
       ),
       description: this.tv(
         "aiTask.skipPermissions.description",
-        'This device remembers the choice (it is not synced). Change it any time in the AI task settings.',
+        'Allowing it turns skip permissions on for every AI task on this device, including ones that start automatically. It is kept on this device only (not synced); turn it off any time in the AI task settings.',
       ),
-      confirmText: this.tv("aiTask.skipPermissions.allow", "Use it (remember on this device)"),
+      confirmText: this.tv("aiTask.skipPermissions.allow", "Allow on this device"),
       cancelText: this.tv("aiTask.skipPermissions.useAuto", "Run in auto mode this time"),
       destructive: true,
     }
@@ -2076,13 +2075,16 @@ export class TaskChuteView
 
   /** What the run left out of the note, or ran differently (LEV-386). */
   private notifyAiRunArgs(prepared: PreparedAiRun, trigger: AiRunTrigger): void {
-    const ignored = prepared.ignoredArgs ?? []
+    const ignored = (prepared.ignoredArgs ?? []).join(" ")
     if (ignored.length > 0) {
       new Notice(
         this.tv(
           "aiTask.notices.argsIgnored",
           '"{name}": arguments the task settings cannot set were not used: {args}',
-          { name: prepared.taskName, args: ignored.join(" ") },
+          {
+            name: prepared.taskName,
+            args: ignored.length > 200 ? `${ignored.slice(0, 200)}…` : ignored,
+          },
         ),
       )
     }
@@ -2097,6 +2099,7 @@ export class TaskChuteView
     }
   }
 
+  /** Once per manager: terminal mode fell back to conversation (Windows). */
   private notifyTerminalFallback(manager: AiTaskManager): void {
     const reason = manager.getTerminalUnavailableReason?.()
     if (reason === undefined || terminalFallbackNotified.has(manager)) return

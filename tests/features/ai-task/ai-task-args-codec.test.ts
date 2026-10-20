@@ -5,6 +5,7 @@ import {
   requestsSkipPermissions,
   resolveAiTaskRunArgs,
 } from '@/features/ai-task/config/AiTaskArgsCodec'
+import { getAiAgent } from '@/features/ai-task/agents'
 
 const selectable = (...modelIds: string[]) => (modelId: string): boolean =>
   modelIds.includes(modelId)
@@ -318,4 +319,42 @@ describe('resolveAiTaskRunArgs', () => {
     expect(requestsSkipPermissions('claude', ['--permission-mode', 'manual'])).toBe(false)
     expect(requestsSkipPermissions('claude', [])).toBe(false)
   })
+})
+
+// LEV-386 regression guard: everything the task modal can write passes
+// through unchanged once skip-permissions is allowed — no legitimate task
+// loses an argument to the filter.
+describe('resolveAiTaskRunArgs keeps every modal-written combination', () => {
+  const hosts = ['claude', 'codex', 'cursor'] as const
+
+  for (const host of hosts) {
+    test(`${host}`, () => {
+      const agent = getAiAgent(host)
+      const modes = [
+        ...AI_EXEC_MODE_VARIANTS[host].map((variant) => variant.tokens),
+        ...(agent.legacyExecModes ?? []).map((spelling) => spelling.tokens),
+      ]
+      const trusts: Array<readonly string[]> = [[], ...(agent.trustFolderArgs ? [agent.trustFolderArgs] : [])]
+      const models: string[][] = [[], ['--model', 'opus'], ['--model', 'gpt-5.6-sol'], ['--model', 'an-unlisted/model-2']]
+      const reasoning = agent.reasoning
+      const efforts: string[][] = [
+        [],
+        ...(reasoning ? [...reasoning.budgets, reasoning.ultraValue].map((value) => reasoning.effortArgs(value)) : []),
+      ]
+      let checked = 0
+      for (const mode of modes) {
+        for (const trust of trusts) {
+          for (const model of models) {
+            for (const effort of efforts) {
+              const args = [...mode, ...trust, ...model, ...effort]
+              const result = resolveAiTaskRunArgs(host, args, { allowSkipPermissions: true })
+              expect({ args: result.args, ignored: result.ignoredArgs }).toEqual({ args, ignored: [] })
+              checked += 1
+            }
+          }
+        }
+      }
+      expect(checked).toBeGreaterThan(10)
+    })
+  }
 })

@@ -107,7 +107,7 @@ export const en = {
       retentionDesc: "Run log notes older than this many days are deleted automatically.",
       skipPermissionsName: "Allow skip permissions on this device",
       skipPermissionsDesc:
-        "When on, tasks set to skip permissions run without asking. This setting belongs to this device and is not synced. When off, starting such a task with ▶ asks once, and an automatic start runs it in auto mode.",
+        "When on, every AI task set to skip permissions runs without asking, including ones that start automatically. This setting belongs to this device and is not synced. When off, starting such a task with ▶ asks first, and an automatic start runs it in auto mode.",
       previousRuntimeShutdownFailed:
         "The previous AI runtime could not be stopped safely. AI tasks remain disabled; please try again.",
     },
@@ -347,10 +347,10 @@ export const en = {
       skipPermissions: {
         title: 'Run "{name}" with skip permissions?',
         message:
-          "This task is set to skip permissions: the AI runs anything without asking. Use it on this device?",
+          "This task is set to skip permissions: the AI runs anything without asking.",
         description:
-          'This device remembers the choice (it is not synced). Change it any time in the AI task settings.',
-        allow: "Use it (remember on this device)",
+          'Allowing it turns skip permissions on for every AI task on this device, including ones that start automatically. It is kept on this device only (not synced); turn it off any time in the AI task settings.',
+        allow: "Allow on this device",
         useAuto: "Run in auto mode this time",
       },
       notices: {

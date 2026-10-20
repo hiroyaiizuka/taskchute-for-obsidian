@@ -184,7 +184,7 @@ export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
             ),
             desc: t(
               "settings.aiTask.skipPermissionsDesc",
-              "When on, tasks set to skip permissions run without asking. This setting belongs to this device and is not synced. When off, starting such a task with ▶ asks once, and an automatic start runs it in auto mode.",
+              "When on, every AI task set to skip permissions runs without asking, including ones that start automatically. This setting belongs to this device and is not synced. When off, starting such a task with ▶ asks first, and an automatic start runs it in auto mode.",
             ),
             control: {
               type: "toggle",

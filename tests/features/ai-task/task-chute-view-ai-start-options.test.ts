@@ -179,6 +179,9 @@ interface ViewInternals {
     manager: unknown,
     trigger: 'manual' | 'automatic',
   ): Promise<{ kind: string }>
+  startInstance(inst: TaskInstance): Promise<void>
+  startAmbientAiInstance(inst: TaskInstance, manager: unknown): Promise<unknown>
+  startLinkedAiTask(inst: TaskInstance): Promise<unknown>
   aiRunPaneController: unknown
 }
 
@@ -360,5 +363,24 @@ describe('TaskChuteView skip-permissions consent', () => {
     await internals.prepareAiRunForInstance(skipInstance('--model opus'), manager, 'manual')
 
     expect(noticeTexts()).toContainEqual(expect.stringContaining('--mcp-config evil.json'))
+  })
+})
+
+// LEV-386: only ▶ is a manual start; the schedule and the link are not, so
+// they never ask and never count as the user's consent.
+describe('TaskChuteView AI start triggers', () => {
+  test('▶ starts are manual; scheduled and linked starts are automatic', async () => {
+    const { manager, internals } = setUp()
+    const triggers: string[] = []
+    internals.prepareAiRunForInstance = jest.fn(async (_inst, _manager, trigger) => {
+      triggers.push(trigger)
+      return { kind: 'failed' }
+    })
+
+    await internals.startInstance(makeInstance('manual'))
+    await internals.startAmbientAiInstance(makeInstance('ambient'), manager)
+    await internals.startLinkedAiTask(makeInstance('linked'))
+
+    expect(triggers).toEqual(['manual', 'automatic', 'automatic'])
   })
 })

@@ -101,7 +101,7 @@ test("a note's arguments are a request: skip permissions is asked once, other ar
   // The next one: allowed, and remembered on this device.
   await taskRow(page, second).locator(".play-stop-button").click()
   await expect(dialog).toBeVisible()
-  await dialog.getByRole("button", { name: "Use it (remember on this device)" }).click()
+  await dialog.getByRole("button", { name: "Allow on this device" }).click()
   await expect.poll(() => recordedRuns(recorder.argvFile).length, { timeout: 20_000 }).toBe(2)
   const allowed = recordedRuns(recorder.argvFile)[1]
   expect(allowed).toContain("--dangerously-skip-permissions")
