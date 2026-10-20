@@ -106,10 +106,10 @@ let cachedBrokerSource: string | undefined
  * the time this async callback runs, a short-lived intermediary may already
  * have exited and its detached child may be reparented.
  *
- * Note K: fd 3 is a broker-lifetime pipe. The PTY wrapper blocks a tiny
- * watchdog on it; a broker crash/SIGKILL closes the parent end in the kernel
- * and the watchdog tears down its own process group without trusting a
- * reusable PID.
+ * Note K: fd 3 is a pipe the broker holds for as long as the session's guard
+ * lives (Note T). The PTY wrapper blocks a tiny watchdog on it; a broker
+ * crash/SIGKILL closes the parent end in the kernel and the watchdog tears
+ * down its own process group without trusting a reusable PID.
  *
  * Note L: The first waiter may already have triggered the ACK fan-out and
  * server.close(). Existing authenticated sockets can still deliver a
@@ -146,6 +146,19 @@ let cachedBrokerSource: string | undefined
  * Note S: Tree-snapshot entries are consumed immediately, before PID reuse
  * is realistic. Hook-file entries can outlive their parent, so validate
  * their process birth time before signalling a numeric PID.
+ *
+ * Note T: When the guard exits, the broker closes its end of fd 3, so the
+ * watchdog of Note K tears down the terminal's process group. A guard can be
+ * gone before it stopped its terminal: the broker kills one that has not
+ * finished a force stop within 250ms, such as one still starting up or still
+ * in its synchronous ps. If the broker had not seen the terminal's processes
+ * yet either, the watchdog used to wait on fd 3 for the broker's lifetime
+ * and, holding fd 3, kept the guard's streams from closing, so the session
+ * never finished (LEV-380). Its own live process group is all it kills, and
+ * anything still in that group belongs to the terminal. The control pipe
+ * (fd 4) is closed too: on Linux the terminal can inherit it as well. So a
+ * detached process holding either no longer keeps the session open; like any
+ * process the broker never recorded (Note C), it is not waited for.
  *
  * LEV-379: ps and lsof answer in seconds on a busy Mac, longer right after
  * wake, and the broker serves every terminal from one event loop. So when a
@@ -1624,6 +1637,14 @@ function spawnSession(message, socket) {
       ? child.stdio[guardControlFd]
       : null;
   if (guardControl) guardControl.on('error', () => {});
+  const watchPipe =
+    process.platform !== 'win32' && child.stdio ? child.stdio[3] : null;
+  if (watchPipe) watchPipe.on('error', () => {});
+  // Note T (buildTerminalBrokerSource).
+  child.once('exit', () => {
+    if (watchPipe) watchPipe.destroy();
+    if (guardControl) guardControl.destroy();
+  });
   const rootRecordDelayMs = Number(
     process.env.TASKCHUTE_BROKER_TEST_ROOT_RECORD_DELAY_MS,
   );
