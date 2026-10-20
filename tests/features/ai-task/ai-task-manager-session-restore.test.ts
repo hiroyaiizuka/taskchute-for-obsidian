@@ -515,6 +515,59 @@ describe('AiTaskManager persisted session restore', () => {
     expect(saveNow).toHaveBeenCalledWith([])
   })
 
+  // LEV-382: a task whose tab was closed stays the row of the terminals
+  // beside it across a reload, and only while one of them came back.
+  test('restores a stopped run kept for the terminals beside it, and lets it go with the last of them', () => {
+    const parent = restoredSnapshot({
+      record: {
+        ...restoredSnapshot().record,
+        status: 'stopped',
+        endedAt: 2_000,
+        viewClosed: true,
+      },
+    })
+    const shell = restoredSnapshot({
+      record: {
+        ...restoredSnapshot().record,
+        id: 'restored-shell',
+        taskPath: '',
+        taskName: 'Terminal',
+        host: 'shell',
+        status: 'succeeded',
+        endedAt: 2_500,
+        exitCode: 0,
+        parentRunId: 'restored-run',
+      },
+    })
+    const deps = createDeps([parent, shell])
+    const manager = new AiTaskManager(deps)
+
+    expect(manager.getRun('restored-run')).toMatchObject({ status: 'stopped', viewClosed: true })
+    expect(manager.getRun('restored-shell')).toBeDefined()
+
+    manager.releaseRun('restored-shell')
+
+    expect(manager.getRuns()).toEqual([])
+    expect(deps.sessionState.saveNow).toHaveBeenLastCalledWith([])
+  })
+
+  test('drops a run kept for the terminals beside it when none of them came back', () => {
+    const parent = restoredSnapshot({
+      record: {
+        ...restoredSnapshot().record,
+        status: 'succeeded',
+        endedAt: 2_000,
+        exitCode: 0,
+        viewClosed: true,
+      },
+    })
+    const deps = createDeps([parent])
+    const manager = new AiTaskManager(deps)
+
+    expect(manager.getRuns()).toEqual([])
+    expect(deps.sessionState.saveNow).toHaveBeenCalledWith([])
+  })
+
   test('terminal output schedules the lazy save tier while other mutations stay prompt', () => {
     const captured: { callbacks?: TerminalRunCallbacks } = {}
     const snapshot = restoredSnapshot({

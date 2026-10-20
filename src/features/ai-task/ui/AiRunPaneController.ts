@@ -39,7 +39,9 @@
  * the exit-time terminal snapshot is always taken from a live adapter. On
  * an already-finished run it closes immediately. Runs that reach 'stopped'
  * keep auto-closing on 'persisted' even without a × click; stopped runs
- * never regain a view on a mount replay.
+ * never regain a view on a mount replay. Closing a task run leaves the
+ * terminals opened beside it (+, split, resumed) open: its sidebar row stays
+ * as the way back to them until the last of them closes.
  *
  * The expand toggle fills the available view height (.is-expanded on the
  * pane, the --expanded chrome class on the host container). xterm follows
@@ -283,6 +285,12 @@ interface RunView {
   noticeEl: HTMLElement | null
   /** `seq` of the notice last shown, so each one is shown and announced once. */
   lastNoticeSeq: number | null
+  /**
+   * The run's own tab was closed while terminals opened beside it were
+   * still open: only its sidebar row remains, leading to them, until the
+   * last of them closes (AiRunRecord.viewClosed).
+   */
+  tabClosed: boolean
 }
 
 /** One side-by-side content panel (tab strip + bodies + selection) */
@@ -782,7 +790,7 @@ export class AiRunPaneController {
     }
 
     for (const record of this.host.manager.getRuns()) {
-      if (record.status === 'stopped') {
+      if (record.status === 'stopped' && !record.viewClosed) {
         // Stopped runs never regain a view (theirs auto-closed on
         // 'persisted'), and that notification is also the only releaseRun
         // trigger — when it fired with no pane mounted, the record was left
@@ -790,7 +798,8 @@ export class AiRunPaneController {
         // buffers) until plugin unload. The manager refuses to release runs
         // that have not actually exited, so this is safe mid-persist too.
         this.host.manager.releaseRun?.(record.id)
-        continue
+        // One with terminals still open beside it is kept as their row.
+        if (!this.host.manager.getRun(record.id)?.viewClosed) continue
       }
       this.handleChange(record)
     }
@@ -1830,8 +1839,8 @@ export class AiRunPaneController {
     if (!existing) {
       // Stopped runs never (re)gain a view: their view auto-closed at
       // persist time, and a mount replay of the manager's records must not
-      // resurrect it.
-      if (record.status === 'stopped') return
+      // resurrect it — except as the row of the terminals beside it.
+      if (record.status === 'stopped' && !record.viewClosed) return
       this.createRunView(record)
       this.updateComposerState()
       return
@@ -1930,45 +1939,76 @@ export class AiRunPaneController {
    * while a secondary panel unsplits. The pane hides again (the
    * pre-first-run state) when no runs remain. Used by the 'persisted'
    * teardown and the × of finished runs.
+   *
+   * Terminals opened beside the run (+, split, resumed) are left open. A task
+   * run with any of them keeps its sidebar row, which leads to them, until
+   * the last of them closes; only its own tab goes.
    */
   private closeRun(runId: string): void {
+    const parentRunId = this.host.manager.getRun(runId)?.parentRunId
+    this.closeRunView(runId)
+    // The last terminal beside a closed tab takes its row with it.
+    if (
+      parentRunId !== undefined &&
+      this.runViews.get(parentRunId)?.tabClosed === true &&
+      !this.hasChildRunViews(parentRunId)
+    ) {
+      this.closeRun(parentRunId)
+    }
+  }
+
+  /** closeRun for the run itself; its parent's row is closeRun's to close. */
+  private closeRunView(runId: string): void {
     const view = this.runViews.get(runId)
     if (!view) return
-    const ownedShellRunIds = this.host.manager
-      .getRuns()
-      .filter((record) => record.parentRunId === runId)
-      .map((record) => record.id)
-    for (const ownedRunId of ownedShellRunIds) {
-      this.requestCloseRun(ownedRunId)
-    }
+    const keepsRow = view.row !== null && this.hasChildRunViews(runId)
+    if (keepsRow && view.tabClosed) return
+    const panel = this.getPanel(view.panelId)
+    const tabsBefore = panel ? this.panelTabRunIds(panel) : []
     this.disposeTerminalBinding(view)
-    view.row?.remove()
-    view.body.remove()
-    this.runViews.delete(runId)
     this.pendingCloseRunIds.delete(runId)
     this.pendingEventSyncRunIds.delete(runId)
     // The view is gone for good: drop the run's record from the manager so a
     // later pane remount does not resurrect the closed run (the manager
     // refuses to release still-active runs, so a rollback of a mid-dispatch
-    // failure can call this unconditionally).
+    // failure can call this unconditionally). The manager keeps it, marked
+    // viewClosed, while terminals opened beside it remain.
     this.host.manager.releaseRun?.(runId)
-
-    const panel = this.getPanel(view.panelId)
-    if (panel?.taskRunId === runId) {
-      panel.taskRunId = null
-      this.ensurePanelTaskSlot(panel)
+    if (keepsRow) {
+      view.tabClosed = true
+      const record = this.host.manager.getRun(runId)
+      if (record) this.refreshRunRow(view, record)
+    } else {
+      view.row?.remove()
+      view.body.remove()
+      this.runViews.delete(runId)
+      if (panel?.taskRunId === runId) {
+        panel.taskRunId = null
+        this.ensurePanelTaskSlot(panel)
+      }
     }
+
     if (panel) this.refreshContentTab(panel)
     if (panel && panel.selectedRunId === runId) {
       panel.selectedRunId = null
+      const taskView =
+        panel.taskRunId !== null ? this.runViews.get(panel.taskRunId) : undefined
       let fallbackRunId =
-        panel.taskRunId !== null &&
-        this.runViews.get(panel.taskRunId)?.panelId === panel.id
-          ? panel.taskRunId
+        taskView?.panelId === panel.id && !taskView.tabClosed
+          ? (panel.taskRunId ?? undefined)
           : undefined
       if (fallbackRunId === undefined) {
+        // The tab beside the closed one, the right one first.
+        const remaining = this.panelTabRunIds(panel)
+        const at = tabsBefore.indexOf(runId)
+        fallbackRunId = [
+          ...tabsBefore.slice(at + 1),
+          ...tabsBefore.slice(0, Math.max(at, 0)).reverse(),
+        ].find((id) => remaining.includes(id))
+      }
+      if (fallbackRunId === undefined) {
         for (const [id, other] of this.runViews) {
-          if (other.panelId === panel.id) fallbackRunId = id
+          if (other.panelId === panel.id && !other.tabClosed) fallbackRunId = id
         }
       }
       if (fallbackRunId !== undefined) {
@@ -2110,12 +2150,14 @@ export class AiRunPaneController {
         : null,
       noticeEl: null,
       lastNoticeSeq: null,
+      // At a remount: a run whose tab was closed comes back as its row only.
+      tabClosed: record.viewClosed === true,
     }
     this.runViews.set(record.id, view)
     // A notice the record already carried (e.g. at a pane remount) is shown
     // but not announced again.
     this.renderTerminalNotice(view, record, false)
-    if (!isShell && target.taskRunId === null) {
+    if (!isShell && !view.tabClosed && target.taskRunId === null) {
       target.taskRunId = record.id
       target.taskScopeRunId = record.id
     }
@@ -2125,7 +2167,7 @@ export class AiRunPaneController {
     }
 
     this.revealPane()
-    if (target.selectedRunId === null) {
+    if (target.selectedRunId === null && !view.tabClosed) {
       this.selectRunInPanel(target, record.id)
     } else {
       this.refreshContentTab(target)
@@ -2250,7 +2292,10 @@ export class AiRunPaneController {
       text: name,
       attr: { title: name },
     })
-    this.appendCloseControl(row, record, 'ai-run-pane__run-close')
+    // A row whose own tab is closed has nothing of its own left to close.
+    if (!view.tabClosed) {
+      this.appendCloseControl(row, record, 'ai-run-pane__run-close')
+    }
   }
 
   /**
@@ -2261,31 +2306,7 @@ export class AiRunPaneController {
   private refreshContentTab(panel: PanelView): void {
     panel.tabsEl.empty()
 
-    const visibleRunIds: string[] = []
-    if (
-      panel.taskRunId !== null &&
-      panel.taskRunId === panel.taskScopeRunId
-    ) {
-      visibleRunIds.push(panel.taskRunId)
-    }
-    for (const [runId, view] of this.runViews) {
-      if (view.panelId !== panel.id) continue
-      const record = this.host.manager.getRun(runId)
-      if (!record) continue
-      if (
-        record.host === 'shell' &&
-        this.getTaskScopeRunId(record) === panel.taskScopeRunId
-      ) {
-        visibleRunIds.push(runId)
-      }
-    }
-
-    // A panel owns exactly one replaceable top-level AI-task slot. Merely
-    // starting another task adds its Vertical Tab/body, but not another
-    // horizontal tab. Horizontal tabs only multiply through the explicit
-    // + action, whose records use host === 'shell'. Keep the task slot first
-    // even when it was activated after an already-open shell tab.
-    for (const runId of visibleRunIds) {
+    for (const runId of this.panelTabRunIds(panel)) {
       const record = this.host.manager.getRun(runId)
       const view = this.runViews.get(runId)
       if (!record || view?.panelId !== panel.id) continue
@@ -2330,6 +2351,49 @@ export class AiRunPaneController {
         'ai-run-pane__tab-close ai-run-pane__work-tab-close',
       )
     }
+  }
+
+  /**
+   * The runs whose tabs a panel's strip lists, left to right.
+   *
+   * A panel owns exactly one replaceable top-level AI-task slot. Merely
+   * starting another task adds its Vertical Tab/body, but not another
+   * horizontal tab. Horizontal tabs only multiply through the explicit
+   * + action, whose records use host === 'shell'. Keep the task slot first
+   * even when it was activated after an already-open shell tab. A run whose
+   * own tab was closed lists none.
+   */
+  private panelTabRunIds(panel: PanelView): string[] {
+    const runIds: string[] = []
+    if (
+      panel.taskRunId !== null &&
+      panel.taskRunId === panel.taskScopeRunId &&
+      this.runViews.get(panel.taskRunId)?.tabClosed !== true
+    ) {
+      runIds.push(panel.taskRunId)
+    }
+    for (const [runId, view] of this.runViews) {
+      if (view.panelId !== panel.id || view.tabClosed) continue
+      const record = this.host.manager.getRun(runId)
+      if (!record) continue
+      if (
+        record.host === 'shell' &&
+        this.getTaskScopeRunId(record) === panel.taskScopeRunId
+      ) {
+        runIds.push(runId)
+      }
+    }
+    return runIds
+  }
+
+  /** Whether a view is open for a terminal opened beside `runId`. */
+  private hasChildRunViews(runId: string): boolean {
+    for (const childRunId of this.runViews.keys()) {
+      if (this.host.manager.getRun(childRunId)?.parentRunId === runId) {
+        return true
+      }
+    }
+    return false
   }
 
   /** WAI-ARIA tablist keyboard navigation for task-slot and + shell tabs. */
@@ -2460,12 +2524,19 @@ export class AiRunPaneController {
       const storedPrimaryRunId = stored?.primarySelectedRunId
       primary.taskRunId = runId
       primary.taskScopeRunId = runId
+      const storedView = storedPrimaryRunId
+        ? this.runViews.get(storedPrimaryRunId)
+        : undefined
+      // A row whose own tab is closed shows the terminals beside it.
       primary.selectedRunId =
         storedPrimaryRunId &&
-        this.runViews.get(storedPrimaryRunId)?.panelId === primary.id &&
+        storedView?.panelId === primary.id &&
+        !storedView.tabClosed &&
         this.runBelongsToTaskScope(storedPrimaryRunId, runId)
           ? storedPrimaryRunId
-          : runId
+          : view.tabClosed
+            ? (this.panelTabRunIds(primary)[0] ?? null)
+            : runId
 
       const storedFocusedPanel = stored?.focusedPanelId
         ? this.getPanel(stored.focusedPanelId)

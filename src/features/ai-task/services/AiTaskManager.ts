@@ -1792,16 +1792,41 @@ export class AiTaskManager {
    * become collectable. Active (not yet exited) runs are never released;
    * unknown ids are a no-op. The pending persist chain is unaffected — it
    * captured its InternalRun reference when the exit was queued.
+   *
+   * A run with terminals still open beside it (their parentRunId) is kept,
+   * marked viewClosed, as the row those terminals are shown from; releasing
+   * the last of them releases it too.
    */
   releaseRun(runId: string): void {
     const internal = this.runs.get(runId)
     if (!internal) return
     if (!internal.exited || ACTIVE_STATUSES.has(internal.record.status)) return
+    if (this.hasChildRuns(runId)) {
+      if (internal.record.viewClosed) return
+      internal.record.viewClosed = true
+      this.persistSessionStateNow()
+      return
+    }
     internal.terminalListeners.clear()
     this.runs.delete(runId)
     this.shellForeground.untrack(runId)
     this.shellTitles.forget(runId)
     this.persistSessionStateNow()
+    const parentRunId = internal.record.parentRunId
+    if (
+      parentRunId !== undefined &&
+      this.runs.get(parentRunId)?.record.viewClosed === true
+    ) {
+      this.releaseRun(parentRunId)
+    }
+  }
+
+  /** Whether any run was opened beside `runId` (+, split, or resumed). */
+  private hasChildRuns(runId: string): boolean {
+    for (const internal of this.runs.values()) {
+      if (internal.record.parentRunId === runId) return true
+    }
+    return false
   }
 
   /**
@@ -3094,6 +3119,13 @@ export class AiTaskManager {
         }
       }
     }
+    // A run kept only for the terminals beside it goes when none came back.
+    for (const [runId, internal] of this.runs) {
+      if (internal.record.viewClosed && !this.hasChildRuns(runId)) {
+        this.runs.delete(runId)
+        normalizedActiveState = true
+      }
+    }
     if (normalizedActiveState) this.persistSessionStateNow()
   }
 
@@ -3178,8 +3210,11 @@ export class AiTaskManager {
     const snapshots: AiRunSessionSnapshot[] = []
     for (const internal of this.runs.values()) {
       // Stopped records auto-close once their log persist finishes and should
-      // not reappear if the app reloads inside that short window.
-      if (internal.record.status === 'stopped') continue
+      // not reappear if the app reloads inside that short window. One kept
+      // for the terminals opened beside it stays their row after a reload.
+      if (internal.record.status === 'stopped' && !internal.record.viewClosed) {
+        continue
+      }
       const preserveLiveTerminalAttachment =
         ACTIVE_STATUSES.has(internal.record.status) &&
         internal.record.mode === 'terminal' &&
@@ -3195,7 +3230,10 @@ export class AiTaskManager {
           : undefined,
         pid: undefined,
       }
-      const terminalReplay = internal.terminalData?.chunks.join('')
+      // A run kept only as a row shows no screen again.
+      const terminalReplay = internal.record.viewClosed
+        ? undefined
+        : internal.terminalData?.chunks.join('')
       snapshots.push({
         record,
         ...(terminalReplay ? { terminalReplay } : {}),

@@ -164,6 +164,37 @@ describe('AiRunSessionStateStore', () => {
     expect(restoredEnded?.record.terminalLabel).toBeUndefined()
   })
 
+  test('a stopped run comes back only when it was kept for the terminals beside it (LEV-382)', () => {
+    let state: unknown = null
+    const store = new AiRunSessionStateStore({
+      loadLocalStorage: () => state,
+      saveLocalStorage: (_key: string, value: unknown) => {
+        state = value
+      },
+    })
+    const kept = createSnapshot({
+      record: { ...createSnapshot().record, id: 'kept', status: 'stopped', viewClosed: true },
+    })
+    const stopped = createSnapshot({
+      record: { ...createSnapshot().record, id: 'stopped', status: 'stopped' },
+    })
+    const notTrue = createSnapshot({
+      record: {
+        ...createSnapshot().record,
+        id: 'not-true',
+        status: 'succeeded',
+        viewClosed: 'yes' as unknown as boolean,
+      },
+    })
+
+    store.saveNow([kept, stopped, notTrue])
+    const restored = store.load()
+
+    expect(restored.map((snapshot) => snapshot.record.id)).toEqual(['kept', 'not-true'])
+    expect(restored[0]?.record).toMatchObject({ status: 'stopped', viewClosed: true })
+    expect(restored[1]?.record.viewClosed).toBeUndefined()
+  })
+
   test('default save deadline stays on the root window when popout focus changes', () => {
     const originalActiveWindow = activeWindow
     const focusedPopout = {

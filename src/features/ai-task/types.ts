@@ -146,6 +146,12 @@ export interface AiRunRecord {
   recipeContentHash?: string
   /** Top-level AI run that owns this panel-local shell session. */
   parentRunId?: string
+  /**
+   * The pane closed this run's own tab while terminals opened beside it
+   * (their parentRunId) were still open. The record stays, so its sidebar
+   * row still leads to them, and goes with the last of them.
+   */
+  viewClosed?: boolean
   host: AiRunHost
   status: AiRunStatus
   /** Execution mode of the child process (see AiRunMode) */
