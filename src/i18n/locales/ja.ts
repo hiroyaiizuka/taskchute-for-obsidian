@@ -103,6 +103,9 @@ export const ja = {
         "Windowsの.cmd/.bat/.ps1 shimは手動CLIパスに使用できません。空欄で自動検出するか、実体の実行ファイル／パッケージentrypointを指定してください。",
       retentionName: "実行ログの保持期間（日）",
       retentionDesc: "この日数より古い実行ログノートは自動的に削除されます。",
+      skipPermissionsName: "このパソコンで権限スキップを使う",
+      skipPermissionsDesc:
+        "オンのとき、実行モードが「権限スキップ」のタスクを、確認なしで動かします。このパソコンだけの設定で、同期されません。オフのときは、▶ で始めると一度だけ聞き、自動で始まるときはオートモードで動かします。",
       previousRuntimeShutdownFailed:
         "前回のAIランタイムを安全に停止できませんでした。AIタスクは無効のままです。もう一度お試しください。",
     },
@@ -339,6 +342,13 @@ export const ja = {
         runningPlaceholder: "実行中…",
         unavailablePlaceholder: "この実行ではフォローアップを利用できません",
       },
+      skipPermissions: {
+        title: "「{name}」を権限スキップで動かしますか？",
+        message: "このタスクの実行モードは「権限スキップ」です。AI が確認なしで何でも実行します。このパソコンで使いますか？",
+        description: "このパソコンで覚えます（同期されません）。設定の「このパソコンで権限スキップを使う」でいつでも変えられます。",
+        allow: "使う（このパソコンで覚える）",
+        useAuto: "今回はオートモードで動かす",
+      },
       notices: {
         editFailed: "AIタスクの設定を読み込みまたは保存できませんでした。",
         noPrompt: "プロンプトセクションが見つかりません。タスクノートに「## Prompt」見出しを追加してください。",
@@ -351,6 +361,9 @@ export const ja = {
         splitTooNarrow: "ペインの幅が狭すぎるため分割できません。",
         shellUnavailable: "このプラットフォームではターミナルセッションを利用できません。",
         terminalFallback: "このコンピューターでは埋め込みターミナルを利用できないため、会話モードでAIを実行します。",
+        argsIgnored: "「{name}」: タスクの設定で選べない引数は使いませんでした: {args}",
+        skipPermissionsDowngraded:
+          "「{name}」は権限スキップですが、このパソコンでは許可していないので、オートモードで動かします。設定の「このパソコンで権限スキップを使う」で許可できます。",
         shellStartFailed: "ターミナルセッションの起動に失敗しました: {message}",
         fileOpenFailed: "ファイルを開くか保存できませんでした: {message}",
       },

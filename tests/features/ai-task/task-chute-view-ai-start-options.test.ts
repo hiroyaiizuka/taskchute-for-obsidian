@@ -6,16 +6,24 @@
  *     and falls back to 120x30 when no pane is mounted
  *   - the pane opens on the started run
  */
-import { TFile, WorkspaceLeaf } from 'obsidian'
+import { Notice, TFile, WorkspaceLeaf } from 'obsidian'
 import { TaskChuteView } from '@/features/core/views/TaskChuteView'
 import type { AiRunRecord } from '@/features/ai-task/types'
-import type { AiRunStartOptions } from '@/features/ai-task/services/AiTaskManager'
+import type {
+  AiRunStartOptions,
+  PreparedAiRun,
+} from '@/features/ai-task/services/AiTaskManager'
+import { AI_SKIP_PERMISSIONS_STORAGE_KEY } from '@/features/ai-task/services/AiSkipPermissionsConsent'
+import { showConfirmModal } from '@/ui/modals/ConfirmModal'
 import type { TaskChutePluginLike, TaskInstance } from '@/types'
+
+jest.mock('@/ui/modals/ConfirmModal', () => ({ showConfirmModal: jest.fn() }))
 
 const TASK_PATH = 'TASKS/ai-task.md'
 
 interface ManagerStub {
   startRun: jest.Mock<Promise<AiRunRecord>, [TFile, AiRunStartOptions?]>
+  prepareRun: jest.Mock<Promise<PreparedAiRun>, [TFile, Pick<AiRunStartOptions, 'mode' | 'allowSkipPermissions'>?]>
   stopRun: jest.Mock
   getRuns: jest.Mock
   getRun: jest.Mock
@@ -29,6 +37,7 @@ interface ManagerStub {
 function createManagerStub(): ManagerStub {
   return {
     startRun: jest.fn(),
+    prepareRun: jest.fn(),
     stopRun: jest.fn(),
     getRuns: jest.fn(() => []),
     getRun: jest.fn(() => undefined),
@@ -42,9 +51,15 @@ function createManagerStub(): ManagerStub {
 
 function createPluginStub(
   settingsOverrides: Record<string, unknown> = {},
+  localStorage: Map<string, unknown> = new Map(),
 ): TaskChutePluginLike {
   return {
     app: {
+      loadLocalStorage: (key: string) => localStorage.get(key) ?? null,
+      saveLocalStorage: (key: string, value: unknown) => {
+        if (value === null) localStorage.delete(key)
+        else localStorage.set(key, value)
+      },
       vault: {
         getAbstractFileByPath: jest.fn(() => null),
         getMarkdownFiles: jest.fn(() => []),
@@ -159,15 +174,23 @@ function makeRecord(overrides: Partial<AiRunRecord> = {}): AiRunRecord {
 
 interface ViewInternals {
   startAiRun(inst: TaskInstance): Promise<void>
+  prepareAiRunForInstance(
+    inst: TaskInstance,
+    manager: unknown,
+    trigger: 'manual' | 'automatic',
+  ): Promise<{ kind: string }>
   aiRunPaneController: unknown
 }
 
-function setUp(settingsOverrides: Record<string, unknown> = {}): {
+function setUp(
+  settingsOverrides: Record<string, unknown> = {},
+  localStorage: Map<string, unknown> = new Map(),
+): {
   manager: ManagerStub
   view: TaskChuteView
   internals: ViewInternals
 } {
-  const plugin = createPluginStub(settingsOverrides)
+  const plugin = createPluginStub(settingsOverrides, localStorage)
   const manager = createManagerStub()
   ;(plugin as { aiTaskManager?: unknown }).aiTaskManager = manager
   const leaf = {
@@ -191,6 +214,7 @@ describe('TaskChuteView startAiRun option forwarding', () => {
     expect(file.path).toBe(TASK_PATH)
     expect(options).toEqual({
       mode: 'terminal',
+      allowSkipPermissions: false,
       instanceId: 'inst-7',
       cols: 120,
       rows: 30,
@@ -222,5 +246,119 @@ describe('TaskChuteView startAiRun option forwarding', () => {
     expect(options?.cols).toBe(96)
     expect(options?.rows).toBe(20)
     expect(openRun).toHaveBeenCalledWith('ai-run-1')
+  })
+})
+
+// LEV-386: a note only asks for skip-permissions; this device decides. The
+// user is asked once when they start such a task; an automatic start cannot
+// ask, so it runs in auto mode and says so.
+describe('TaskChuteView skip-permissions consent', () => {
+  const confirm = showConfirmModal as jest.Mock
+  const NoticeMock = Notice as unknown as jest.Mock
+
+  function skipInstance(args = '--dangerously-skip-permissions'): TaskInstance {
+    const inst = makeInstance()
+    inst.task.frontmatter = { ai_task: true, ai_task_args: args }
+    return inst
+  }
+
+  function prepared(overrides: Partial<PreparedAiRun> = {}): PreparedAiRun {
+    return {
+      taskPath: TASK_PATH,
+      taskName: 'ai-task',
+      host: 'claude',
+      mode: 'terminal',
+      prompt: '',
+      extraArgs: [],
+      binaryPath: '/bin/claude',
+      recipeSnapshot: null,
+      ...overrides,
+    }
+  }
+
+  const noticeTexts = (): string[] =>
+    NoticeMock.mock.calls.map(([text]) => String(text))
+
+  beforeEach(() => {
+    confirm.mockReset()
+    NoticeMock.mockClear()
+  })
+
+  test('a manual start asks once, and this device keeps the yes', async () => {
+    const storage = new Map<string, unknown>()
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared())
+    confirm.mockResolvedValue(true)
+
+    await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
+    await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
+
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(manager.prepareRun.mock.calls.map(([, options]) => options?.allowSkipPermissions))
+      .toEqual([true, true])
+    expect(storage.get(AI_SKIP_PERMISSIONS_STORAGE_KEY)).toBe(true)
+  })
+
+  test('answering auto mode runs without it this time, and asks again next time', async () => {
+    const storage = new Map<string, unknown>()
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared({ skipPermissionsDowngraded: true }))
+    confirm.mockResolvedValue(false)
+
+    await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
+    await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
+
+    expect(confirm).toHaveBeenCalledTimes(2)
+    expect(manager.prepareRun.mock.calls.map(([, options]) => options?.allowSkipPermissions))
+      .toEqual([false, false])
+    expect(storage.has(AI_SKIP_PERMISSIONS_STORAGE_KEY)).toBe(false)
+    // The user chose auto mode; nothing to report.
+    expect(noticeTexts().some((text) => text.includes('skip permissions'))).toBe(false)
+  })
+
+  test('an automatic start never asks: it runs in auto mode and says so', async () => {
+    const { manager, internals } = setUp()
+    manager.prepareRun.mockResolvedValue(prepared({ skipPermissionsDowngraded: true }))
+
+    const result = await internals.prepareAiRunForInstance(skipInstance(), manager, 'automatic')
+
+    expect(result.kind).toBe('ready')
+    expect(confirm).not.toHaveBeenCalled()
+    expect(manager.prepareRun.mock.calls[0][1]?.allowSkipPermissions).toBe(false)
+    expect(noticeTexts()).toContainEqual(expect.stringContaining('runs in auto mode'))
+  })
+
+  test('a device that allowed it never asks, for manual or automatic starts', async () => {
+    const storage = new Map<string, unknown>([[AI_SKIP_PERMISSIONS_STORAGE_KEY, true]])
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared())
+
+    await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
+    await internals.prepareAiRunForInstance(skipInstance(), manager, 'automatic')
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(manager.prepareRun.mock.calls.map(([, options]) => options?.allowSkipPermissions))
+      .toEqual([true, true])
+  })
+
+  test('a task that does not ask for skip-permissions is never asked about', async () => {
+    const { manager, internals } = setUp()
+    manager.prepareRun.mockResolvedValue(prepared())
+
+    await internals.prepareAiRunForInstance(skipInstance('--model opus'), manager, 'manual')
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(manager.prepareRun.mock.calls[0][1]?.allowSkipPermissions).toBe(false)
+  })
+
+  test('note arguments the run left out are reported', async () => {
+    const { manager, internals } = setUp()
+    manager.prepareRun.mockResolvedValue(
+      prepared({ ignoredArgs: ['--mcp-config', 'evil.json'] }),
+    )
+
+    await internals.prepareAiRunForInstance(skipInstance('--model opus'), manager, 'manual')
+
+    expect(noticeTexts()).toContainEqual(expect.stringContaining('--mcp-config evil.json'))
   })
 })

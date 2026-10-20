@@ -55,6 +55,7 @@ import type { AiBinaryResolution } from './BinaryLocator'
 import type { RecipeContextSnapshot } from '@/features/recipe/services/RecipeDelegationContextBuilder'
 import { buildRecipeDelegationPrompt } from '@/features/recipe/services/RecipeDelegationContextBuilder'
 import { assertAiRunLaunchSize } from './AiRunLaunchSizeGuard'
+import { resolveAiTaskRunArgs } from '../config/AiTaskArgsCodec'
 import {
   terminalConnectionLostNotice,
   terminalFailureNotice,
@@ -343,6 +344,11 @@ export type AiTerminalSnapshotProvider = (
 export interface AiRunStartOptions {
   /** Overrides the settings-provided run mode for this run */
   mode?: AiRunMode
+  /**
+   * Whether a note asking for skip-permissions gets it (this device allowed
+   * it, LEV-386). Otherwise, and by default, the run uses auto mode.
+   */
+  allowSkipPermissions?: boolean
   /** Task instance the run was started from (row chip scoping) */
   instanceId?: string
   /** PTY size derived from the pane; defaults apply when omitted */
@@ -350,7 +356,10 @@ export interface AiRunStartOptions {
   cols?: number
 }
 
-export type AiPreparedRunStartOptions = Omit<AiRunStartOptions, 'mode'>
+export type AiPreparedRunStartOptions = Omit<
+  AiRunStartOptions,
+  'mode' | 'allowSkipPermissions'
+>
 
 /**
  * Fully validated, immutable input produced before TaskChute changes a task
@@ -364,6 +373,10 @@ export interface PreparedAiRun {
   readonly prompt: string
   readonly cwd?: string
   readonly extraArgs: readonly string[]
+  /** Note arguments the task modal cannot write, left out (LEV-386). */
+  readonly ignoredArgs?: readonly string[]
+  /** The note asked for skip-permissions; the run uses auto mode. */
+  readonly skipPermissionsDowngraded?: boolean
   readonly binaryPath: string
   readonly binaryArgsPrefix?: readonly string[]
   readonly binaryEnvPatch?: Readonly<Record<string, string | undefined>>
@@ -735,7 +748,11 @@ export class AiTaskManager {
     this.assertCanStart(taskPath)
     this.pendingStarts.add(taskPath)
     try {
-      const prepared = await this.prepareRunCore(file, options?.mode)
+      const prepared = await this.prepareRunCore(
+        file,
+        options?.mode,
+        options?.allowSkipPermissions === true,
+      )
       return this.startPreparedRunCore(prepared, options)
     } finally {
       this.pendingStarts.delete(taskPath)
@@ -748,10 +765,17 @@ export class AiTaskManager {
    * caller mutates TaskChute timer state. This method has no process or vault
    * write side effects.
    */
-  async prepareRun(file: TFile, options?: Pick<AiRunStartOptions, 'mode'>): Promise<PreparedAiRun> {
+  async prepareRun(
+    file: TFile,
+    options?: Pick<AiRunStartOptions, 'mode' | 'allowSkipPermissions'>,
+  ): Promise<PreparedAiRun> {
     this.throwIfDisposed()
     this.assertCanStart(file.path)
-    return this.prepareRunCore(file, options?.mode)
+    return this.prepareRunCore(
+      file,
+      options?.mode,
+      options?.allowSkipPermissions === true,
+    )
   }
 
   /**
@@ -838,11 +862,16 @@ export class AiTaskManager {
   private async prepareRunCore(
     file: TFile,
     requestedMode?: AiRunMode,
+    allowSkipPermissions = false,
   ): Promise<PreparedAiRun> {
     const taskPath = file.path
     const cache = this.deps.app.metadataCache.getFileCache(file) ?? undefined
     const config = readAiTaskConfig(cache?.frontmatter)
     if (!config) throw new AiTaskNotConfiguredError(taskPath)
+    // The note only asks; see resolveAiTaskRunArgs (LEV-386).
+    const runArgs = resolveAiTaskRunArgs(config.host, config.args, {
+      allowSkipPermissions,
+    })
 
     const content = await this.deps.app.vault.cachedRead(file)
     this.throwIfDisposed()
@@ -874,7 +903,7 @@ export class AiTaskManager {
     assertAiRunLaunchSize({
       binaryPath,
       binaryArgsPrefix,
-      extraArgs: config.args,
+      extraArgs: runArgs.args,
       prompt,
     })
 
@@ -885,7 +914,9 @@ export class AiTaskManager {
       mode,
       prompt,
       cwd,
-      extraArgs: Object.freeze([...config.args]),
+      extraArgs: Object.freeze([...runArgs.args]),
+      ignoredArgs: Object.freeze([...runArgs.ignoredArgs]),
+      skipPermissionsDowngraded: runArgs.skipPermissionsDowngraded,
       binaryPath,
       binaryArgsPrefix: binaryArgsPrefix
         ? Object.freeze([...binaryArgsPrefix])

@@ -2,6 +2,8 @@ import {
   AI_EXEC_MODE_VARIANTS,
   DEFAULT_AI_EXEC_MODE,
   decodeAiTaskArgs,
+  requestsSkipPermissions,
+  resolveAiTaskRunArgs,
 } from '@/features/ai-task/config/AiTaskArgsCodec'
 
 const selectable = (...modelIds: string[]) => (modelId: string): boolean =>
@@ -230,3 +232,90 @@ describe('trusting the folder', () => {
   })
 })
 
+
+// LEV-386: a note only asks. What the task modal can write reaches the CLI,
+// in its order; anything else is left out; skip-permissions needs this
+// device's consent and is auto mode otherwise.
+describe('resolveAiTaskRunArgs', () => {
+  const run = (
+    host: 'claude' | 'codex' | 'cursor',
+    args: string[],
+    allowSkipPermissions = false,
+  ) => resolveAiTaskRunArgs(host, args, { allowSkipPermissions })
+
+  test('keeps what the task modal writes, in order', () => {
+    expect(
+      run('claude', ['--permission-mode', 'auto', '--model', 'opus', '--effort=high']),
+    ).toEqual({
+      args: ['--permission-mode', 'auto', '--model', 'opus', '--effort=high'],
+      ignoredArgs: [],
+      skipPermissionsDowngraded: false,
+    })
+  })
+
+  test('leaves out what the task modal cannot write', () => {
+    const result = run('claude', [
+      '--mcp-config', '{"mcpServers":{}}',
+      '--model', 'sonnet',
+      '--settings', 'hooks.json',
+      '--permission-mode', 'bypassPermissions',
+      '--add-dir', '/',
+    ])
+    expect(result.args).toEqual(['--model', 'sonnet'])
+    expect(result.ignoredArgs).toEqual([
+      '--mcp-config', '{"mcpServers":{}}',
+      '--settings', 'hooks.json',
+      '--permission-mode', 'bypassPermissions',
+      '--add-dir', '/',
+    ])
+  })
+
+  test('a model id that is not a plain id is left out with its flag', () => {
+    expect(run('claude', ['--model', '--settings']).args).toEqual([])
+    expect(run('claude', ['--model=x;y']).args).toEqual([])
+  })
+
+  test.each([
+    ['claude', ['--dangerously-skip-permissions'], ['--permission-mode', 'auto']],
+    ['codex', ['--dangerously-bypass-approvals-and-sandbox'], ['--approve-for-me']],
+    ['cursor', ['--force'], ['--sandbox', 'disabled']],
+    ['cursor', ['--yolo'], ['--sandbox', 'disabled']],
+  ] as const)('%s: skip-permissions %j is auto mode without consent', (host, args, auto) => {
+    expect(run(host, [...args])).toEqual({
+      args: [...auto],
+      ignoredArgs: [],
+      skipPermissionsDowngraded: true,
+    })
+    expect(requestsSkipPermissions(host, [...args])).toBe(true)
+  })
+
+  test('with consent, skip-permissions is kept as written', () => {
+    expect(run('codex', ['--dangerously-bypass-approvals-and-sandbox'], true)).toEqual({
+      args: ['--dangerously-bypass-approvals-and-sandbox'],
+      ignoredArgs: [],
+      skipPermissionsDowngraded: false,
+    })
+  })
+
+  test("codex: only the reasoning --config form passes, not other overrides", () => {
+    const result = run('codex', [
+      '--config', 'model_reasoning_effort="high"',
+      '--config', 'sandbox_mode="danger-full-access"',
+      '-c', 'mcp_servers.x.command="sh"',
+    ])
+    expect(result.args).toEqual(['--config', 'model_reasoning_effort="high"'])
+    expect(result.ignoredArgs).toEqual([
+      '--config', 'sandbox_mode="danger-full-access"',
+      '-c', 'mcp_servers.x.command="sh"',
+    ])
+  })
+
+  test('cursor: trusting the folder is something the modal writes', () => {
+    expect(run('cursor', ['--trust', '--force'], true).args).toEqual(['--trust', '--force'])
+  })
+
+  test('a note that does not ask for skip-permissions is not flagged', () => {
+    expect(requestsSkipPermissions('claude', ['--permission-mode', 'manual'])).toBe(false)
+    expect(requestsSkipPermissions('claude', [])).toBe(false)
+  })
+})

@@ -3,6 +3,10 @@ import type { Setting, SettingDefinitionRender } from "obsidian"
 import { t } from "@/i18n"
 import { ElectronDirectoryPicker } from "@/features/ai-task/services/ElectronDirectoryPicker"
 import { listAiAgents, type AiCliPathSettingKey } from "@/features/ai-task/agents"
+import {
+  isSkipPermissionsAllowedOnThisDevice,
+  setSkipPermissionsAllowedOnThisDevice,
+} from "@/features/ai-task/services/AiSkipPermissionsConsent"
 import { DEFAULT_SETTINGS } from "@/settings/defaults"
 import { clampedNumber } from "@/settings/controlHandlers"
 import {
@@ -173,6 +177,21 @@ export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
               placeholder: String(DEFAULT_SETTINGS.aiTaskLogRetentionDays),
             },
           },
+          {
+            name: t(
+              "settings.aiTask.skipPermissionsName",
+              "Allow skip permissions on this device",
+            ),
+            desc: t(
+              "settings.aiTask.skipPermissionsDesc",
+              "When on, tasks set to skip permissions run without asking. This setting belongs to this device and is not synced. When off, starting such a task with ▶ asks once, and an automatic start runs it in auto mode.",
+            ),
+            control: {
+              type: "toggle",
+              key: "aiSkipPermissionsOnThisDevice",
+              defaultValue: false,
+            },
+          },
         ],
       },
     ],
@@ -185,6 +204,12 @@ export function aiTaskSection(guard: AiTaskToggleGuard): SectionModule {
         // toggle or a reloaded plugin has overtaken.
         write: (value, ctx) =>
           handleAiTaskEnabledToggle(ctx.plugin, guard, Boolean(value)),
+      },
+      // LEV-386: kept on this device, never in data.json (which a vault syncs).
+      aiSkipPermissionsOnThisDevice: {
+        read: (ctx) => isSkipPermissionsAllowedOnThisDevice(ctx.app),
+        write: (value, ctx) =>
+          setSkipPermissionsAllowedOnThisDevice(ctx.app, Boolean(value)),
       },
       aiTaskLogRetentionDays: clampedNumber({
         read: (settings) => settings.aiTaskLogRetentionDays,

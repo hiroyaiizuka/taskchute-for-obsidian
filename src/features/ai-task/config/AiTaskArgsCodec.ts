@@ -1,7 +1,11 @@
 import type { AiTaskHost } from '../types'
 import type { ScopedKey } from '@/i18n'
 import { getAiAgent, mapAiAgents } from '../agents'
-import type { AiReasoningBudget, AiReasoningMode } from './AiTaskAdvancedOptions'
+import {
+  isSafeAiModelId,
+  type AiReasoningBudget,
+  type AiReasoningMode,
+} from './AiTaskAdvancedOptions'
 
 /** The execution modes every agent offers, in the order the UI lists them. */
 export const AI_EXEC_MODE_IDS = ['manual', 'auto', 'skip-permissions'] as const
@@ -92,6 +96,20 @@ function consumeRange(
   }
 }
 
+interface ExecModeSpan {
+  start: number
+  length: number
+  mode: AiExecModeId
+}
+
+interface ScannedAiTaskArgs {
+  decoded: DecodedAiTaskArgs
+  /** Which arguments a recognized form took, by position. */
+  consumed: readonly boolean[]
+  /** Where each execution-mode spelling sits, and the mode it stands for. */
+  execModeSpans: readonly ExecModeSpan[]
+}
+
 /**
  * Decode the modal-owned portion of persisted AI CLI arguments.
  *
@@ -105,7 +123,78 @@ export function decodeAiTaskArgs(
   args: readonly string[],
   isSelectableModelId: IsSelectableModelId,
 ): DecodedAiTaskArgs {
+  return scanAiTaskArgs(host, args, isSelectableModelId).decoded
+}
+
+export interface AiTaskRunArgs {
+  /** What the run passes to the CLI: the forms the task modal writes, in order. */
+  args: string[]
+  /** Arguments of the note the task modal cannot write, left out of the run. */
+  ignoredArgs: string[]
+  /** The note asked for skip-permissions, and the run uses auto mode instead. */
+  skipPermissionsDowngraded: boolean
+}
+
+/**
+ * The arguments a run passes to the CLI (LEV-386).
+ *
+ * A note can come from anyone who can write to a synced or shared vault, so
+ * what it says is a request. Only what the task modal can write — execution
+ * mode, trust, model, reasoning — reaches the CLI; anything else, such as a
+ * settings file or an MCP server for the CLI, is left out. Skip-permissions
+ * is used only where this device allowed it, and is auto mode elsewhere.
+ */
+export function resolveAiTaskRunArgs(
+  host: AiTaskHost,
+  args: readonly string[],
+  options: { allowSkipPermissions: boolean },
+): AiTaskRunArgs {
+  const { decoded, consumed, execModeSpans } = scanAiTaskArgs(
+    host,
+    args,
+    isSafeAiModelId,
+  )
+  const autoTokens = getAiAgent(host).execModes.auto
+  const spanAt = new Map(execModeSpans.map((span) => [span.start, span]))
+  const runArgs: string[] = []
+  let skipPermissionsDowngraded = false
+  for (let index = 0; index < args.length; index += 1) {
+    const span = spanAt.get(index)
+    if (span) {
+      if (span.mode === 'skip-permissions' && !options.allowSkipPermissions) {
+        runArgs.push(...autoTokens)
+        skipPermissionsDowngraded = true
+      } else {
+        runArgs.push(...args.slice(index, index + span.length))
+      }
+      index += span.length - 1
+      continue
+    }
+    if (consumed[index]) runArgs.push(args[index])
+  }
+  return {
+    args: runArgs,
+    ignoredArgs: [...decoded.passthroughArgs],
+    skipPermissionsDowngraded,
+  }
+}
+
+/** Whether a note's arguments ask for skip-permissions. */
+export function requestsSkipPermissions(
+  host: AiTaskHost,
+  args: readonly string[],
+): boolean {
+  return resolveAiTaskRunArgs(host, args, { allowSkipPermissions: false })
+    .skipPermissionsDowngraded
+}
+
+function scanAiTaskArgs(
+  host: AiTaskHost,
+  args: readonly string[],
+  isSelectableModelId: IsSelectableModelId,
+): ScannedAiTaskArgs {
   const consumed = args.map(() => false)
+  const execModeSpans: ExecModeSpan[] = []
   const agent = getAiAgent(host)
   const reasoning = agent.reasoning
   let execModeId: AiExecModeId = 'manual'
@@ -126,6 +215,7 @@ export function decodeAiTaskArgs(
     for (const spelling of spellings) {
       if (!tokensMatchAt(args, index, spelling.tokens, consumed)) continue
       consumeRange(consumed, index, spelling.tokens.length)
+      execModeSpans.push({ start: index, length: spelling.tokens.length, mode: spelling.mode })
       execModeId = spelling.mode
       execModeTokens = spelling.tokens
       index += spelling.tokens.length - 1
@@ -183,12 +273,16 @@ export function decodeAiTaskArgs(
   }
 
   return {
-    execModeId,
-    execModeTokens,
-    trustFolder,
-    modelId,
-    reasoningMode,
-    reasoningBudget,
-    passthroughArgs: args.filter((_, index) => !consumed[index]),
+    decoded: {
+      execModeId,
+      execModeTokens,
+      trustFolder,
+      modelId,
+      reasoningMode,
+      reasoningBudget,
+      passthroughArgs: args.filter((_, index) => !consumed[index]),
+    },
+    consumed,
+    execModeSpans,
   }
 }
