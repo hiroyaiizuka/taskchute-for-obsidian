@@ -446,6 +446,47 @@ describe('NodeProcessGateway temp file helpers', () => {
     await expect(gateway.readAndDeleteFile(missing)).rejects.toBeDefined()
   })
 
+  // LEV-387: a transcript path also comes back from the terminal broker, a
+  // separate process; a forged one must not make the plugin read or delete
+  // any other file.
+  test('readAndDeleteFile leaves a file that is not one of its temp files', async () => {
+    const gateway = new NodeProcessGateway()
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'taskchute-foreign-'))
+    const outside = path.join(dir, 'notes.md')
+    const lookalike = path.join(os.tmpdir(), `precious-${process.pid}.log`)
+    try {
+      for (const target of [outside, lookalike]) {
+        fs.writeFileSync(target, 'keep me', 'utf8')
+        fs.writeFileSync(`${target}.tty`, '/dev/ttys001\n', 'utf8')
+
+        await expect(gateway.readAndDeleteFile(target)).rejects.toThrow('temp file')
+
+        expect(fs.readFileSync(target, 'utf8')).toBe('keep me')
+        expect(fs.existsSync(`${target}.tty`)).toBe(true)
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+      fs.rmSync(lookalike, { force: true })
+      fs.rmSync(`${lookalike}.tty`, { force: true })
+    }
+  })
+
+  test('readPtyTtyPath reads the sidecar of its own temp files only', async () => {
+    const gateway = new NodeProcessGateway()
+    const own = gateway.makeTempFilePath('gateway-tty-sidecar')
+    const foreign = path.join(os.tmpdir(), `foreign-${process.pid}.log`)
+    try {
+      fs.writeFileSync(`${own}.tty`, '/dev/ttys001\n', 'utf8')
+      fs.writeFileSync(`${foreign}.tty`, '/dev/ttys002\n', 'utf8')
+
+      await expect(gateway.readPtyTtyPath(own)).resolves.toBe('/dev/ttys001')
+      await expect(gateway.readPtyTtyPath(foreign)).resolves.toBeNull()
+    } finally {
+      fs.rmSync(`${own}.tty`, { force: true })
+      fs.rmSync(`${foreign}.tty`, { force: true })
+    }
+  })
+
   test('readAndDeleteFile removes the tty sidecar even when the transcript is missing', async () => {
     const gateway = new NodeProcessGateway()
     const missing = gateway.makeTempFilePath('gateway-missing-with-sidecar')

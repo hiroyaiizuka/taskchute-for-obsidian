@@ -670,6 +670,21 @@ async function readTranscriptTail(path: string, fileSize: number): Promise<strin
 }
 
 /** Temp-file-name-safe prefix (path separators and shell metachars removed) */
+/**
+ * Whether `path` is one makeTempFilePath hands out: directly in the OS temp
+ * directory, a sanitized prefix, the unique suffix and .log. A transcript
+ * path also comes back from the terminal broker, another process reached
+ * over a local socket; no file outside this shape is read or deleted on its
+ * word (LEV-387).
+ */
+function isGatewayTempFilePath(path: string): boolean {
+  const tempDir = loadOsModule().tmpdir().replace(/[\\/]+$/, '')
+  if (!path.startsWith(`${tempDir}/`)) return false
+  return /^[A-Za-z0-9._-]+-[0-9a-z]+-[0-9]+-[0-9a-z]{0,6}\.log$/.test(
+    path.slice(tempDir.length + 1),
+  )
+}
+
 function sanitizeTempPrefix(prefix: string): string {
   const cleaned = prefix.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '')
   return cleaned.length > 0 ? cleaned : 'taskchute-ai'
@@ -1851,6 +1866,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   }
 
   readPtyTtyPath(transcriptPath: string): Promise<string | null> {
+    if (!isGatewayTempFilePath(transcriptPath)) return Promise.resolve(null)
     return Promise.resolve(readTtySidecar(transcriptPath))
   }
 
@@ -1864,6 +1880,9 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   }
 
   async readAndDeleteFile(path: string): Promise<string> {
+    if (!isGatewayTempFilePath(path)) {
+      throw new Error('Not a temp file of this plugin; left untouched')
+    }
     const fs = loadFsModule().promises
     try {
       const size = (await fs.stat(path)).size

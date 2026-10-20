@@ -149,13 +149,24 @@ function composeTranscript(events: AiStreamEvent[]): string[] {
   return ['## Transcript', '', ...composeTranscriptLines(events)]
 }
 
+/**
+ * Agent output as a fenced block, so the log note never renders it as live
+ * Markdown: no embeds, HTML or blocks another plugin runs (dataviewjs) from
+ * what a prompt injection made the agent print (LEV-387). Terminal-mode logs
+ * are fenced the same way.
+ */
+function fencedText(text: string): string[] {
+  const fence = pickFence(text)
+  return [`${fence}text`, text, fence]
+}
+
 /** Transcript body lines without the heading (also used for continuations) */
 function composeTranscriptLines(events: AiStreamEvent[]): string[] {
   const lines: string[] = []
   for (const event of events) {
     switch (event.kind) {
       case 'assistant-text':
-        lines.push(event.text, '')
+        lines.push(...fencedText(event.text), '')
         break
       case 'tool-use':
         lines.push(`- [tool] ${event.toolName}`)
@@ -176,7 +187,7 @@ function composeTranscriptLines(events: AiStreamEvent[]): string[] {
         lines.push(`- [${event.omittedCount} events omitted]`)
         break
       case 'raw':
-        lines.push(`- [raw] ${event.text}`)
+        lines.push('- [raw]', ...fencedText(event.text))
         break
       case 'stderr':
         // Rendered separately in the stderr tail section
@@ -198,7 +209,8 @@ function composeStderrSection(events: AiStreamEvent[]): string[] {
   if (stderrLines.length > tail.length) {
     lines.push(`Showing the last ${tail.length} of ${stderrLines.length} lines.`, '')
   }
-  lines.push('```text', ...tail, '```')
+  const fence = pickFence(tail.join('\n'))
+  lines.push(`${fence}text`, ...tail, fence)
   return lines
 }
 
