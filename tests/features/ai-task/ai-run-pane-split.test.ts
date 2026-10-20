@@ -594,6 +594,79 @@ describe('AiRunPaneController split panels', () => {
     })
   })
 
+  // LEV-384: closing the task on screen moves on to another task the way a
+  // row click does — its workspace and terminals come up with it.
+  describe('closing the task on screen', () => {
+    const tabRunIds = (): Array<string | null> =>
+      Array.from(
+        panels()[0].querySelectorAll<HTMLElement>('.ai-run-pane__tab'),
+        (tab) => tab.getAttribute('data-run-id'),
+      )
+    const showTask = (runId: string): void =>
+      container
+        .querySelector<HTMLElement>(`.ai-run-pane__run[data-run-id="${runId}"]`)
+        ?.click()
+    const finish = (runId: string): void => {
+      const record = manager.getRun(runId)
+      if (!record) throw new Error(`${runId} missing`)
+      record.status = 'stopped'
+      manager.emit(record)
+      manager.emit(record, 'persisted')
+    }
+    const bodyOf = (runId: string): HTMLElement | null =>
+      container.querySelector<HTMLElement>(`.ai-run-pane__body[data-run-id="${runId}"]`)
+
+    test("brings the next task's terminal up, though it was never shown since the pane was built", () => {
+      // Runs that were already there when the pane mounted: only the one it
+      // shows gets a terminal.
+      manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+      manager.emit(createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }))
+      controller.mount(container)
+      expect(adapters).toHaveLength(1)
+
+      finish('run-a')
+
+      expect(tabRunIds()).toEqual(['run-b'])
+      expect(adapters).toHaveLength(2)
+      expect(bodyOf('run-b')?.contains(adapters[1].opened?.container ?? null)).toBe(true)
+    })
+
+    test("brings the next task's split panel up with it", () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+      manager.emit(createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }))
+      showTask('run-b')
+      splitButton()?.click()
+      expect(visiblePanels()).toHaveLength(2)
+      showTask('run-a')
+      expect(visiblePanels()).toHaveLength(1)
+
+      finish('run-a')
+
+      expect(tabRunIds()).toEqual(['run-b'])
+      expect(visiblePanels()).toHaveLength(2)
+      expect(panelTab(visiblePanels()[1])?.getAttribute('data-run-id')).toBe('shell-1')
+    })
+
+    test('stays on the task while it still has a tab in a split panel', () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+      manager.emit(createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }))
+      showTask('run-a')
+      splitButton()?.click()
+      // The task's own tab, selected in the primary panel, closes.
+      panels()[0].querySelector<HTMLElement>('.ai-run-pane__tab[data-run-id="run-a"]')?.click()
+
+      finish('run-a')
+
+      // The split terminal moves into the primary panel; the other task
+      // stays where it was.
+      expect(panels()).toHaveLength(1)
+      expect(tabRunIds()).toEqual(['shell-1'])
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('shell-1')
+    })
+  })
+
   describe('carried fixes: unsplit keyboard focus + run release', () => {
     test('closing a secondary panel selected run returns the keyboard focus to the primary terminal', () => {
       controller.mount(container)

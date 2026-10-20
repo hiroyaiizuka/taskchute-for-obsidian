@@ -1988,6 +1988,8 @@ export class AiRunPaneController {
     if (keepsRow && view.tabClosed) return
     const panel = this.getPanel(view.panelId)
     const tabsBefore = panel ? this.panelTabRunIds(panel) : []
+    const closedRecord = this.host.manager.getRun(runId)
+    const closedScopeRunId = closedRecord ? this.getTaskScopeRunId(closedRecord) : null
     this.disposeTerminalBinding(view)
     this.pendingCloseRunIds.delete(runId)
     this.pendingEventSyncRunIds.delete(runId)
@@ -2014,22 +2016,28 @@ export class AiRunPaneController {
     if (panel) this.refreshContentTab(panel)
     if (panel && panel.selectedRunId === runId) {
       panel.selectedRunId = null
-      const taskView =
-        panel.taskRunId !== null ? this.runViews.get(panel.taskRunId) : undefined
+      // The task slot, when it is a tab of the strip the closed one was in.
+      const remaining = this.panelTabRunIds(panel)
       let fallbackRunId =
-        taskView?.panelId === panel.id && !taskView.tabClosed
-          ? (panel.taskRunId ?? undefined)
+        panel.taskRunId !== null &&
+        remaining.includes(panel.taskRunId) &&
+        this.runViews.get(panel.taskRunId)?.panelId === panel.id
+          ? panel.taskRunId
           : undefined
       if (fallbackRunId === undefined) {
         // The tab beside the closed one, the right one first.
-        const remaining = this.panelTabRunIds(panel)
         const at = tabsBefore.indexOf(runId)
         fallbackRunId = [
           ...tabsBefore.slice(at + 1),
           ...tabsBefore.slice(0, Math.max(at, 0)).reverse(),
         ].find((id) => remaining.includes(id))
       }
-      if (fallbackRunId === undefined) {
+      // Another task only once the closed run's task has no tab left here
+      // or in another panel; while it has, the panels below merge instead.
+      if (
+        fallbackRunId === undefined &&
+        (closedScopeRunId === null || !this.scopeHasTabs(closedScopeRunId))
+      ) {
         for (const [id, other] of this.runViews) {
           if (other.panelId === panel.id && !other.tabClosed) fallbackRunId = id
         }
@@ -2039,10 +2047,17 @@ export class AiRunPaneController {
         const fallbackTaskScopeRunId = fallbackRecord
           ? this.getTaskScopeRunId(fallbackRecord)
           : null
+        // Moving on from the task on screen is the switch a row click
+        // makes: that task's workspace and terminals come up with it, even
+        // when they were never shown since the pane was built (LEV-384).
         const mayActivateWorkspace =
           this.isPanelVisible(panel) &&
-          fallbackTaskScopeRunId === this.activeTaskScopeRunId
+          (fallbackTaskScopeRunId === this.activeTaskScopeRunId ||
+            closedScopeRunId === this.activeTaskScopeRunId)
         this.selectRunInPanel(panel, fallbackRunId, mayActivateWorkspace)
+        if (mayActivateWorkspace && !this.isCollapsed()) {
+          this.ensureVisibleTerminalViews()
+        }
         return
       }
       if (panel === this.getPrimaryPanel()) {
@@ -2509,6 +2524,16 @@ export class AiRunPaneController {
       }
     }
     return runIds
+  }
+
+  /** Whether any tab of the task scope `scopeRunId` is open, in any panel. */
+  private scopeHasTabs(scopeRunId: string): boolean {
+    for (const [runId, view] of this.runViews) {
+      if (view.tabClosed) continue
+      const record = this.host.manager.getRun(runId)
+      if (record && this.getTaskScopeRunId(record) === scopeRunId) return true
+    }
+    return false
   }
 
   /** Whether a view is open for a terminal opened beside `runId`. */

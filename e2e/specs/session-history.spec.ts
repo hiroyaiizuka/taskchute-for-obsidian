@@ -385,3 +385,39 @@ test("the row's × asks first, then closes every tab of the row", async ({ obsid
   await expect(sidebarRow("AI Weekly Review")).toHaveCount(1)
   await expect.poll(() => runStatuses(page, [reviewRunId])).toEqual(["running"])
 })
+
+// LEV-384: once the pane is built again (the view reopened, Obsidian or the
+// plugin reloaded), only the task it shows has a terminal on screen. Closing
+// that task moves on to the other one, whose terminal must show at once —
+// not stay blank until its row is clicked.
+test("closing the task on screen shows the next task's terminal at once", async ({ obsidian }, testInfo) => {
+  const { page } = obsidian
+  await enableAiTasks(page, writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed"), "terminal")
+  const journal = await createAiTask(page, "AI Weekly Journal")
+  const review = await createAiTask(page, "AI Weekly Review")
+  await openTaskChute(page)
+
+  const sidebarRow = (name: string) => page.locator(".ai-run-pane__run", { hasText: name })
+  const terminalOf = (runId: string) => page.locator(`.ai-run-pane__body[data-run-id="${runId}"] .xterm`)
+  await taskRow(page, journal).locator(".play-stop-button").click()
+  await expect(sidebarRow("AI Weekly Journal")).toHaveCount(1)
+  await taskRow(page, review).locator(".play-stop-button").click()
+  await expect(sidebarRow("AI Weekly Review")).toHaveCount(1)
+  const journalRunId = (await sidebarRow("AI Weekly Journal").getAttribute("data-run-id"))!
+  const reviewRunId = (await sidebarRow("AI Weekly Review").getAttribute("data-run-id"))!
+
+  // Build the pane again: only the task it shows gets a terminal.
+  await page.evaluate(() => window.app.workspace.detachLeavesOfType("taskchute-view"))
+  await openTaskChute(page)
+  await sidebarRow("AI Weekly Journal").click()
+  await expect(terminalOf(journalRunId)).toBeVisible()
+  await expect(terminalOf(reviewRunId)).toHaveCount(0)
+
+  // Close it: AI Weekly Review comes up with its terminal, with no click.
+  const journalTab = page.locator(`.ai-run-pane__tab[data-run-id="${journalRunId}"]`)
+  await journalTab.hover()
+  await journalTab.locator(".ai-run-pane__tab-close").click()
+  await expect(sidebarRow("AI Weekly Journal")).toHaveCount(0, { timeout: 20_000 })
+  await expect.poll(() => tabRunIds(page)).toEqual([reviewRunId])
+  await expect(terminalOf(reviewRunId)).toBeVisible()
+})
