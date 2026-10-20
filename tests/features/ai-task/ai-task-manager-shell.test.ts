@@ -33,6 +33,8 @@ import type {
   TerminalRunRequest,
 } from '@/features/ai-task/services/dispatchers/TerminalDispatcher'
 import type { AiRunRecord } from '@/features/ai-task/types'
+import type { ShellForegroundProbe } from '@/features/ai-task/services/terminal-title/ShellForegroundProbe'
+import type { ShellForegroundSample } from '@/features/ai-task/services/terminal-title/foregroundSnapshot'
 
 function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0))
@@ -82,6 +84,7 @@ interface HarnessOptions {
   withGetShellPath?: boolean
   withTerminal?: boolean
   timer?: AiGraceTimer
+  probeShellForeground?: ShellForegroundProbe
 }
 
 function createShellHarness(options: HarnessOptions = {}) {
@@ -123,6 +126,9 @@ function createShellHarness(options: HarnessOptions = {}) {
           makeTempFilePath,
           readAndDeleteFile,
           ...(options.withGetShellPath ?? true ? { getShellPath } : {}),
+          ...(options.probeShellForeground
+            ? { probeShellForeground: options.probeShellForeground }
+            : {}),
         }
       : undefined,
     getRunMode: () => 'terminal',
@@ -457,5 +463,157 @@ describe('AiTaskManager dispose covers shell sessions (zombie guard)', () => {
 
     expect(harness.readAndDeleteFile).toHaveBeenCalledWith(transcriptPath)
     expect(harness.writeTerminalRunLog).not.toHaveBeenCalled()
+  })
+})
+
+describe('AiTaskManager shell session tab names (LEV-376)', () => {
+  const title = (text: string) => `\u001b]0;${text}\u0007`
+  const CLAUDE = { pid: 100, name: 'Claude Code' }
+
+  /** Fires timers by hand; the foreground monitor is the only user here. */
+  class ManualTimer implements AiGraceTimer {
+    private nextId = 1
+    readonly pending = new Map<number, () => void>()
+    setTimeout = (handler: () => void): number => {
+      const id = this.nextId++
+      this.pending.set(id, handler)
+      return id
+    }
+    clearTimeout = (id: number): void => {
+      this.pending.delete(id)
+    }
+    async fire(): Promise<void> {
+      const handlers = Array.from(this.pending.values())
+      this.pending.clear()
+      for (const handler of handlers) handler()
+      await flushPromises()
+    }
+  }
+
+  let clock = 1_000_000
+  beforeEach(() => {
+    clock = 1_000_000
+    jest.spyOn(Date, 'now').mockImplementation(() => clock)
+  })
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  function setup() {
+    const timer = new ManualTimer()
+    let answer: ShellForegroundSample | null = { program: null }
+    const probe = jest.fn<ReturnType<ShellForegroundProbe>, Parameters<ShellForegroundProbe>>(
+      async (paths) => new Map(paths.map((path) => [path, answer])),
+    )
+    const harness = createShellHarness({ timer, probeShellForeground: probe })
+    const changes: AiRunRecord[] = []
+    harness.manager.onChange((record) => changes.push({ ...record }))
+    return {
+      ...harness,
+      timer,
+      probe,
+      changes,
+      answer: (next: ShellForegroundSample | null) => {
+        answer = next
+      },
+    }
+  }
+
+  test('a program in the foreground names the tab: its title, then "Terminal" again once it exits', async () => {
+    const h = setup()
+    const record = h.manager.startShellSession({ name: 'ターミナル' })
+
+    // At the prompt: nothing to name.
+    clock += 300
+    await h.timer.fire()
+    expect(h.probe).toHaveBeenCalledWith([record.transcriptPath])
+    expect(record.terminalLabel).toBeUndefined()
+
+    // `claude` starts and names itself; the early poll sees it in the foreground.
+    clock += 1000
+    h.answer({ program: CLAUDE })
+    h.terminal.last.emitData(`${title('✳ Claude Code')}welcome`)
+    expect(record.terminalTitle).toBe('Claude Code')
+    clock += 300
+    await h.timer.fire()
+    expect(record.terminalLabel).toBe('Claude Code')
+
+    // Its conversation title replaces it straight away, and is announced.
+    clock += 100
+    const before = h.changes.length
+    h.terminal.last.emitData(title('⠂ ID63 書き直し'))
+    expect(record.terminalLabel).toBe('ID63 書き直し')
+    expect(h.changes.length).toBe(before + 1)
+    expect(h.changes[h.changes.length - 1].terminalLabel).toBe('ID63 書き直し')
+
+    // /exit: back at the prompt.
+    clock += 2000
+    h.answer({ program: null })
+    await h.timer.fire()
+    expect(record.terminalLabel).toBeUndefined()
+    expect(record.terminalTitle).toBeUndefined()
+  })
+
+  test("spinner frames of the same title don't bring the next poll forward", async () => {
+    const h = setup()
+    h.manager.startShellSession({ name: 'ターミナル' })
+    h.answer({ program: CLAUDE })
+    await h.timer.fire()
+    h.terminal.last.emitData(title('⠂ ID63 書き直し'))
+    await h.timer.fire()
+    const polls = h.probe.mock.calls.length
+    const scheduled = Array.from(h.timer.pending.keys())
+    for (const frame of ['⠐', '⠂', '⠐', '✳']) {
+      h.terminal.last.emitData(title(`${frame} ID63 書き直し`))
+    }
+    // The regular poll is still the one scheduled; nothing was brought forward.
+    expect(Array.from(h.timer.pending.keys())).toEqual(scheduled)
+    expect(h.probe).toHaveBeenCalledTimes(polls)
+  })
+
+  test('a program without a title is named after itself', async () => {
+    const h = setup()
+    const record = h.manager.startShellSession({ name: 'ターミナル' })
+    h.answer({ program: { pid: 7, name: 'Codex' } })
+    await h.timer.fire()
+    expect(record.terminalLabel).toBe('Codex')
+  })
+
+  test('an ended session goes back to its own name, and polling stops', async () => {
+    const h = setup()
+    const record = h.manager.startShellSession({ name: 'ターミナル' })
+    h.answer({ program: CLAUDE })
+    await h.timer.fire()
+    h.terminal.last.emitData(title('ID63 書き直し'))
+    expect(record.terminalLabel).toBe('ID63 書き直し')
+    expect(h.timer.pending.size).toBe(1)
+
+    h.terminal.last.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    expect(record.terminalLabel).toBeUndefined()
+    expect(record.terminalTitle).toBeUndefined()
+    // The pane hears about the exit with the name already gone.
+    const last = h.changes[h.changes.length - 1]
+    expect(last.status).toBe('succeeded')
+    expect(last.terminalLabel).toBeUndefined()
+    expect(h.timer.pending.size).toBe(0)
+    const calls = h.probe.mock.calls.length
+    await h.timer.fire()
+    expect(h.probe).toHaveBeenCalledTimes(calls)
+  })
+
+  test('dispose stops polling', async () => {
+    const h = setup()
+    h.manager.startShellSession({ name: 'ターミナル' })
+    h.manager.dispose()
+    // Only the dispose-time force-kill escalation may remain scheduled.
+    await h.timer.fire()
+    expect(h.probe).not.toHaveBeenCalled()
+  })
+
+  test('without foreground detection the latest title is kept as the name', () => {
+    const harness = createShellHarness()
+    const record = harness.manager.startShellSession({ name: 'ターミナル' })
+    harness.terminal.last.emitData(title('vim notes.md'))
+    expect(record.terminalLabel).toBe('vim notes.md')
   })
 })

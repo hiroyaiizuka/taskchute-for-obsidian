@@ -107,6 +107,7 @@ import {
   type AiShellSessionOptions,
 } from '../services/AiTaskManager'
 import { formatAiResultSummary } from '../services/AiResultSummary'
+import { runTabLabel, type RunTabFallbackLabels } from './runTabLabel'
 import { AiBinaryNotFoundError } from '../services/BinaryLocator'
 import {
   formatWorkspacePathForTerminal,
@@ -251,6 +252,8 @@ interface RunView {
   terminal: TerminalBinding | null
   renderedEventCount: number
   lastStatus: AiRunStatus
+  /** Name the row and tab show (runTabLabel); a shell's changes while it runs. */
+  lastLabel: string
   lastOmittedCount: number
   /** Rendered elision marker element (post-overflow in-place updates) */
   elisionEl: HTMLElement | null
@@ -1664,10 +1667,14 @@ export class AiRunPaneController {
       this.updateComposerState()
       return
     }
-    if (existing.lastStatus !== record.status) {
-      existing.lastStatus = record.status
-      // A resumed run's next exit starts a fresh persist chain.
-      if (ACTIVE_STATUSES.has(record.status)) existing.exitPersisted = false
+    const label = runTabLabel(record, this.runTabFallbackLabels())
+    if (existing.lastStatus !== record.status || existing.lastLabel !== label) {
+      if (existing.lastStatus !== record.status) {
+        existing.lastStatus = record.status
+        // A resumed run's next exit starts a fresh persist chain.
+        if (ACTIVE_STATUSES.has(record.status)) existing.exitPersisted = false
+      }
+      existing.lastLabel = label
       this.refreshRunRow(existing, record)
       this.refreshTabsShowingRun(record.id)
     }
@@ -1917,6 +1924,7 @@ export class AiRunPaneController {
       terminal: null,
       renderedEventCount: 0,
       lastStatus: record.status,
+      lastLabel: runTabLabel(record, this.runTabFallbackLabels()),
       lastOmittedCount: record.omittedEventCount ?? 0,
       elisionEl: null,
       elisionIndex: -1,
@@ -1989,6 +1997,13 @@ export class AiRunPaneController {
     target.focus()
   }
 
+  private runTabFallbackLabels(): RunTabFallbackLabels {
+    return {
+      terminal: this.host.tv('aiTask.contentTab.terminal', 'Terminal'),
+      untitled: this.host.tv('aiTask.tabUntitled', 'Untitled run'),
+    }
+  }
+
   /** Rebuild one sidebar row (status dot, truncated name, × control) */
   private refreshRunRow(view: RunView, record: AiRunRecord): void {
     const row = view.row
@@ -2003,10 +2018,7 @@ export class AiRunPaneController {
       cls: `ai-run-pane__run-dot ai-run-pane__run-dot--${record.status}`,
       attr: { title: statusLabel },
     })
-    const name =
-      record.taskName.trim().length > 0
-        ? record.taskName
-        : this.host.tv('aiTask.tabUntitled', 'Untitled run')
+    const name = runTabLabel(record, this.runTabFallbackLabels())
     row.createSpan({
       cls: 'ai-run-pane__run-name',
       text: name,
@@ -2017,8 +2029,8 @@ export class AiRunPaneController {
 
   /**
    * Rebuild one panel's tab strip tab from the panel's SELECTED run (status
-   * dot, content-type label, × control). Hidden while the panel shows
-   * nothing (pre-first-run and post-last-close states).
+   * dot, the run's name — see runTabLabel — and × control). Hidden while the
+   * panel shows nothing (pre-first-run and post-last-close states).
    */
   private refreshContentTab(panel: PanelView): void {
     panel.tabsEl.empty()
@@ -2080,12 +2092,11 @@ export class AiRunPaneController {
         cls: `ai-run-pane__tab-dot ai-run-pane__tab-dot--${record.status}`,
         attr: { title: statusLabel },
       })
+      const label = runTabLabel(record, this.runTabFallbackLabels())
       tab.createSpan({
         cls: 'ai-run-pane__tab-label',
-        text:
-          record.mode === 'terminal'
-            ? this.host.tv('aiTask.contentTab.terminal', 'Terminal')
-            : this.host.tv('aiTask.contentTab.events', 'Events'),
+        text: label,
+        attr: { title: label },
       })
       this.appendCloseControl(
         tab,

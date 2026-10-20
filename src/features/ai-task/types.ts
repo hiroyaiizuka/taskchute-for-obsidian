@@ -191,4 +191,16 @@ export interface AiRunRecord {
   pid?: number
   /** Human-readable failure summary, if any */
   errorMessage?: string
+  /**
+   * Shell sessions only: the latest window title a program set on the
+   * terminal (OSC 0/2), cleaned for display. Cleared when the shell is back
+   * at its prompt.
+   */
+  terminalTitle?: string
+  /**
+   * Shell sessions only: what the tab calls the session while a program runs
+   * in it (its title, else its name). Absent while nothing runs: the tab then
+   * shows the session's own name. See ShellTitleTracker.
+   */
+  terminalLabel?: string
 }

@@ -33,6 +33,7 @@ import {
 import { BrokerTerminalDispatcher } from './services/dispatchers/BrokerTerminalDispatcher'
 import { TerminalSessionBrokerClient } from './services/TerminalSessionBroker'
 import { WorkspaceFileService } from './services/WorkspaceFileService'
+import { createShellForegroundProbe } from './services/terminal-title/ShellForegroundProbe'
 import { RecipeService } from '../recipe/services/RecipeService'
 import { RecipeContextProvider } from '../recipe/services/RecipeContextProvider'
 import { AiRunSessionStateStore } from './services/AiRunSessionStateStore'
@@ -248,6 +249,16 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
       readAndDeleteFile: (path: string) => gateway.readAndDeleteFile(path),
       // Plain shell sessions (U2 split panels) spawn the user's login shell.
       getShellPath: () => gateway.getShellPath(),
+      // Their tabs are named after the program in the foreground (POSIX `ps`).
+      ...(conpty
+        ? {}
+        : {
+            probeShellForeground: createShellForegroundProbe({
+              readTtyPath: (path) => gateway.readPtyTtyPath(path),
+              execCapture: (command, args, timeoutMs) =>
+                gateway.execCapture(command, args, timeoutMs),
+            }),
+          }),
     },
     workspaceFiles: new WorkspaceFileService(gateway),
     recipeContextProvider: new RecipeContextProvider({

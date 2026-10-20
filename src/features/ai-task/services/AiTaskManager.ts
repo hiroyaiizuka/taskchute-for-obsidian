@@ -61,6 +61,9 @@ import {
   type AiRunSessionStateStore,
   wasActiveBeforeRestore,
 } from './AiRunSessionStateStore'
+import type { ShellForegroundProbe } from './terminal-title/ShellForegroundProbe'
+import { ShellForegroundMonitor } from './terminal-title/ShellForegroundMonitor'
+import { ShellTitleTracker } from './terminal-title/ShellTitleTracker'
 
 /** Events kept verbatim at the start of a run before elision kicks in */
 export const AI_RUN_EVENT_HEAD_LIMIT = 200
@@ -275,6 +278,12 @@ export interface AiTaskManagerDeps {
      * fakes keep working; without it shell sessions are unavailable.
      */
     getShellPath?(): string
+    /**
+     * What runs in the foreground of a live shell session (by transcript
+     * path), for its tab name. Absent where it cannot be told (Windows): the
+     * tab then keeps the latest title a program set.
+     */
+    probeShellForeground?: ShellForegroundProbe
   }
   /** Desktop-only cwd browser used by the pane's lazy Files tree. */
   workspaceFiles?: Pick<WorkspaceFileService, 'listDirectory' | 'readFile' | 'writeFile'>
@@ -498,6 +507,13 @@ function createDefaultTimer(): AiGraceTimer {
   return stableTimeoutSource
 }
 
+/** Drop what a shell session's tab said about the program running in it. */
+function clearShellTerminalName(record: AiRunRecord, titles: ShellTitleTracker): void {
+  titles.forget(record.id)
+  delete record.terminalTitle
+  delete record.terminalLabel
+}
+
 function isAbsolutePathLike(path: string): boolean {
   if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) return true
 
@@ -633,9 +649,26 @@ export class AiTaskManager {
   /** Shares one explicit retry across concurrent quit/settings callers. */
   private disposeShutdownRetry: Promise<void> | null = null
   private runSequence = 0
+  /** Tab names of shell sessions: their programs' titles and foregrounds. */
+  private readonly shellTitles = new ShellTitleTracker(() => Date.now())
+  private readonly shellForeground: ShellForegroundMonitor
 
   constructor(private deps: AiTaskManagerDeps) {
     this.timer = deps.timer ?? createDefaultTimer()
+    this.shellForeground = new ShellForegroundMonitor({
+      getProbe: () => this.deps.terminal?.probeShellForeground,
+      timer: this.timer,
+      now: () => Date.now(),
+      onSample: (runId, sample, probeStartedAt) => {
+        const internal = this.runs.get(runId)
+        if (!internal || internal.exited) return
+        // sample is null when the foreground could not be told this time.
+        if (this.shellTitles.handleSample(internal.record, sample, probeStartedAt)) {
+          this.notifyChange(internal.record)
+        }
+      },
+      log: (level, ...args) => this.deps.log?.(level, ...args),
+    })
     this.restoreSessionState()
   }
 
@@ -1733,6 +1766,8 @@ export class AiTaskManager {
     if (!internal.exited || ACTIVE_STATUSES.has(internal.record.status)) return
     internal.terminalListeners.clear()
     this.runs.delete(runId)
+    this.shellForeground.untrack(runId)
+    this.shellTitles.forget(runId)
     this.persistSessionStateNow()
   }
 
@@ -2240,6 +2275,8 @@ export class AiTaskManager {
     this.disposed = true
     this.preparedStartReservations.clear()
     this.stopRequestedDuringStart.clear()
+    this.shellForeground.dispose()
+    this.shellTitles.clear()
 
     // Persist the pre-stop statuses first. Exit callbacks may race the
     // SIGTERM sweep below, but once disposed they must not overwrite these
@@ -2420,6 +2457,7 @@ export class AiTaskManager {
     // idle tier; status-driven saves keep the prompt default, and saveNow on
     // renderer reload still captures this buffer synchronously either way.
     this.scheduleSessionStatePersist(AI_RUN_SESSION_SAVE_IDLE_DELAY_MS)
+    this.trackShellTitle(internal, chunk)
 
     for (const listener of Array.from(internal.terminalListeners)) {
       try {
@@ -2428,6 +2466,46 @@ export class AiTaskManager {
         this.deps.log?.('warn', '[AiTaskManager] Terminal data listener failed', error)
       }
     }
+  }
+
+  /** Feed a shell session's output to its title parser; relabel the tab on change. */
+  private trackShellTitle(internal: InternalRun, chunk: string): void {
+    const record = internal.record
+    if (record.host !== 'shell' || internal.exited) return
+    const probeAvailable = typeof this.deps.terminal?.probeShellForeground === 'function'
+    const { changed, pollSoon } = this.shellTitles.handleOutput(record, chunk, probeAvailable)
+    // A program with a new name is often one that just started. Spinner
+    // frames that clean to the same title do not ask again.
+    if (pollSoon) this.shellForeground.pollSoon()
+    if (changed) this.notifyChange(record)
+  }
+
+  /**
+   * Watch a shell session's foreground from the moment its transcript path is
+   * known until it stops being active; every status change passes through
+   * notifyChange, so this is the one place that starts and stops it.
+   */
+  private syncShellForegroundTracking(record: AiRunRecord): void {
+    if (record.host !== 'shell') return
+    const internal = this.runs.get(record.id)
+    const active =
+      internal !== undefined &&
+      internal.record === record &&
+      !internal.exited &&
+      ACTIVE_STATUSES.has(record.status)
+    const watchable =
+      active &&
+      record.mode === 'terminal' &&
+      typeof record.transcriptPath === 'string' &&
+      record.transcriptPath.length > 0 &&
+      typeof this.deps.terminal?.probeShellForeground === 'function'
+    if (watchable) {
+      this.shellForeground.track(record.id, record.transcriptPath as string)
+      return
+    }
+    this.shellForeground.untrack(record.id)
+    // An ended session runs nothing: its tab goes back to its own name.
+    if (!active) clearShellTerminalName(record, this.shellTitles)
   }
 
   private handleEvent(internal: InternalRun, event: AiStreamEvent): void {
@@ -2814,7 +2892,10 @@ export class AiTaskManager {
     record: AiRunRecord,
     changeType: AiRunChangeType = 'update',
   ): void {
-    if (!this.disposed) this.scheduleSessionStatePersist()
+    if (!this.disposed) {
+      this.scheduleSessionStatePersist()
+      this.syncShellForegroundTracking(record)
+    }
     for (const listener of Array.from(this.listeners)) {
       try {
         listener(record, changeType)
@@ -2862,6 +2943,8 @@ export class AiTaskManager {
         record.errorMessage = INTERRUPTED_RUN_ERROR_MESSAGE
         normalizedActiveState = true
       }
+      // Only a session that is still running has something running in it.
+      if (!canAttachLiveTerminal) clearShellTerminalName(record, this.shellTitles)
       // Never trust a stale pid. Persistent attach reports the broker-owned
       // process identity again through onAttached.
       record.pid = undefined
