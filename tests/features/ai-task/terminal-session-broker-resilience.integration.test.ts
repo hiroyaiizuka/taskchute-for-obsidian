@@ -2651,7 +2651,10 @@ describePosix('TerminalSessionBroker resilience', () => {
     }
   })
 
-  test('termination timeout falls back to authenticated shutdown without signalling a stale descriptor pid', async () => {
+  // LEV-377: a broker-wide `shutdown` kills every group the broker owns,
+  // including healthy terminals beside the stuck one, so an unanswered
+  // termination is retried and then given up — never escalated.
+  test('an unanswered termination is given up, never escalated to a broker-wide shutdown or a pid signal', async () => {
     let oversizedConnections = 0
     let terminationRequests = 0
     let shutdownRequests = 0
@@ -2733,6 +2736,10 @@ describePosix('TerminalSessionBroker resilience', () => {
       const client = new TerminalSessionBrokerClient({
         identity,
         unavailableTerminationTimeoutMs: 100,
+        unavailableRecoveryBaseMs: 20,
+        unavailableRecoveryMaxMs: 40,
+        unavailableConfirmationGiveUpMs: 300,
+        unavailableConfirmationMinAttempts: 2,
       })
       client.attach('session-completed-race', {
         onData: () => undefined,
@@ -2763,14 +2770,15 @@ describePosix('TerminalSessionBroker resilience', () => {
         10_000,
       )
       expect(oversizedConnections).toBe(3)
-      expect(terminationRequests).toBe(2)
-      expect(shutdownRequests).toBe(1)
+      // The completed session was confirmed once; the stuck one was retried.
+      expect(terminationRequests).toBeGreaterThanOrEqual(3)
+      expect(shutdownRequests).toBe(0)
       expect(unavailableCount).toBe(1)
       expect(completedExitCount).toBe(1)
       expect(completedUnavailableCount).toBe(0)
-      // The renderer remains alive: only the authenticated server-side
-      // shutdown owns termination of the descriptor process.
+      // Neither the renderer nor the descriptor's pid was ever signalled.
       expect(() => process.kill(process.pid, 0)).not.toThrow()
+      expect(() => process.kill(brokerSentinel.pid as number, 0)).not.toThrow()
       await sleep(200)
       expect(unavailableCount).toBe(1)
     } finally {
@@ -2784,7 +2792,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     }
   })
 
-  test('does not report unavailable when termination and authenticated shutdown both time out', async () => {
+  test('does not report unavailable while termination stays unconfirmed inside the window', async () => {
     let oversizedConnections = 0
     let terminationRequests = 0
     let shutdownRequests = 0
@@ -2837,7 +2845,7 @@ describePosix('TerminalSessionBroker resilience', () => {
         log: (_level, ...args) => {
           if (
             args[0] ===
-            '[TerminalBroker] Authenticated broker shutdown failed'
+            '[TerminalBroker] Session termination remains unconfirmed; retrying with backoff'
           ) {
             fallbackFailed.resolve()
           }
@@ -2854,13 +2862,12 @@ describePosix('TerminalSessionBroker resilience', () => {
       })
 
       await withTimeout(fallbackFailed.promise, 10_000)
-      // Let terminateUnavailableSessions finish its callback loop after the
-      // shutdown failure log that resolved fallbackFailed.
+      // Let the recovery round finish after the log that resolved it.
       await sleep(50)
 
       expect(oversizedConnections).toBe(3)
       expect(terminationRequests).toBe(1)
-      expect(shutdownRequests).toBe(1)
+      expect(shutdownRequests).toBe(0)
       expect(unavailableCount).toBe(0)
       expect(exitCount).toBe(0)
       // A stale descriptor PID must still never be used as a kill fallback.
@@ -2952,7 +2959,7 @@ describePosix('TerminalSessionBroker resilience', () => {
 
       expect(oversizedConnections).toBe(3)
       expect(terminationRequests).toBe(2)
-      expect(shutdownRequests).toBe(1)
+      expect(shutdownRequests).toBe(0)
       expect(unavailableCount).toBe(1)
       await sleep(150)
       expect(terminationRequests).toBe(2)
@@ -3030,7 +3037,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       await sleep(300)
 
       expect(terminationRequests).toBe(1)
-      expect(shutdownRequests).toBe(1)
+      expect(shutdownRequests).toBe(0)
       expect(unavailableCount).toBe(0)
     } finally {
       client.detach()
@@ -3193,7 +3200,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       await withTimeout(Promise.all([settledA.promise, settledB.promise]))
       expect(requestCounts.get('session-partial-a')).toBe(1)
       expect(requestCounts.get('session-partial-b')).toBe(2)
-      expect(shutdownRequests).toBe(1)
+      expect(shutdownRequests).toBe(0)
       expect(callbacksA).toBe(1)
       expect(callbacksB).toBe(1)
       await sleep(150)

@@ -6,6 +6,7 @@ import { join } from 'path'
 import { createContext, runInContext } from 'vm'
 
 import { OWNER_SENTINEL_PROBE_SOURCE } from '@/features/ai-task/services/broker-source/OwnerSentinelProbeSource'
+import { POSIX_PROCESS_SNAPSHOT_SOURCE } from '@/features/ai-task/services/broker-source/PosixProcessSnapshotSource'
 import { buildTerminalBrokerSource } from '@/features/ai-task/services/TerminalSessionBrokerSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from '@/features/ai-task/services/TerminalSessionGuardSource'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
@@ -55,12 +56,16 @@ const probeFor = (
     fs: { realpathSync: (value: string) => value, ...overrides.fs },
     cp: { ...overrides.cp },
   })
+  // Every program splices the snapshot fragment beside this one; the probe
+  // takes its timeout from it.
+  runInContext(POSIX_PROCESS_SNAPSHOT_SOURCE, context)
   runInContext(OWNER_SENTINEL_PROBE_SOURCE, context)
   return context as unknown as Probe
 }
 
 const hostProbe = (): Probe => {
   const context = createContext({ Number, String, process, fs, cp: { execFileSync } })
+  runInContext(POSIX_PROCESS_SNAPSHOT_SOURCE, context)
   runInContext(OWNER_SENTINEL_PROBE_SOURCE, context)
   return context as unknown as Probe
 }
@@ -155,9 +160,41 @@ describe('readSentinelFdPath on darwin', () => {
     ).toEqual({ path: '/tmp/owner.jsonl' })
     expect(execFile).toHaveBeenCalledWith(
       '/usr/sbin/lsof',
-      ['-a', '-p', '42', '-d', '9', '-Fn'],
+      ['-b', '-w', '-a', '-p', '42', '-d', '9', '-Fn'],
       expect.objectContaining({ encoding: 'utf8' }),
     )
+  })
+
+  // A synchronous lsof that never returns stalls the broker's whole event
+  // loop. The probe must be bounded, must not stat mount points (-b), and must
+  // keep lsof's warnings off the guard's stderr, which is the user's terminal.
+  test('bounds lsof and keeps its stderr out of the terminal', () => {
+    const execFile = lsofReturning('p4242\nf9\nn/tmp/owner.jsonl\n')
+
+    probeFor('darwin', { cp: { execFileSync: execFile } }).readSentinelFdPath(42, 9)
+
+    const options = execFile.mock.calls[0]?.[2] as {
+      timeout?: number
+      killSignal?: string
+      stdio?: unknown[]
+    }
+    // The same bound as every ps the programs run, not a second constant.
+    const snapshot = createContext({})
+    runInContext(POSIX_PROCESS_SNAPSHOT_SOURCE, snapshot)
+    const shared = (snapshot as unknown as { posixProbeTimeoutMs(): number }).posixProbeTimeoutMs()
+    expect(options.timeout).toBe(shared)
+    expect(options.killSignal).toBe('SIGKILL')
+    expect(options.stdio?.[2]).toBe('ignore')
+  })
+
+  test('reads a timed-out lsof as the probe being unavailable, not as an answer', () => {
+    const execFileSync = () => {
+      throw errorWith({ code: 'ETIMEDOUT' })
+    }
+
+    expect(
+      probeFor('darwin', { cp: { execFileSync } }).readSentinelFdPath(42, 9),
+    ).toBe('unreadable')
   })
 
   test('reads output without a name field as no such descriptor', () => {

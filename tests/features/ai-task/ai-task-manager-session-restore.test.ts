@@ -246,13 +246,59 @@ describe('AiTaskManager persisted session restore', () => {
     captured.callbacks?.onUnavailable?.()
     await new Promise((resolve) => setTimeout(resolve, 0))
 
+    // The interrupted notice rides on the record, never in the transcript,
+    // and is quiet: it is about a run restored at startup.
     expect(writeTerminalRunLog).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'restored-run',
         status: 'interrupted',
+        terminalNotice: expect.objectContaining({ kind: 'interrupted', quiet: true }),
       }),
       'RESTORED FALLBACK\n',
     )
+  })
+
+  test('a restored run lost after its reattach was confirmed is announced again', () => {
+    const captured: { callbacks?: TerminalRunCallbacks } = {}
+    const snapshot = restoredSnapshot({
+      record: {
+        ...restoredSnapshot().record,
+        terminalSessionId: 'restored-run',
+      },
+    })
+    const deps = createDeps([snapshot])
+    deps.terminal = {
+      dispatcher: {
+        isPersistent: true,
+        start: jest.fn(),
+        attach: jest.fn((_sessionId, nextCallbacks) => {
+          captured.callbacks = nextCallbacks
+          return { sessionId: 'restored-run', write: jest.fn(), stop: jest.fn() }
+        }),
+      },
+      isSupported: () => true,
+      makeTempFilePath: jest.fn(),
+      readAndDeleteFile: jest.fn(async () => ''),
+    }
+    const manager = new AiTaskManager(deps)
+
+    captured.callbacks?.onConnectionLost?.()
+    expect(manager.getRun('restored-run')?.terminalNotice).toMatchObject({
+      kind: 'connection-lost',
+      quiet: true,
+    })
+
+    captured.callbacks?.onAttached?.(4242)
+    captured.callbacks?.onConnectionLost?.()
+    expect(manager.getRun('restored-run')?.terminalNotice).toMatchObject({
+      kind: 'connection-lost',
+      quiet: false,
+    })
+    captured.callbacks?.onUnavailable?.()
+    expect(manager.getRun('restored-run')?.terminalNotice).toMatchObject({
+      kind: 'interrupted',
+      quiet: false,
+    })
   })
 
   test('never overwrites post-attach live data with an older persisted fallback replay', async () => {

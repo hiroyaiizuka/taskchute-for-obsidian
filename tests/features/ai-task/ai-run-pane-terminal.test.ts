@@ -14,6 +14,7 @@
  *   - computeTerminalSize falls back to 120x30 when the pane has no
  *     measurable pixel size (always true in jsdom)
  */
+import { Notice } from 'obsidian'
 import { AiRunPaneController } from '@/features/ai-task/ui/AiRunPaneController'
 import type { AiRunPaneControllerHost } from '@/features/ai-task/ui/AiRunPaneController'
 import type { TerminalViewAdapterLike } from '@/features/ai-task/ui/TerminalViewAdapter'
@@ -537,5 +538,121 @@ describe('AiRunPaneController terminal mode', () => {
 
     expect(manager.snapshotProviderUnregisterCount).toBe(1)
     expect(manager.snapshotProvider).toBeNull()
+  })
+
+  // LEV-377: what the terminal machinery reports is shown beside xterm, never
+  // written into it, in a row of its own, and each new notice is announced once.
+  test('shows a terminal notice as a banner below the terminal host and announces each new one once', () => {
+    const notice = Notice as unknown as jest.Mock
+    notice.mockClear()
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+    const adapter = adapters[0]
+
+    run.terminalNotice = { kind: 'connection-lost', message: 'Lost the connection', seq: 1 }
+    manager.emit(run)
+    manager.emit(run)
+
+    const body = container.querySelector('.ai-run-pane__body--terminal')
+    const host = body?.querySelector('.ai-run-pane__terminal-host')
+    const banner = container.querySelector('.ai-run-pane__terminal-notice')
+    expect(banner?.querySelector('.ai-run-pane__terminal-notice-text')?.textContent).toBe(
+      'Lost the connection',
+    )
+    expect(banner?.getAttribute('data-kind')).toBe('connection-lost')
+    // xterm opens in the host; the banner is its sibling after it, so the
+    // host shrinks (and xterm refits) instead of being painted over.
+    expect(adapter.opened?.container).toBe(host)
+    expect(banner?.parentElement).toBe(body)
+    expect(host?.nextElementSibling).toBe(banner)
+    expect(notice).toHaveBeenCalledTimes(1)
+    expect(notice).toHaveBeenCalledWith('Lost the connection')
+    expect(adapter.written.join('')).not.toContain('Lost the connection')
+  })
+
+  test('two notices raised in the same millisecond are both shown and announced', () => {
+    const notice = Notice as unknown as jest.Mock
+    notice.mockClear()
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+
+    run.terminalNotice = { kind: 'connection-lost', message: 'Lost the connection', seq: 7 }
+    manager.emit(run)
+    run.terminalNotice = { kind: 'input-dropped', message: 'Input was not sent', seq: 8 }
+    manager.emit(run)
+
+    expect(notice.mock.calls.map((call: unknown[]) => call[0])).toEqual([
+      'Lost the connection',
+      'Input was not sent',
+    ])
+    expect(container.querySelectorAll('.ai-run-pane__terminal-notice')).toHaveLength(1)
+    expect(container.querySelector('.ai-run-pane__terminal-notice')?.getAttribute('data-kind')).toBe(
+      'input-dropped',
+    )
+  })
+
+  test('the banner can be dismissed and stays dismissed until a new notice', () => {
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+    run.terminalNotice = { kind: 'connection-lost', message: 'Lost the connection', seq: 1 }
+    manager.emit(run)
+
+    container.querySelector<HTMLElement>('.ai-run-pane__terminal-notice-close')?.click()
+    manager.emit(run)
+    expect(container.querySelector('.ai-run-pane__terminal-notice')).toBeNull()
+
+    run.terminalNotice = { kind: 'interrupted', message: 'Stopped', seq: 2 }
+    manager.emit(run)
+    expect(container.querySelector('.ai-run-pane__terminal-notice-text')?.textContent).toBe('Stopped')
+  })
+
+  test('a notice cleared from the record (the run ended normally) removes the banner', () => {
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+    run.terminalNotice = { kind: 'connection-lost', message: 'Lost the connection', seq: 1 }
+    manager.emit(run)
+
+    run.terminalNotice = undefined
+    run.status = 'succeeded'
+    manager.emit(run)
+
+    expect(container.querySelector('.ai-run-pane__terminal-notice')).toBeNull()
+  })
+
+  test('a quiet notice (a run restored at startup) gets the banner but no popup', () => {
+    const notice = Notice as unknown as jest.Mock
+    notice.mockClear()
+    controller.mount(container)
+    const run = createRun()
+    manager.emit(run)
+
+    run.terminalNotice = { kind: 'interrupted', message: 'Stopped', seq: 3, quiet: true }
+    run.status = 'interrupted'
+    manager.emit(run)
+
+    expect(container.querySelector('.ai-run-pane__terminal-notice-text')?.textContent).toBe('Stopped')
+    expect(notice).not.toHaveBeenCalled()
+  })
+
+  test('a notice already on a record when the pane mounts is shown without a popup', () => {
+    const notice = Notice as unknown as jest.Mock
+    notice.mockClear()
+    manager.records.push(
+      createRun({
+        status: 'failed',
+        terminalNotice: { kind: 'start-failed', message: 'Node.js was not found.', seq: 5 },
+      }),
+    )
+
+    controller.mount(container)
+
+    expect(container.querySelector('.ai-run-pane__terminal-notice-text')?.textContent).toBe(
+      'Node.js was not found.',
+    )
+    expect(notice).not.toHaveBeenCalled()
   })
 })

@@ -25,6 +25,18 @@
  *   top-level `const` is a SyntaxError that would kill the program at startup
  *   with no output.
  *
+ * Every `ps` the three programs run is synchronous, so a `ps` that never
+ * returns stalls the whole event loop: the broker stops answering spawns,
+ * input and termination requests while its socket still accepts connections.
+ * `posixProbeTimeoutMs` bounds each call (SIGKILL on expiry); the caller sees
+ * the same thrown error as any other failed `ps` and degrades to 'unknown'.
+ * The bound is generous on purpose: a healthy snapshot of ~1,700 processes
+ * with long Electron command lines (3.7MB) already takes 0.7–1.6s on a busy
+ * Mac and far longer under heavy load or right after wake, and a ps killed
+ * while still working only turns into another 'unknown' and another ps — a
+ * tight bound could keep a loaded machine from ever confirming a session. It
+ * exists for the ps that never returns.
+ *
  * Keep this plain ES2018 — nothing transpiles the contents of this template.
  */
 export const POSIX_PROCESS_SNAPSHOT_SOURCE =
@@ -37,6 +49,9 @@ export const POSIX_PROCESS_SNAPSHOT_SOURCE =
     ? ['axeww', '-o', 'pid=,ppid=,pgid=,lstart=,command=']
     : ['-axo', 'pid=,ppid=,pgid=,lstart=,command='];
 }
+function posixProbeTimeoutMs() {
+  return 30000;
+}
 function posixSnapshotPsOptions(baseEnv) {
   // LC_ALL/LANG pin lstart to the C-locale "Www Mmm dd HH:MM:SS YYYY" shape the
   // parser below expects; under another locale Date.parse yields NaN and every
@@ -44,6 +59,8 @@ function posixSnapshotPsOptions(baseEnv) {
   return {
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
+    timeout: posixProbeTimeoutMs(),
+    killSignal: 'SIGKILL',
     env: Object.assign({}, baseEnv, { LC_ALL: 'C', LANG: 'C' }),
   };
 }
