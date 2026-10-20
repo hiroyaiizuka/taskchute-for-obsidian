@@ -388,14 +388,17 @@ describe('Pro settings section', () => {
     })
 
     test('shows nothing in place of a code this device may not use', () => {
-      // The code may still be in data.json — it has to be, other machines share
-      // it — but this device may no longer use it, so showing it here would be
-      // offering something that does nothing. The licence id used to stand in;
-      // the server no longer sends one, and it named nothing the user could act
-      // on. What is left is the way out.
+      // A code left in data.json by an older version is not one this device
+      // acts with, so showing it here would be offering something that does
+      // nothing. The licence id used to stand in; the server no longer sends
+      // one, and it named nothing the user could act on. What is left is the
+      // field to enter the code, and the way out.
       const items = proItems(activeManager(), CODE)
+      const row = items.find(
+        (item) => 'name' in item && item.name === 'License code',
+      )
 
-      expect(names(items)).not.toContain('License code')
+      expect('render' in (row ?? {})).toBe(true)
       expect(descs(items)).not.toContain('TCP-AAAA-BBBB-CCCC-DDDD')
       expect(names(items)).not.toContain('License ID')
       expect(names(items)).toContain('Sign out on this device')
@@ -459,20 +462,44 @@ describe('Pro settings section', () => {
     })
 
     /**
-     * The token lives in device-local storage and the code in the synced vault
-     * settings, so a vault can be licensed while holding no code at all. Every
-     * request needs the code, so the seat list can only fail — and the active
-     * screen has no field to supply one. Without a way out, the device is stuck
-     * there until the token expires.
+     * The code lives on the device now (LEV-389), so a device updated after
+     * another one moved the code out of the synced settings is licensed while
+     * holding no code at all. Every request needs the code, so the seat list
+     * can only fail. The screen asks for the code once instead, and keeps the
+     * way out.
      */
-    describe('and this vault holds no code', () => {
-      test('offers a way out instead of a seat list that cannot work', () => {
+    describe('and this device holds no code', () => {
+      test('asks for the code and offers a way out instead of a seat list that cannot work', () => {
         const items = proItems(activeManager())
 
+        expect(names(items)).toContain('License code')
+        expect(
+          descs(items).some((desc) =>
+            desc.includes('This device has no license code stored yet'),
+          ),
+        ).toBe(true)
         expect(names(items)).toContain('Sign out on this device')
         // The list needs the code for its every request, so all it could show
         // is a permanent no_activation_code.
         expect(headings(items)).not.toContain('Devices')
+      })
+
+      test('activates with the code typed into the row, keeping the token until it succeeds', async () => {
+        const manager = fakeManager({
+          getState: () => ({ status: 'active', token: {}, license: ACTIVE_SUMMARY }),
+          isActive: () => true,
+          getLicenseSummary: () => ACTIVE_SUMMARY,
+          getStoredCode: () => undefined,
+          activate: jest.fn().mockResolvedValue({ ok: true }),
+          signOutLocally: jest.fn(),
+        })
+        const { setting } = invokeRender(codeItem(manager))
+
+        await setting.__textComponents[0].__triggerChange(CODE)
+        await setting.__buttons[0].__click()
+
+        expect(manager.activate).toHaveBeenCalledWith(CODE)
+        expect(manager.signOutLocally).not.toHaveBeenCalled()
       })
 
       test('signs out on this device once confirmed', async () => {

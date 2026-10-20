@@ -99,11 +99,12 @@ function codeRow(
   manager: LicenseManager,
   form: LicenseActivationState,
   applyLicenseChange: () => Promise<void>,
-): SettingDefinitionItem {
+  hint = "",
+): SettingDefinitionRender {
   return {
     name: t("settings.license.codeName", "License code"),
-    // A failure belongs under the field it was typed into.
-    desc: form.errorDesc,
+    // A failure belongs under the field it was typed into, in place of the hint.
+    desc: form.errorDesc.length > 0 ? form.errorDesc : hint,
     render: (setting) => {
       // The activation form is drawn only on the Pro page, so this row being
       // rendered is that page being shown.
@@ -165,14 +166,14 @@ function purchaseRow(): SettingDefinitionItem {
 }
 
 /**
- * The way out of a licence this vault cannot act with.
+ * Giving up a licence this device cannot act with.
  *
- * The token is device-local and the code lives in the synced vault settings, so
- * a vault can be licensed while holding no code — activated from another vault
- * on this machine, or a data.json that never carried it. Everything that talks
- * to the server then fails on the code that is not there, and the active screen
- * offers no field to supply one. Signing out drops the token, which brings the
- * activation form back, and that form is the field.
+ * The token and the code both live on the device, but a device can hold the
+ * token alone: activated while the code still sat in the synced settings, and
+ * updated after another device had already moved it out of them (LEV-389).
+ * Everything that talks to the server then fails on the code that is not
+ * there. The code field above this row is the usual way back; signing out
+ * drops the token instead.
  *
  * Only ever shown in that state: with a code in hand, the seat list already
  * releases this device properly, and that path tells the server.
@@ -186,7 +187,7 @@ function signOutRow(
     name: t("settings.license.signOutName", "Sign out on this device"),
     desc: t(
       "settings.license.signOutDesc",
-      "This vault has no license code stored, so devices cannot be managed from here. Sign out to enter your code again. The seat stays with this device, so re-entering the same code costs no extra device.",
+      "Stop using the license on this device. AI tasks stop working here until you enter your license code again.",
     ),
     render: (setting) => {
       setting.addButton((button) => {
@@ -313,6 +314,7 @@ function activationRows(
 function activeLicenseRows(
   ctx: SectionContext,
   manager: LicenseManager,
+  form: LicenseActivationState,
   applyLicenseChange: () => Promise<void>,
 ): SettingDefinitionItem[] {
   // Two sections rather than a single card: the licence is a fact to read once,
@@ -337,14 +339,27 @@ function activeLicenseRows(
     items:
       code !== undefined
         ? [{ name: t("settings.license.codeName", "License code"), desc: code }]
-        : // Nothing to name the licence with, so the section carries the one
-          // action that still works instead.
-          [signOutRow(ctx, manager, applyLicenseChange)],
+        : // Nothing to name the licence with, so the section asks for the code
+          // once. The device id is kept, so activating reuses this device's
+          // seat rather than spending another.
+          [
+            codeRow(
+              ctx,
+              manager,
+              form,
+              applyLicenseChange,
+              t(
+                "settings.license.codeMissingDesc",
+                "This device has no license code stored yet. Enter your code once to manage devices from here. This device keeps its seat, so it costs no extra device.",
+              ),
+            ),
+            signOutRow(ctx, manager, applyLicenseChange),
+          ],
   })
 
   // No code means no request can be made: the seat list, its refresh and every
   // release need one. The list would show nothing but a permanent
-  // no_activation_code, so it is left out entirely.
+  // no_activation_code, so it is left out until the code is entered.
   if (code === undefined) return rows
 
   rows.push({
@@ -392,6 +407,6 @@ export function licenseRows(
   applyLicenseChange: () => Promise<void>,
 ): SettingDefinitionItem[] {
   return manager.isActive()
-    ? activeLicenseRows(ctx, manager, applyLicenseChange)
+    ? activeLicenseRows(ctx, manager, form, applyLicenseChange)
     : activationRows(ctx, manager, form, applyLicenseChange)
 }

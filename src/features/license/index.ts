@@ -92,8 +92,12 @@ export function describeDeviceLabel(): string | undefined {
 /**
  * Move an activation code an older version left in the synced settings onto
  * this device, then drop it from data.json (LEV-389). A device that already
- * keeps its own code keeps it. The settings copy goes only once this device
- * holds a code, so a store that cannot write never loses it.
+ * keeps its own code keeps it.
+ *
+ * The settings copy goes only once this device holds a code. Where the store
+ * cannot write, the copy stays in data.json but is not used: the manager reads
+ * the code from the store alone, and acting on a copy it cannot keep would
+ * have it re-enter the code on every launch.
  */
 export function moveLicenseCodeToDevice(
   plugin: LicensePluginLike,
@@ -102,8 +106,15 @@ export function moveLicenseCodeToDevice(
 ): void {
   const synced = plugin.settings.licenseCode
   if (synced === undefined) return
-  if (store.getCode() === undefined) store.setCode(synced)
-  if (store.getCode() === undefined) return
+  const own = store.getCode()
+  if (own === undefined) {
+    store.setCode(synced)
+    if (store.getCode() === undefined) return
+  } else if (own !== synced.trim()) {
+    // Two licenses, or a code re-entered on an older version: this device's
+    // own code wins, and the synced one is dropped.
+    log?.('warn', '[License] The synced license code differs from the one on this device; keeping the device code')
+  }
   delete plugin.settings.licenseCode
   plugin.saveSettings().catch((error: unknown) => {
     log?.('warn', '[License] Failed to remove the code from the synced settings', error)

@@ -338,8 +338,8 @@ export class LicenseManager {
     // this very screen, say. Acting on a stale reading would clobber it.
     if (this.state.status !== 'active') return 'unknown'
 
-    // Latches the code off device-locally, leaving the synced settings value
-    // alone (see `LicenseDeviceState.seatReleasedAt`).
+    // Latches the code off rather than deleting it (see
+    // `LicenseDeviceState.seatReleasedAt`).
     this.deps.store.markSeatReleased(this.now())
     this.setState({ status: 'unlicensed' })
 
@@ -463,10 +463,11 @@ export class LicenseManager {
   /**
    * Give this device's licence up locally, without asking the server.
    *
-   * The way out of the one state the seat list cannot fix: an active token with
-   * no code behind it, which happens to a vault whose data.json never carried
-   * the code. Every request needs the code and the active screen has no field
-   * for one, so dropping the token returns it to the activation form.
+   * One way out of the state the seat list cannot fix: an active token with no
+   * code behind it, which happens to a device updated after another device had
+   * already moved the code out of the synced settings (LEV-389). Every request
+   * needs the code; entering it is the usual way back, and dropping the token
+   * returns the device to the activation form instead.
    *
    * Not a seat release — nothing is sent, and the device id is kept, so
    * re-entering the code reuses the same seat instead of spending another.
@@ -616,8 +617,8 @@ export class LicenseManager {
       // looks identical from here; requestToken rules that out before now.)
       //
       // Latched rather than merely cleared: without it the next sync would
-      // spend the still-synced code re-taking the seat, burning one of the
-      // license's resets each lap. Only the user re-entering it lifts the latch.
+      // spend the stored code re-taking the seat, burning one of the license's
+      // resets each lap. Only the user re-entering it lifts the latch.
       this.deps.log?.('warn', '[License] Refresh secret is no longer current')
       this.deps.store.markSeatReleased(this.now())
       this.setState({ status: 'unlicensed' })

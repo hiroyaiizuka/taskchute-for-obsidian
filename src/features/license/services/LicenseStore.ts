@@ -1,12 +1,15 @@
 /**
  * Persistence for license state, split across two stores on purpose.
  *
- * The activation code lives in settings (data.json) so a synced vault carries
- * the entitlement to a new machine. Everything device-bound — device id, token,
- * last known server time — lives in device-local storage instead. This departs
- * from the API's SPEC 11-1, which puts both in data.json: Obsidian Sync shares
- * that file, so a synced token would reach a second machine bound to the first
- * machine's device id and fail with `device-mismatch` forever.
+ * Everything here is device-local, the activation code included (LEV-389).
+ * Device id, token and last known server time are bound to this machine; the
+ * code used to live in settings (data.json) so a synced vault carried the
+ * entitlement to a new machine, but anyone handed the vault's .obsidian folder
+ * could then read it, take seats, or renew ahead of its owner. A new machine
+ * enters the code once instead. This departs from the API's SPEC 11-1, which
+ * puts both in data.json: Obsidian Sync shares that file, so a synced token
+ * would reach a second machine bound to the first machine's device id and fail
+ * with `device-mismatch` forever.
  *
  * The store is raw `window.localStorage`, not Obsidian's `App#saveLocalStorage`
  * — the latter prefixes keys with the vault's app id, so each vault on one
@@ -64,12 +67,12 @@ export interface LicenseDeviceState {
    * by another device. The canonical explanation of the latch; other code that
    * sets or reads it points back here.
    *
-   * The activation code itself cannot be thrown away: data.json is shared by
-   * Obsidian Sync, so deleting it would strip the license from every other
-   * machine. This is the device-local half of throwing it away. While it is set
-   * the stored code reads as absent — no refresh, no device check, an empty
-   * field in settings — so nothing here quietly retakes the seat. Only an
-   * explicit activation lifts it.
+   * The activation code is kept rather than thrown away: it used to sit in the
+   * synced data.json, where deleting it would have stripped the license from
+   * every other machine, and it still names the license the user would
+   * re-enter. While this is set the stored code reads as absent — no refresh,
+   * no device check, an empty field in settings — so nothing here quietly
+   * retakes the seat. Only an explicit activation lifts it.
    */
   seatReleasedAt?: number
 }

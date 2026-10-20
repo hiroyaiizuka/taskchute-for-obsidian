@@ -96,6 +96,19 @@ describe('moveLicenseCodeToDevice', () => {
     expect(plugin.settings.licenseCode).toBeUndefined()
   })
 
+  test('says so when the synced code differs from the one on this device', () => {
+    const store = new LicenseStore(objectBridge())
+    store.setCode('MINE-0000-0000')
+    const log = jest.fn()
+
+    moveLicenseCodeToDevice(pluginWith('THEIRS-1111-1111'), store, log)
+    expect(log).toHaveBeenCalledWith('warn', expect.stringContaining('differs'))
+
+    log.mockClear()
+    moveLicenseCodeToDevice(pluginWith('MINE-0000-0000'), store, log)
+    expect(log).not.toHaveBeenCalled()
+  })
+
   test('leaves the synced code alone when this device cannot keep one', () => {
     const store = new LicenseStore({
       loadLocalStorage: () => undefined,
