@@ -1124,7 +1124,7 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       expect(rows()).toHaveLength(0)
     })
 
-    test('the sidebar row × mirrors the tab × for active runs', () => {
+    test('the sidebar row × closes the row, stopping an active run', () => {
       controller.mount(container)
       const runA = createRun({ id: 'run-a', taskPath: 'TASKS/a.md' })
       const runB = createRun({ id: 'run-b', taskPath: 'TASKS/b.md' })
@@ -1135,7 +1135,8 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
         '.ai-run-pane__run[data-run-id="run-b"] .ai-run-pane__run-close',
       )
       expect(rowClose).not.toBeNull()
-      expect(rowClose?.getAttribute('aria-label')).toBe('Stop and close run')
+      // It closes every tab of the row (LEV-383); this row has one.
+      expect(rowClose?.getAttribute('aria-label')).toBe("Close all of this task's tabs")
       rowClose?.click()
 
       expect(manager.stopRun).toHaveBeenCalledWith('run-b')

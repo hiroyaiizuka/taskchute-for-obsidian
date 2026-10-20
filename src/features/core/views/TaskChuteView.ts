@@ -2099,6 +2099,7 @@ export class TaskChuteView
         }),
       registerManagedDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
       onStopAndCloseTaskRun: (record) => this.handleAiRunStopAndClose(record),
+      confirm: (options) => showConfirmModal(this.app, options),
       onInterruptedTaskRun: () => {
         // Attach can fail after the mount-time recovery pass. Re-run it on
         // that transition so the TaskChute row/timer cannot remain Running.

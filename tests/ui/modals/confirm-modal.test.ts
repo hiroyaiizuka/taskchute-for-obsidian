@@ -1,4 +1,4 @@
-import { App } from 'obsidian'
+import { App, Modal } from 'obsidian'
 import { showConfirmModal } from '@/ui/modals/ConfirmModal'
 
 jest.mock('obsidian', () => {
@@ -72,5 +72,23 @@ describe('ConfirmModal', () => {
     cancelButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
 
     await expect(promise).resolves.toBe(false)
+  })
+
+  test('resolves false when it closes without a button, as Escape does', async () => {
+    const open = jest.spyOn(Modal.prototype, 'open')
+    const promise = showConfirmModal(new App(), {
+      title: 'Close "AI Weekly Journal"?',
+      message: "This closes all 2 of the task's tabs.",
+      confirmText: 'Close all',
+      cancelText: 'Cancel',
+      destructive: true,
+    })
+    const opened = open.mock.contexts[0] as Modal
+    open.mockRestore()
+
+    opened.close()
+
+    await expect(promise).resolves.toBe(false)
+    expect(document.querySelector('.taskchute-confirm-modal')).toBeNull()
   })
 })

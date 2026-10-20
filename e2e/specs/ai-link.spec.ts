@@ -70,12 +70,14 @@ test.describe("human task and linked AI routine", () => {
       .poll(() => readRunningTaskPaths(vaultDir).sort())
       .toEqual([aiPath, humanPath].sort())
 
-    // × on the run's row in the AI Runs pane: stop and close.
+    // × on the run's row in the AI Runs pane asks first (LEV-383); "Close
+    // all" stops and closes the run.
     const runRow = page.locator(".ai-run-pane__run").filter({ hasText: "AI review" })
     await expect(runRow).toBeVisible()
     // The × takes pointer events only while its row is hovered.
     await runRow.hover()
     await runRow.locator(".ai-run-pane__run-close").click()
+    await page.locator(".modal-container .taskchute-confirm-modal").getByRole("button", { name: "Close all" }).click()
 
     await expect.poll(() => rowState(ai)).toBe("done")
     await expect.poll(() => rowState(human)).toBe("done")

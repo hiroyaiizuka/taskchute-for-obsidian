@@ -22,6 +22,7 @@ class ConfirmModal extends Modal {
   private readonly destructive: boolean
   private readonly description?: string
   private readonly hideCancel: boolean
+  private settled = false
 
   constructor(app: App, options: ConfirmModalOptions, resolve: (value: boolean) => void) {
     super(app)
@@ -106,6 +107,9 @@ class ConfirmModal extends Modal {
   }
 
   onClose(): void {
+    // Closed without a button (Escape, or the modal closed from outside):
+    // that is a cancel, so the caller is not left waiting.
+    this.settle(false)
     if (typeof (this.contentEl as HTMLElement & { empty?: () => void }).empty === 'function') {
       this.contentEl.empty()
     } else {
@@ -117,7 +121,13 @@ class ConfirmModal extends Modal {
   }
 
   private closeWith(result: boolean): void {
+    this.settle(result)
     this.close()
+  }
+
+  private settle(result: boolean): void {
+    if (this.settled) return
+    this.settled = true
     this.resolve(result)
   }
 }
