@@ -521,6 +521,7 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
     const activateUrl =
       this.options.openExternalUrl ??
       ((url: string) => openInOwnerWindow(container.ownerDocument, url))
+    const isMac = this.options.isMacOS ?? Platform?.isMacOS ?? false
     const terminal = new Terminal({
       cols,
       rows,
@@ -530,12 +531,20 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
       cursorBlink: true,
       theme: TERMINAL_DARK_THEME,
       ...(windowsPty ? { windowsPty: { ...windowsPty } } : {}),
-      // OSC 8 hyperlinks open like printed links, http(s) only. Without a
-      // handler xterm asks with confirm() and then opens a blank window of
-      // its own that it points at the link (LEV-388).
+      // OSC 8 hyperlinks open through the printed links' path, http(s)
+      // only. Without a handler xterm asks with confirm() and then opens a
+      // blank window of its own that it points at the link (LEV-388). Their
+      // text need not be their address, so hovering shows the address and
+      // only Cmd/Ctrl-click opens it, like file links.
       linkHandler: {
-        activate: (_event, uri) => {
-          if (isHttpUrl(uri)) activateUrl(uri)
+        activate: (event, uri) => {
+          if (isFileLinkActivation(event, isMac) && isHttpUrl(uri)) activateUrl(uri)
+        },
+        hover: (_event, uri) => {
+          container.title = uri
+        },
+        leave: () => {
+          container.removeAttribute('title')
         },
       },
     })
@@ -570,11 +579,7 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
     }
     this.linkProviderDisposables = [
       terminal.registerLinkProvider(
-        new FilePathLinkProvider(
-          terminal,
-          this.options.isMacOS ?? Platform?.isMacOS ?? false,
-          activatePath,
-        ),
+        new FilePathLinkProvider(terminal, isMac, activatePath),
       ),
       terminal.registerLinkProvider(new HttpUrlLinkProvider(terminal, activateUrl)),
     ]
