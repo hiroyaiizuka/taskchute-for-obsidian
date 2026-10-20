@@ -31,6 +31,8 @@ interface E2EObsidianApp {
     openTabById(id: string): void
     close(): void
   }
+  /** Vault-scoped device storage the plugin keeps its pane layout in. */
+  loadLocalStorage(key: string): unknown
 }
 
 interface Window {

@@ -124,6 +124,13 @@ import type {
 } from './TerminalViewAdapter'
 import type { FileEditorAdapterFactory } from './FileEditorAdapter'
 import { AI_PANE_MAX_HEIGHT_RATIO, AiPaneResizer } from './AiPaneResizer'
+import {
+  AI_SIDEBAR_DEFAULT_WIDTH_PX,
+  AiSidebarResizer,
+  clampSidebarWidth,
+  sidebarWidthBounds,
+  type SidebarDragResolution,
+} from './AiSidebarResizer'
 import { WorkspaceFileEditorController } from './WorkspaceFileEditorController'
 import { WorkspaceFileTreeController } from './WorkspaceFileTreeController'
 import { AgentSessionHistoryView } from './AgentSessionHistoryView'
@@ -352,14 +359,15 @@ const TERMINAL_HORIZONTAL_INSET_PX = 16
  */
 const TERMINAL_VERTICAL_INSET_PX = 35
 /**
- * Fixed width of the run sidebar (styles.css .ai-run-pane__sidebar). The
+ * Default width of the run sidebar (styles.css .ai-run-pane__sidebar). The
  * sidebar lives INSIDE the measured host container but not inside the
  * panels area, so every panel-width computation must exclude it; this
  * constant is the fallback when the mounted sidebar cannot be measured
- * (hidden pane, jsdom). A sidebar the user hid takes no width at all
- * (measureContentWidth counts it as 0).
+ * (hidden pane, jsdom) and the user has not dragged a width of their own.
+ * A sidebar the user hid takes no width at all (measureContentWidth counts
+ * it as 0).
  */
-export const RUN_SIDEBAR_WIDTH_PX = 180
+export const RUN_SIDEBAR_WIDTH_PX = AI_SIDEBAR_DEFAULT_WIDTH_PX
 /**
  * Default share of the view height the terminal pane occupies: half, so the
  * terminal is usable without dragging (mirrors styles.css). A drag-resized
@@ -399,6 +407,8 @@ const SIZED_CONTAINER_CLASS = 'ai-pane-container--sized'
 const COLLAPSED_CONTAINER_CLASS = 'ai-pane-container--collapsed'
 /** Custom property carrying the drag-resized height (mirrors styles.css) */
 const PANE_HEIGHT_PROPERTY = '--tc-ai-pane-height'
+/** Custom property carrying the drag-resized sidebar width (mirrors styles.css) */
+const SIDEBAR_WIDTH_PROPERTY = '--tc-ai-sidebar-width'
 
 /**
  * Per-device persistence key of the pane's expanded state
@@ -414,6 +424,9 @@ export const AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY =
  */
 export const AI_PANE_HEIGHT_RATIO_STORAGE_KEY =
   'taskchute-plus.ai-pane-height-ratio'
+/** Device-local drag-resized sidebar width, in CSS pixels. */
+export const AI_PANE_SIDEBAR_WIDTH_STORAGE_KEY =
+  'taskchute-plus.ai-pane-sidebar-width'
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -467,6 +480,9 @@ export class AiRunPaneController {
   private paneResizer: AiPaneResizer | null = null
   /** Drag-resized height share; null while the stylesheet default applies. */
   private paneHeightRatio: number | null = null
+  private sidebarResizer: AiSidebarResizer | null = null
+  /** Drag-resized sidebar width; null while the stylesheet default applies. */
+  private sidebarWidthPx: number | null = null
   private sidebarMode: SidebarMode = 'runs'
   private unsubscribe: (() => void) | null = null
   private unregisterSnapshotProvider: (() => void) | null = null
@@ -687,6 +703,7 @@ export class AiRunPaneController {
       },
     )
     const content = layout.createDiv({ cls: 'ai-run-pane__content' })
+    this.mountSidebarResizer(layout, this.sidebarEl)
     const workarea = content.createDiv({ cls: 'ai-run-pane__workarea' })
     this.panelsEl = workarea.createDiv({ cls: 'ai-run-pane__panels' })
     this.fileEditorContainer = workarea.createDiv({
@@ -706,6 +723,14 @@ export class AiRunPaneController {
       this.host.loadLocalStorage?.(AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY) === true,
       false,
     )
+    const storedSidebarWidth = this.host.loadLocalStorage?.(
+      AI_PANE_SIDEBAR_WIDTH_STORAGE_KEY,
+    )
+    if (typeof storedSidebarWidth === 'number' && Number.isFinite(storedSidebarWidth)) {
+      // Clamped to the absolute bounds only: the share cap depends on the
+      // window, and styles.css applies it live.
+      this.applySidebarWidth(clampSidebarWidth(storedSidebarWidth, sidebarWidthBounds(0)), false)
+    }
     const storedHeightRatio = this.host.loadLocalStorage?.(
       AI_PANE_HEIGHT_RATIO_STORAGE_KEY,
     )
@@ -782,6 +807,9 @@ export class AiRunPaneController {
     this.paneResizer?.dispose()
     this.paneResizer = null
     this.paneHeightRatio = null
+    this.sidebarResizer?.dispose()
+    this.sidebarResizer = null
+    this.sidebarWidthPx = null
     this.containerEl?.classList.remove(TERMINAL_CONTAINER_CLASS)
     this.containerEl?.classList.remove(EXPANDED_CONTAINER_CLASS)
     this.containerEl?.closest('.taskchute-view-root')?.classList.remove(EXPANDED_VIEW_CLASS)
@@ -873,12 +901,12 @@ export class AiRunPaneController {
   /** Hide only the left Vertical Tabs/Files sidebar; its toggle stays on the tab row. */
   private setSidebarCollapsed(collapsed: boolean, persist: boolean): void {
     this.sidebarCollapsed = collapsed
-    this.root?.classList.toggle('is-sidebar-collapsed', collapsed)
+    this.showSidebarCollapsed(collapsed)
     this.sidebarToggleButton?.setAttribute(
       'aria-expanded',
       collapsed ? 'false' : 'true',
     )
-    this.placeSidebarToggle()
+    this.sidebarResizer?.refresh()
     if (persist) {
       this.host.saveLocalStorage?.(
         AI_PANE_SIDEBAR_COLLAPSED_STORAGE_KEY,
@@ -1096,8 +1124,114 @@ export class AiRunPaneController {
         ? measuredSidebar
         : this.sidebarCollapsed
           ? 0
-          : RUN_SIDEBAR_WIDTH_PX
+          : (this.sidebarWidthPx ?? RUN_SIDEBAR_WIDTH_PX)
     return Math.max(0, totalWidth - sidebarWidth)
+  }
+
+  /**
+   * Splitter on the sidebar's right edge. Dragging previews the width (and,
+   * past the snap point, the closed sidebar) without persisting anything;
+   * only the settled gesture is written, through the same paths the toggle
+   * and the stored width use. Previews never refit on their own (the
+   * adapters' debounced ResizeObserver still follows a drag that pauses);
+   * the settled gesture refits at once.
+   */
+  private mountSidebarResizer(layout: HTMLElement, sidebar: HTMLElement): void {
+    this.sidebarResizer = new AiSidebarResizer({
+      sidebar,
+      label: this.host.tv('aiTask.resizeSidebar', 'Resize terminal sidebar'),
+      // Split panels keep the width a split demands of them (canSplit): the
+      // sidebar may not take it back by growing.
+      getBounds: () => {
+        const panelCount = this.getVisiblePanels().length
+        return sidebarWidthBounds(
+          layout.clientWidth,
+          panelCount > 1 ? panelCount * SPLIT_MIN_PANEL_WIDTH_PX : 0,
+        )
+      },
+      getWidth: () =>
+        sidebar.offsetWidth > 0
+          ? sidebar.offsetWidth
+          : (this.sidebarWidthPx ?? RUN_SIDEBAR_WIDTH_PX),
+      isCollapsed: () => this.sidebarCollapsed,
+      onPreview: (resolution) => this.previewSidebar(resolution),
+      onCommit: (resolution) => this.commitSidebar(resolution),
+      onCancel: () => this.endSidebarPreview(),
+      onReset: () => {
+        if (this.sidebarCollapsed) this.setSidebarCollapsed(false, true)
+        this.applySidebarWidth(null, true)
+      },
+      onToggle: () => this.setSidebarCollapsed(!this.sidebarCollapsed, true),
+    })
+  }
+
+  /**
+   * A drag in progress: show where the sidebar would land and nothing more.
+   * The adopted state (sidebarCollapsed, sidebarWidthPx) and the terminals
+   * stay as they are -- a refit per crossing of the snap point would resize
+   * the PTY and redraw a TUI mid-gesture. The settled gesture does both once.
+   */
+  private previewSidebar(resolution: SidebarDragResolution): void {
+    this.showSidebarCollapsed(resolution.collapsed)
+    if (!resolution.collapsed) this.showSidebarWidth(resolution.width)
+  }
+
+  private commitSidebar(resolution: SidebarDragResolution): void {
+    if (resolution.collapsed) {
+      // Opened again later, the sidebar comes back at the width it had
+      // before this gesture, not one the drag passed through.
+      this.showSidebarWidth(this.sidebarWidthPx)
+      if (this.sidebarCollapsed) this.endSidebarPreview()
+      else this.setSidebarCollapsed(true, true)
+      return
+    }
+    // Only a change of state is written: a width drag on an open sidebar
+    // leaves its stored open/closed state alone.
+    if (this.sidebarCollapsed) this.setSidebarCollapsed(false, true)
+    else this.showSidebarCollapsed(false)
+    this.applySidebarWidth(resolution.width, true)
+  }
+
+  /** Put the adopted state back on screen after a drag's previews, and refit. */
+  private endSidebarPreview(): void {
+    this.showSidebarCollapsed(this.sidebarCollapsed)
+    this.showSidebarWidth(this.sidebarWidthPx)
+    this.fitVisibleTerminalViews()
+    this.sidebarResizer?.refresh()
+  }
+
+  /** The sidebar's open/closed look alone, without adopting the state. */
+  private showSidebarCollapsed(collapsed: boolean): void {
+    this.root?.classList.toggle('is-sidebar-collapsed', collapsed)
+    this.placeSidebarToggle(collapsed)
+  }
+
+  /**
+   * Adopt a sidebar width, or `null` to drop back to the stylesheet default
+   * (and the history view's wider one). `persist` is true only for settled
+   * gestures — previews and the mount-time restore must not write.
+   */
+  private applySidebarWidth(width: number | null, persist: boolean): void {
+    const next = width === null || !Number.isFinite(width) ? null : Math.round(width)
+    this.sidebarWidthPx = next
+    this.showSidebarWidth(next)
+    if (persist) {
+      this.host.saveLocalStorage?.(AI_PANE_SIDEBAR_WIDTH_STORAGE_KEY, next)
+      this.fitVisibleTerminalViews()
+    }
+    this.sidebarResizer?.refresh()
+  }
+
+  /** Put a width on screen without adopting it (a drag preview, or undoing one). */
+  private showSidebarWidth(width: number | null): void {
+    const root = this.root
+    if (!root) return
+    root.classList.toggle('is-sidebar-sized', width !== null)
+    if (width === null) {
+      root.style.removeProperty(SIDEBAR_WIDTH_PROPERTY)
+    } else {
+      root.style.setProperty(SIDEBAR_WIDTH_PROPERTY, `${width}px`)
+    }
   }
 
   /**
@@ -1105,12 +1239,15 @@ export class AiRunPaneController {
    * toolbar while it is open, and -- the sidebar gone -- right after ▾ at the
    * start of the tab row. Moving the button keeps its keyboard focus.
    */
-  private placeSidebarToggle(): void {
+  private placeSidebarToggle(collapsed = this.sidebarCollapsed): void {
     const toggle = this.sidebarToggleButton
     if (!toggle) return
     const hadFocus = toggle.ownerDocument.activeElement === toggle
-    if (this.sidebarCollapsed) this.collapseButton?.after(toggle)
-    else this.sidebarToolbarEl?.appendChild(toggle)
+    if (collapsed) {
+      if (toggle.previousElementSibling !== this.collapseButton) this.collapseButton?.after(toggle)
+    } else if (toggle.parentElement !== this.sidebarToolbarEl) {
+      this.sidebarToolbarEl?.appendChild(toggle)
+    }
     if (hadFocus) toggle.focus()
   }
 
@@ -1470,9 +1607,11 @@ export class AiRunPaneController {
   /**
    * The reference's canSplitPanel gate: every panel after the split must
    * keep the minimum width. Gated on the sidebar-excluded content width —
-   * the run sidebar takes its fixed share of the container without
-   * shrinking on a split. An unmeasurable width (hidden view, jsdom) never
-   * blocks the split.
+   * the run sidebar keeps whatever width it has (the default, or the one
+   * the user dragged) and does not shrink on a split; once split, dragging
+   * it wider is capped so the panels keep this minimum (mountSidebarResizer's
+   * getBounds). An unmeasurable width (hidden view, jsdom) never blocks the
+   * split.
    */
   private canSplit(): boolean {
     const width = this.measureContentWidth()

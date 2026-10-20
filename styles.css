@@ -7306,17 +7306,109 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 .ai-run-pane__sidebar {
   display: flex;
   flex-direction: column;
-  width: 180px;
+  /* --tc-ai-sidebar-width is the user's dragged width (AiSidebarResizer). */
+  width: var(--tc-ai-sidebar-width, 180px);
   flex-shrink: 0;
+  /* Its toolbar sheds buttons as the sidebar narrows (see below). */
+  container-type: inline-size;
+  container-name: tc-ai-sidebar;
   min-height: 0;
   overflow: hidden;
   border-right: 1px solid var(--background-modifier-border);
+}
+
+/* A dragged width keeps to half the row when the window narrows later. */
+.ai-run-pane.is-sidebar-sized .ai-run-pane__sidebar {
+  max-width: min(480px, 50%);
 }
 
 /* Hidden, not a rail: its toggle lives on the tab row, so the terminal takes
    the whole width. */
 .ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar {
   display: none;
+}
+
+/* Splitter on the sidebar's right edge. A zero-width item of the row, so it
+   takes no room; its 7px hit area straddles the edge, and a tinted line
+   shows on hover, focus and drag, as on the height splitter. */
+.ai-run-pane__sidebar-resizer {
+  position: relative;
+  z-index: 3;
+  flex: none;
+  width: 0;
+  outline: none;
+}
+
+.ai-run-pane__sidebar-resizer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 7px;
+  cursor: col-resize;
+}
+
+.ai-run-pane__sidebar-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -2px;
+  width: 3px;
+  background: transparent;
+  pointer-events: none;
+  transition: background 120ms ease;
+}
+
+.ai-run-pane__sidebar-resizer:hover::after,
+.ai-run-pane__sidebar-resizer:focus-visible::after {
+  background: color-mix(in srgb, var(--interactive-accent) 45%, transparent);
+}
+
+.ai-run-pane__sidebar-resizer.is-dragging::after {
+  background: color-mix(in srgb, var(--interactive-accent) 70%, transparent);
+}
+
+/* Closed, the same handle lies at the panels' left edge, where dragging it
+   right opens the sidebar again. It starts below the tab row, so ▾ and the
+   toggle lying over the row's start keep the pointer. */
+.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-resizer::before {
+  top: var(--tc-ai-bar-height);
+  left: 0;
+}
+
+.ai-run-pane.is-sidebar-collapsed .ai-run-pane__sidebar-resizer::after {
+  top: var(--tc-ai-bar-height);
+  left: 0;
+}
+
+/* Nothing to resize while the pane is collapsed to its tab row. */
+.ai-run-pane.is-collapsed .ai-run-pane__sidebar-resizer {
+  visibility: hidden;
+}
+
+/* A narrow sidebar sheds its toolbar's view buttons before its toggle, the
+   last item, so the toggle stays reachable as long as it fits. The toolbar
+   is ▾'s room (--tc-ai-bar-start, 28px) + 24px buttons with 2px gaps + 4px
+   end padding: three buttons need 108px, two 82px, the toggle alone 56px.
+   Narrower than that, the sidebar closes by dragging past the snap point. */
+@container tc-ai-sidebar (max-width: 107.98px) {
+  .ai-run-pane .ai-run-pane__sidebar-toolbar > button.ai-run-pane__sidebar-history {
+    display: none;
+  }
+}
+
+@container tc-ai-sidebar (max-width: 81.98px) {
+  .ai-run-pane .ai-run-pane__sidebar-toolbar > button.ai-run-pane__sidebar-files {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-run-pane__sidebar-resizer::after {
+    transition: none;
+  }
 }
 
 /* Level with the tab row beside it, with room at its start for ▾. */
@@ -7379,12 +7471,16 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* However narrow the sidebar is dragged, its views clip sideways (names
+     ellipsize) instead of growing a horizontal scrollbar. */
+  overflow-x: hidden;
 }
 
 .ai-run-pane__sidebar-files-view {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 2px 0;
   font-size: var(--font-ui-smaller);
 }
@@ -7455,8 +7551,9 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   font-size: var(--font-ui-smaller);
 }
 
-/* Wider than the runs list, for the titles. */
-.ai-run-pane.is-history-mode:not(.is-sidebar-collapsed) .ai-run-pane__sidebar {
+/* Wider than the runs list, for the titles -- until the user drags a width
+   of their own, which every view of the sidebar then shares. */
+.ai-run-pane.is-history-mode:not(.is-sidebar-collapsed):not(.is-sidebar-sized) .ai-run-pane__sidebar {
   width: min(280px, 50%);
 }
 
@@ -7498,6 +7595,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .ai-session-history__row {
@@ -8335,11 +8433,14 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 }
 
 /* Terminal body: xterm renders its own scrollback and padding, so the body
-   itself must not scroll or pad. */
+   itself must not scroll or pad. Its own stacking context keeps xterm's
+   layer z-indexes (up to 11) inside the terminal, under the sidebar's
+   splitter where the two meet. */
 .ai-run-pane__body--terminal {
   background: var(--tc-code-surface);
   padding: 0;
   overflow: hidden;
+  isolation: isolate;
 }
 
 .ai-run-pane__body--terminal.is-active {

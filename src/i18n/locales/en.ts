@@ -243,6 +243,7 @@ export const en = {
       togglePane: "Toggle AI run pane",
       resizePane: "Resize AI run pane",
       toggleSidebar: "Toggle terminal sidebar",
+      resizeSidebar: "Resize terminal sidebar",
       expandPane: "Expand AI run pane",
       restorePane: "Restore AI run pane size",
       splitPane: "Split the run pane",
