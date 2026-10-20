@@ -1072,11 +1072,16 @@ export default class TaskCreationController {
     const execModeSelect = doc.win.createEl("select")
     execModeSelect.className = "form-input ai-task-exec-mode"
     execModeField.appendChild(execModeSelect)
+    // Ticked or unticked by the user, not set from the note (LEV-390).
+    let trustTouched = false
     const trustControl = new AiTrustFolderControl({
       doc,
       tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
       storage: storageApp,
-      onChange: () => refreshPreview(),
+      onChange: () => {
+        trustTouched = true
+        refreshPreview()
+      },
     })
     execModeField.appendChild(trustControl.root)
 
@@ -1517,9 +1522,11 @@ export default class TaskCreationController {
           !own.has(key) &&
           candidateDirectories.some((entry) => typeof entry === "string" && keyOf(entry) === key)
         const folderChosen = changed && !namedByNotesOnly
+        // Trust is the user's only when they ticked it here, for a folder that
+        // is theirs: chosen here, or kept and not one only other notes name.
         const trust =
-          trustsFolder() && (changed ? folderChosen : decodedInitialArgs?.trustFolder !== true)
-        if (changed) workingDirectorySelect.commitHistory()
+          trustsFolder() && trustTouched && (changed ? folderChosen : !namedByNotesOnly)
+        if (folderChosen) workingDirectorySelect.commitHistory()
         if (folder !== undefined && (folderChosen || trust)) {
           approveFolderOnThisDevice(storageApp, folder, trust)
         }
