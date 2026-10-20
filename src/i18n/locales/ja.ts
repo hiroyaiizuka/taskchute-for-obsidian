@@ -342,6 +342,13 @@ export const ja = {
         runningPlaceholder: "実行中…",
         unavailablePlaceholder: "この実行ではフォローアップを利用できません",
       },
+      folderConsent: {
+        title: "「{name}」の作業フォルダを、このパソコンで許可しますか？",
+        trust: "このタスクは、このフォルダの設定やスクリプトも信頼して動かします。",
+        description: "このパソコンでは、このフォルダで AI タスクを動かすことをまだ許可していません。許可はこのパソコンだけに保存されます（同期されません）。中身を知らないフォルダなら「やめる」を選んでください。",
+        allow: "このフォルダを許可する",
+        cancel: "やめる",
+      },
       skipPermissions: {
         title: "「{name}」を権限スキップで動かしますか？",
         message: "このタスクの実行モードは「権限スキップ」です。AI が確認なしで何でも実行します。",
@@ -362,6 +369,14 @@ export const ja = {
         shellUnavailable: "このプラットフォームではターミナルセッションを利用できません。",
         terminalFallback: "このコンピューターでは埋め込みターミナルを利用できないため、会話モードでAIを実行します。",
         argsIgnored: "「{name}」: タスクの設定で選べない引数は使いませんでした: {args}",
+        folderNotApproved:
+          "「{name}」は自動では始めませんでした。作業フォルダ {folder} を、このパソコンでまだ許可していないためです。▶ で始めると許可できます。",
+        folderNotAllowed:
+          "「{name}」は始めませんでした。作業フォルダ {folder} を、このパソコンでまだ許可していないためです。▶ で始めると確認が出ます。",
+        folderTrustNotApproved:
+          "「{name}」は自動では始めませんでした。作業フォルダ {folder} を信頼することを、このパソコンでまだ許可していないためです。▶ で始めると許可できます。",
+        folderTrustNotAllowed:
+          "「{name}」は始めませんでした。作業フォルダ {folder} を信頼することを、このパソコンでまだ許可していないためです。▶ で始めると確認が出ます。",
         skipPermissionsDowngraded:
           "「{name}」は権限スキップですが、このパソコンでは許可していないので、オートモードで動かします。設定の「このパソコンで権限スキップを使う」で許可できます。",
         shellStartFailed: "ターミナルセッションの起動に失敗しました: {message}",

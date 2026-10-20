@@ -190,6 +190,47 @@ describe('createAiTaskManager gating', () => {
     })
   })
 
+  // LEV-390: the manager asks this device's approvals before every spawn.
+  test("wires the working-folder check to this device's approvals", () => {
+    jest.isolateModules(() => {
+      jest.doMock('obsidian', () => ({
+        ...jest.requireActual<Record<string, unknown>>('obsidian'),
+        Platform: { isDesktop: true, isMobile: false },
+      }))
+      const mod = require('@/features/ai-task') as FactoryModule
+      const runtimeLease = require(
+        '@/features/ai-task/services/AiTaskRuntimeLease'
+      ) as typeof import('@/features/ai-task/services/AiTaskRuntimeLease')
+      const plugin = makePlugin()
+      const storage = new Map<string, unknown>()
+      ;(plugin.app.vault as unknown as Record<string, unknown>)['adapter'] = {
+        getBasePath: () => '/vault',
+      }
+      ;(plugin.app as unknown as Record<string, unknown>)['loadLocalStorage'] = (key: string) =>
+        storage.get(key)
+      ;(plugin.app as unknown as Record<string, unknown>)['saveLocalStorage'] = (
+        key: string,
+        value: unknown,
+      ) => {
+        storage.set(key, value)
+      }
+
+      const created = mod.createAiTaskManager(plugin)
+      const check = (created as unknown as {
+        deps: { isWorkingFolderAllowed?: (run: { cwd?: string; cwdIsVault: boolean; trust: boolean }) => boolean }
+      }).deps.isWorkingFolderAllowed
+      expect(check).toBeDefined()
+      const elsewhere = { cwd: '/Users/me/x', cwdIsVault: false, trust: false }
+      expect(check?.(elsewhere)).toBe(false)
+      expect(check?.({ cwd: '/vault', cwdIsVault: true, trust: false })).toBe(true)
+      storage.set('taskchute-plus-ai-approved-folders', ['/Users/me/x'])
+      expect(check?.(elsewhere)).toBe(true)
+
+      runtimeLease.forgetRetainedAiTaskManager(created as NonNullable<typeof created>)
+      created?.dispose()
+    })
+  })
+
   test('returns undefined when the path manager lacks AI log paths', () => {
     jest.isolateModules(() => {
       jest.doMock('obsidian', () => ({

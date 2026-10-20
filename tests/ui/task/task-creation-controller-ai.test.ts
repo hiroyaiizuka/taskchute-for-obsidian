@@ -1150,6 +1150,11 @@ describe('AI mode submission', () => {
       'taskchute-plus.ai-task-working-directory-history',
       ['/Users/me/Projects/custom'],
     )
+    // LEV-390: chosen here, on this device: its runs are not asked about.
+    expect(second.saveLocalStorage).toHaveBeenCalledWith(
+      'taskchute-plus-ai-approved-folders',
+      ['/Users/me/Projects/custom'],
+    )
   })
 
   test('hands the aiTask payload (host, args, cwd, prompt) to createTaskFile', async () => {
@@ -1898,3 +1903,232 @@ describe('trusting the folder in auto mode', () => {
   })
 })
 
+
+// LEV-390: saving the task settings approves, on this device, only what the
+// user chose there: a folder they changed to, and trust they turned on. What
+// the note already had is asked about on ▶ like any other note's.
+describe('approving the working folder on this device', () => {
+  const APPROVED = 'taskchute-plus-ai-approved-folders'
+  const TRUSTED = 'taskchute-plus-ai-trusted-folders'
+  const HISTORY = 'taskchute-plus.ai-task-working-directory-history'
+  const saved = (saveLocalStorage: jest.Mock, key: string): unknown[] =>
+    saveLocalStorage.mock.calls
+      .filter(([k]) => k === key)
+      .map(([, value]: [string, unknown]) => value)
+
+  function setCwd(modal: HTMLElement, value: string): void {
+    const cwd = modal.querySelector<HTMLInputElement>('.ai-task-cwd-input')!
+    cwd.value = value
+    cwd.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  function editedTask() {
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    return { file, inst: createAiTaskInstance(file) }
+  }
+
+  test('saving a task with its folder untouched approves nothing', async () => {
+    const { host, aiTaskEditService, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue(existingCodexEditValue(file))
+
+    await submit(await openEditModal(host, inst))
+
+    expect(aiTaskEditService.save).toHaveBeenCalled()
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([])
+    expect(saved(saveLocalStorage, HISTORY)).toEqual([])
+  })
+
+  test('a folder changed to in the settings is approved, and remembered as recent', async () => {
+    const { host, aiTaskEditService, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue(existingCodexEditValue(file))
+    const modal = await openEditModal(host, inst)
+
+    setCwd(modal, '/Users/me/other-project')
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([['/Users/me/other-project']])
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([])
+    expect(saved(saveLocalStorage, HISTORY)).toEqual([['/Users/me/other-project']])
+  })
+
+  test('a folder typed relative to the vault is approved where it runs', async () => {
+    const { host, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const modal = openModal(host)
+    ;(modal.querySelector('input.form-input') as HTMLInputElement).value = 'Relative Task'
+    typeButton(modal, 'ai').click()
+
+    setCwd(modal, 'sub/dir')
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([['/vault/sub/dir']])
+  })
+
+  test('trust turned on here is approved, for the vault too', async () => {
+    const { host, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const modal = openModal(host)
+    ;(modal.querySelector('input.form-input') as HTMLInputElement).value = 'Cursor Task'
+    typeButton(modal, 'ai').click()
+    agentCard(modal, 'cursor').click()
+    setPrompt(modal, 'Go')
+    modal.querySelector<HTMLInputElement>('.ai-task-trust__checkbox')!.click()
+
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([['/vault']])
+  })
+
+  // The folder field tidies what the note had (spaces, \\, //) when it is
+  // shown; saving that back is not the user choosing a folder.
+  test.each([
+    ['trailing space', '/Users/me/site '],
+    ['leading space', ' /Users/me/site'],
+    ['backslash', 'evil\\dir'],
+    ['doubled slashes', '/Users//me/site'],
+  ])('a note folder tidied on display is not approved by saving (%s)', async (_label, cwd) => {
+    const { host, aiTaskEditService, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue({
+      ...existingCodexEditValue(file),
+      host: 'cursor' as const,
+      args: ['--sandbox', 'disabled', '--trust'],
+      cwd,
+    })
+
+    await submit(await openEditModal(host, inst))
+
+    expect(aiTaskEditService.save).toHaveBeenCalled()
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([])
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([])
+    expect(saved(saveLocalStorage, HISTORY)).toEqual([])
+  })
+
+  test('a folder only other notes name is not approved by picking it, nor made recent', async () => {
+    const { host, saveLocalStorage } = createHost(
+      {},
+      { defaultWorkingDirectory: '/vault', workingDirectoryCandidates: ['/Users/other/listed'] },
+    )
+    const modal = openModal(host)
+    ;(modal.querySelector('input.form-input') as HTMLInputElement).value = 'Listed Task'
+    typeButton(modal, 'ai').click()
+
+    setCwd(modal, '/Users/other/listed')
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([])
+    // Not this device's own either: picking it again later must not approve it.
+    expect(saved(saveLocalStorage, HISTORY)).toEqual([])
+  })
+
+  test("trust the note had is not approved when only the folder changes, even to the default", async () => {
+    const { host, aiTaskEditService, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue({
+      ...existingCodexEditValue(file),
+      host: 'cursor' as const,
+      args: ['--sandbox', 'disabled', '--trust'],
+      cwd: '/Users/other/evil',
+    })
+    const modal = await openEditModal(host, inst)
+
+    modal.querySelector<HTMLButtonElement>('.ai-working-directory-select__reset')!.click()
+    await submit(modal)
+
+    expect(aiTaskEditService.save).toHaveBeenCalledWith(
+      file,
+      '08:45',
+      expect.objectContaining({ cwd: undefined, args: ['--sandbox', 'disabled', '--trust'] }),
+    )
+    // The folder the user reset to is theirs; the trust is still the note's.
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([['/vault']])
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([])
+  })
+
+  test('trust ticked here for a folder notes name but this device never used is not approved', async () => {
+    const { host, aiTaskEditService, saveLocalStorage } = createHost(
+      {},
+      { defaultWorkingDirectory: '/vault', workingDirectoryCandidates: ['/Users/other/evil'] },
+    )
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue({
+      ...existingCodexEditValue(file),
+      host: 'cursor' as const,
+      args: ['--sandbox', 'disabled'],
+      cwd: '/Users/other/evil',
+    })
+    const modal = await openEditModal(host, inst)
+
+    const trust = modal.querySelector<HTMLInputElement>('.ai-task-trust__checkbox')!
+    trust.click()
+    expect(trust.checked).toBe(true)
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([])
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([])
+  })
+
+  test('trust ticked here for a folder this device already allowed is approved', async () => {
+    const { host, aiTaskEditService, saveLocalStorage, loadLocalStorage } = createHost(
+      {},
+      { defaultWorkingDirectory: '/vault', workingDirectoryCandidates: ['/srv/repo'] },
+    )
+    loadLocalStorage.mockImplementation((key: string) => (key === APPROVED ? ['/srv/repo'] : null))
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue({
+      ...existingCodexEditValue(file),
+      host: 'cursor' as const,
+      args: ['--sandbox', 'disabled'],
+      cwd: '/srv/repo',
+    })
+    const modal = await openEditModal(host, inst)
+
+    modal.querySelector<HTMLInputElement>('.ai-task-trust__checkbox')!.click()
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([['/srv/repo']])
+  })
+
+  test("a folder from this device's own recent list is approved by picking it", async () => {
+    const { host, saveLocalStorage } = createHost(
+      {},
+      {
+        defaultWorkingDirectory: '/vault',
+        storedWorkingDirectories: ['/Users/me/mine'],
+        workingDirectoryCandidates: ['/Users/me/mine'],
+      },
+    )
+    const modal = openModal(host)
+    ;(modal.querySelector('input.form-input') as HTMLInputElement).value = 'Mine Task'
+    typeButton(modal, 'ai').click()
+
+    setCwd(modal, '/Users/me/mine')
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([['/Users/me/mine']])
+  })
+
+  test('trust the note already had is not approved by saving it', async () => {
+    const { host, aiTaskEditService, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue({
+      ...existingCodexEditValue(file),
+      host: 'cursor' as const,
+      args: ['--sandbox', 'disabled', '--trust'],
+      cwd: '/srv/repo',
+    })
+    const modal = await openEditModal(host, inst)
+    expect(modal.querySelector<HTMLInputElement>('.ai-task-trust__checkbox')!.checked).toBe(true)
+
+    await submit(modal)
+
+    expect(aiTaskEditService.save).toHaveBeenCalledWith(
+      file,
+      '08:45',
+      expect.objectContaining({ cwd: '/srv/repo', args: ['--sandbox', 'disabled', '--trust'] }),
+    )
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([])
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([])
+  })
+})

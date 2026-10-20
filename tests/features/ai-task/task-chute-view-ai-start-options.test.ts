@@ -9,11 +9,16 @@
 import { Notice, TFile, WorkspaceLeaf } from 'obsidian'
 import { TaskChuteView } from '@/features/core/views/TaskChuteView'
 import type { AiRunRecord } from '@/features/ai-task/types'
-import type {
-  AiRunStartOptions,
-  PreparedAiRun,
+import {
+  AiWorkingFolderNotAllowedError,
+  type AiRunStartOptions,
+  type PreparedAiRun,
 } from '@/features/ai-task/services/AiTaskManager'
 import { AI_SKIP_PERMISSIONS_STORAGE_KEY } from '@/features/ai-task/services/AiSkipPermissionsConsent'
+import {
+  AI_APPROVED_FOLDERS_STORAGE_KEY,
+  AI_TRUSTED_FOLDERS_STORAGE_KEY,
+} from '@/features/ai-task/services/AiFolderConsent'
 import { showConfirmModal } from '@/ui/modals/ConfirmModal'
 import type { TaskChutePluginLike, TaskInstance } from '@/types'
 
@@ -290,15 +295,22 @@ describe('TaskChuteView skip-permissions consent', () => {
   test('a manual start asks once, and this device keeps the yes', async () => {
     const storage = new Map<string, unknown>()
     const { manager, internals } = setUp({}, storage)
-    manager.prepareRun.mockResolvedValue(prepared())
+    manager.prepareRun.mockImplementation((_file, options) =>
+      Promise.resolve(prepared({ skipPermissionsDowngraded: options?.allowSkipPermissions !== true })),
+    )
     confirm.mockResolvedValue(true)
 
-    await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
+    const first = await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
     await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
 
+    expect(first).toEqual({
+      kind: 'ready',
+      prepared: expect.objectContaining({ skipPermissionsDowngraded: false }),
+    })
     expect(confirm).toHaveBeenCalledTimes(1)
+    // Prepared as this device allowed, asked, prepared again; then allowed.
     expect(manager.prepareRun.mock.calls.map(([, options]) => options?.allowSkipPermissions))
-      .toEqual([true, true])
+      .toEqual([false, true, true])
     expect(storage.get(AI_SKIP_PERMISSIONS_STORAGE_KEY)).toBe(true)
   })
 
@@ -344,6 +356,56 @@ describe('TaskChuteView skip-permissions consent', () => {
       .toEqual([true, true])
   })
 
+  test('the working folder is asked about first; Cancel there asks nothing more', async () => {
+    const storage = new Map<string, unknown>()
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(
+      prepared({
+        cwd: '/Users/me',
+        cwdIsVault: false,
+        skipPermissionsDowngraded: true,
+        ignoredArgs: ['--mcp-config', 'evil.json'],
+      }),
+    )
+    confirm.mockResolvedValue(false)
+
+    const result = await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
+
+    expect(result.kind).toBe('failed')
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(confirm.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ confirmText: 'Allow this folder' }),
+    )
+    // Nothing allowed for the device, and nothing said about a run that did not start.
+    expect(storage.has(AI_SKIP_PERMISSIONS_STORAGE_KEY)).toBe(false)
+    expect(noticeTexts()).toEqual([])
+  })
+
+  test('folder allowed, then skip-permissions asked, then the run is prepared with it', async () => {
+    const storage = new Map<string, unknown>()
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockImplementation((_file, options) =>
+      Promise.resolve(
+        prepared({
+          cwd: '/Users/me',
+          cwdIsVault: false,
+          skipPermissionsDowngraded: options?.allowSkipPermissions !== true,
+        }),
+      ),
+    )
+    confirm.mockResolvedValue(true)
+
+    const result = await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
+
+    expect(result.kind).toBe('ready')
+    expect(confirm.mock.calls.map(([, options]) => (options as { confirmText: string }).confirmText))
+      .toEqual(['Allow this folder', 'Allow on this device'])
+    expect(manager.prepareRun.mock.calls.map(([, options]) => options?.allowSkipPermissions))
+      .toEqual([false, true])
+    expect(storage.get(AI_APPROVED_FOLDERS_STORAGE_KEY)).toEqual(['/Users/me'])
+    expect(storage.get(AI_SKIP_PERMISSIONS_STORAGE_KEY)).toBe(true)
+  })
+
   test('a task that does not ask for skip-permissions is never asked about', async () => {
     const { manager, internals } = setUp()
     manager.prepareRun.mockResolvedValue(prepared())
@@ -382,5 +444,178 @@ describe('TaskChuteView AI start triggers', () => {
     await internals.startLinkedAiTask(makeInstance('linked'))
 
     expect(triggers).toEqual(['manual', 'automatic', 'automatic'])
+  })
+})
+
+// LEV-390: a working folder (or "trust this folder") this device has not
+// approved is asked about on ▶, and holds an automatic start.
+describe('TaskChuteView working-folder consent', () => {
+  const confirm = showConfirmModal as jest.Mock
+  const NoticeMock = Notice as unknown as jest.Mock
+
+  function prepared(overrides: Partial<PreparedAiRun> = {}): PreparedAiRun {
+    return {
+      taskPath: TASK_PATH,
+      taskName: 'ai-task',
+      host: 'claude',
+      mode: 'terminal',
+      prompt: '',
+      cwd: '/Users/me',
+      cwdIsVault: false,
+      extraArgs: [],
+      binaryPath: '/bin/claude',
+      recipeSnapshot: null,
+      ...overrides,
+    }
+  }
+  const folderNotices = (): string[] =>
+    NoticeMock.mock.calls.map(([text]) => String(text)).filter((text) => text.includes('/Users/me'))
+
+  beforeEach(() => {
+    confirm.mockReset()
+    NoticeMock.mockClear()
+  })
+
+  test('▶ asks, and an allowed folder is kept on this device', async () => {
+    const storage = new Map<string, unknown>()
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared())
+    confirm.mockResolvedValue(true)
+
+    const first = await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+    const second = await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+
+    expect([first.kind, second.kind]).toEqual(['ready', 'ready'])
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(confirm.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ message: '/Users/me', confirmText: 'Allow this folder' }),
+    )
+    expect(storage.get(AI_APPROVED_FOLDERS_STORAGE_KEY)).toEqual(['/Users/me'])
+  })
+
+  test('▶ and Cancel: the task does not start', async () => {
+    const storage = new Map<string, unknown>()
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared({ trustFolder: true }))
+    confirm.mockResolvedValue(false)
+
+    const result = await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+
+    expect(result.kind).toBe('failed')
+    expect(String(confirm.mock.calls[0][1].message)).toContain('trusts this folder')
+    expect(storage.has(AI_APPROVED_FOLDERS_STORAGE_KEY)).toBe(false)
+  })
+
+  test('an automatic start does not ask and does not start, and says so once', async () => {
+    const { manager, internals } = setUp()
+    manager.prepareRun.mockResolvedValue(prepared())
+
+    const first = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+    const again = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+
+    expect([first.kind, again.kind]).toEqual(['failed', 'failed'])
+    expect(confirm).not.toHaveBeenCalled()
+    expect(folderNotices()).toHaveLength(1)
+    expect(folderNotices()[0]).toContain('did not start automatically')
+  })
+
+  test('the vault, and folders allowed on this device, need nothing', async () => {
+    const storage = new Map<string, unknown>([[AI_APPROVED_FOLDERS_STORAGE_KEY, ['/Users/me']]])
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValueOnce(prepared({ cwd: '/vault', cwdIsVault: true }))
+    manager.prepareRun.mockResolvedValueOnce(prepared())
+
+    const vault = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+    const allowed = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+
+    expect([vault.kind, allowed.kind]).toEqual(['ready', 'ready'])
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  test('a folder only in the recent-folders history is still asked about', async () => {
+    const storage = new Map<string, unknown>([
+      ['taskchute-plus.ai-task-working-directory-history', ['/Users/me/listed']],
+    ])
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared({ cwd: '/Users/me/listed' }))
+    confirm.mockResolvedValue(false)
+
+    const result = await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+
+    expect(result.kind).toBe('failed')
+    expect(confirm).toHaveBeenCalledTimes(1)
+  })
+
+  test('trusting a folder allowed only to run in is asked about, and kept as trusted', async () => {
+    const storage = new Map<string, unknown>([[AI_APPROVED_FOLDERS_STORAGE_KEY, ['/srv/repo']]])
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared({ cwd: '/srv/repo', trustFolder: true }))
+    confirm.mockResolvedValue(true)
+
+    const result = await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+
+    expect(result.kind).toBe('ready')
+    expect(String(confirm.mock.calls[0][1].message)).toContain('trusts this folder')
+    expect(storage.get(AI_TRUSTED_FOLDERS_STORAGE_KEY)).toEqual(['/srv/repo'])
+  })
+
+  test('the dialog shows the folder without control characters', async () => {
+    const { manager, internals } = setUp()
+    manager.prepareRun.mockResolvedValue(prepared({ cwd: '/srv/a\u202Etxt.exe' }))
+    confirm.mockResolvedValue(false)
+
+    await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+
+    expect(confirm.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ message: '/srv/a\uFFFDtxt.exe' }),
+    )
+  })
+
+  test('a run the manager refuses for its folder says why', async () => {
+    const { manager, internals } = setUp()
+    manager.startRun.mockRejectedValue(
+      new AiWorkingFolderNotAllowedError({ taskPath: TASK_PATH, taskName: 'ai-task' }, '/Users/me/x', false),
+    )
+
+    await internals.startAiRun(makeInstance())
+
+    expect(folderNotices()).toEqual([
+      '"ai-task" did not start: its working folder /Users/me/x is not allowed on this device. Start the task with ▶ to be asked.',
+    ])
+  })
+
+  test('an automatic start held for its folder is told once across views', async () => {
+    const first = setUp()
+    const second = setUp()
+    const held = prepared({ cwd: '/Users/me/two-views' })
+    first.manager.prepareRun.mockResolvedValue(held)
+    second.manager.prepareRun.mockResolvedValue(held)
+
+    await first.internals.prepareAiRunForInstance(makeInstance(), first.manager, 'automatic')
+    await second.internals.prepareAiRunForInstance(makeInstance(), second.manager, 'automatic')
+
+    expect(folderNotices()).toHaveLength(1)
+  })
+
+  test('a start held only for trusting the folder says so', async () => {
+    const storage = new Map<string, unknown>([[AI_APPROVED_FOLDERS_STORAGE_KEY, ['/Users/me/trust-only']]])
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared({ cwd: '/Users/me/trust-only', trustFolder: true }))
+
+    const result = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+
+    expect(result.kind).toBe('failed')
+    expect(folderNotices()).toEqual([
+      '"ai-task" did not start automatically: trusting its working folder /Users/me/trust-only is not allowed on this device yet. Start it with ▶ to allow it.',
+    ])
+  })
+
+  test('trusting the vault still needs this device to allow it', async () => {
+    const { manager, internals } = setUp()
+    manager.prepareRun.mockResolvedValue(prepared({ cwd: '/vault', cwdIsVault: true, trustFolder: true }))
+
+    const result = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+
+    expect(result.kind).toBe('failed')
   })
 })

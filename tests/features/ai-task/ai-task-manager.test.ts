@@ -7,6 +7,7 @@ import {
   AiSessionUnavailableError,
   AiTaskManagerDisposedError,
   AiTaskNotConfiguredError,
+  AiWorkingFolderNotAllowedError,
   AI_RUN_EVENT_HEAD_LIMIT,
   AI_RUN_EVENT_TAIL_LIMIT,
   DISPOSE_FORCE_KILL_MS,
@@ -114,6 +115,7 @@ interface HarnessOptions {
   withUpsert?: boolean
   /** Exercise the production root-window timer instead of the recording fake. */
   useDefaultTimer?: boolean
+  isWorkingFolderAllowed?: AiTaskManagerDeps['isWorkingFolderAllowed']
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -157,6 +159,7 @@ function createHarness(options: HarnessOptions = {}) {
       : { writeRunLog, pruneOldLogs },
   }
   if (!options.useDefaultTimer) deps.timer = timer
+  if (options.isWorkingFolderAllowed) deps.isWorkingFolderAllowed = options.isWorkingFolderAllowed
 
   return {
     manager: new AiTaskManager(deps),
@@ -327,6 +330,72 @@ describe('AiTaskManager.startRun', () => {
     expect(prepared.extraArgs).toEqual(['--model', 'sonnet', '--permission-mode', 'auto'])
     expect(prepared.ignoredArgs).toEqual(['--mcp-config', 'evil.json', '--settings', 'hooks.json'])
     expect(prepared.skipPermissionsDowngraded).toBe(false)
+  })
+
+  // LEV-390: what the view needs to ask about the working folder.
+  test('reports whether the working folder is the vault, and whether the run trusts it', async () => {
+    const inVault = await createHarness({
+      frontmatter: { ai_task: true },
+    }).manager.prepareRun(makeTaskFile())
+    expect(inVault.cwd).toBe('/vault/base')
+    expect(inVault.cwdIsVault).toBe(true)
+    expect(inVault.trustFolder).toBe(false)
+
+    const elsewhere = await createHarness({
+      frontmatter: {
+        ai_task: true,
+        ai_task_host: 'cursor',
+        ai_task_cwd: '/Users/me',
+        ai_task_args: '--sandbox disabled --trust',
+      },
+    }).manager.prepareRun(makeTaskFile())
+    expect(elsewhere.cwd).toBe('/Users/me')
+    expect(elsewhere.cwdIsVault).toBe(false)
+    expect(elsewhere.trustFolder).toBe(true)
+  })
+
+  // LEV-390: every start path ends at the spawn, which asks this device.
+  test('never spawns in a folder this device has not approved, however it was started', async () => {
+    const isWorkingFolderAllowed = jest.fn(() => false)
+    const harness = createHarness({
+      frontmatter: {
+        ai_task: true,
+        ai_task_host: 'cursor',
+        ai_task_cwd: 'sub/../dir',
+        ai_task_args: '--sandbox disabled --trust',
+      },
+      isWorkingFolderAllowed,
+    })
+
+    await expect(harness.manager.startRun(makeTaskFile())).rejects.toBeInstanceOf(
+      AiWorkingFolderNotAllowedError,
+    )
+    const prepared = await harness.manager.prepareRun(makeTaskFile())
+    await expect(harness.manager.startPreparedRun(prepared)).rejects.toMatchObject({
+      taskName: prepared.taskName,
+      folder: '/vault/base/sub/../dir',
+      trust: true,
+    })
+
+    expect(harness.cursor.runs).toHaveLength(0)
+    expect(harness.manager.getRuns()).toHaveLength(0)
+    expect(isWorkingFolderAllowed).toHaveBeenLastCalledWith({
+      cwd: '/vault/base/sub/../dir',
+      cwdIsVault: false,
+      trust: true,
+    })
+    // Nothing is left claimed: an approved start goes ahead.
+    isWorkingFolderAllowed.mockReturnValue(true)
+    await harness.manager.startRun(makeTaskFile())
+    expect(harness.cursor.runs).toHaveLength(1)
+  })
+
+  test('the vault compares as a folder, not as text', async () => {
+    const prepared = await createHarness({
+      basePath: '/vault/base/',
+      frontmatter: { ai_task: true, ai_task_cwd: '/vault/./base' },
+    }).manager.prepareRun(makeTaskFile())
+    expect(prepared.cwdIsVault).toBe(true)
   })
 
   test('runs a skip-permissions note in auto mode unless this device allowed it', async () => {

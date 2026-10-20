@@ -57,6 +57,12 @@ import { WorkingDirectorySelectController } from "@/features/ai-task/ui/WorkingD
 import { AiModelCatalog } from "@/features/ai-task/models/AiModelCatalog"
 import { AiModelSelectController } from "@/features/ai-task/ui/AiModelSelectController"
 import { AiTrustFolderControl } from "@/features/ai-task/ui/AiTrustFolderControl"
+import {
+  approveFolderOnThisDevice,
+  folderKey,
+  isFolderApprovedOnThisDevice,
+  resolveTaskFolder,
+} from "@/features/ai-task/services/AiFolderConsent"
 import type { Recipe, RecipeService } from "@/features/recipe/services/RecipeService"
 import { normalizeRecipeReference } from "@/features/recipe/services/RecipeService"
 
@@ -1067,11 +1073,16 @@ export default class TaskCreationController {
     const execModeSelect = doc.win.createEl("select")
     execModeSelect.className = "form-input ai-task-exec-mode"
     execModeField.appendChild(execModeSelect)
+    // Ticked or unticked by the user, not set from the note (LEV-390).
+    let trustTouched = false
     const trustControl = new AiTrustFolderControl({
       doc,
       tv: (key, fallback, vars) => this.host.tv(key, fallback, vars),
       storage: storageApp,
-      onChange: () => refreshPreview(),
+      onChange: () => {
+        trustTouched = true
+        refreshPreview()
+      },
     })
     execModeField.appendChild(trustControl.root)
 
@@ -1176,14 +1187,20 @@ export default class TaskCreationController {
         this.resolveVaultWorkingDirectory(),
     )
     const electronDirectoryPicker = new ElectronDirectoryPicker()
+    // Folders other AI task notes name, listed beside this device's own.
+    const candidateDirectories = this.host.getAiTaskWorkingDirectoryCandidates?.() ?? []
+    // Typed, browsed, picked from the list, or reset by the user (LEV-390).
+    let folderTouched = false
     const workingDirectorySelect = new WorkingDirectorySelectController(
       cwdField,
       {
         value: initialValue?.cwd,
         defaultDirectory: defaultWorkingDirectory,
-        candidateDirectories:
-          this.host.getAiTaskWorkingDirectoryCandidates?.() ?? [],
+        candidateDirectories,
         history: workingDirectoryHistory,
+        onChange: () => {
+          folderTouched = true
+        },
         picker: {
           selectDirectory: (defaultPath) =>
             this.host.selectAiTaskDirectory
@@ -1220,12 +1237,26 @@ export default class TaskCreationController {
       return selected?.tokens ?? []
     }
 
+    // Offered in auto mode; a note that already had it keeps it while its mode is untouched.
+    const trustsFolder = (): boolean =>
+      (getAiAgent(selectedHost).trustFolderArgs ?? []).length > 0 &&
+      trustControl.isChecked() &&
+      (execModeSelect.value === "auto" || keptExecMode !== null)
+
+    /** The working folder written to the note; none for the default. */
+    const savedCwd = (): string | undefined => {
+      const cwd = normalizeDirectoryPath(workingDirectorySelect.getValue())
+      if (cwd.length === 0) return undefined
+      return normalizeDirectoryPathForComparison(cwd) ===
+        normalizeDirectoryPathForComparison(defaultWorkingDirectory)
+        ? undefined
+        : cwd
+    }
+
     const buildArgs = (): string[] => {
       const args = [...currentVariantTokens()]
-      // Offered in auto mode; a note that already had it keeps it while its mode is untouched.
-      const trustArgs = getAiAgent(selectedHost).trustFolderArgs ?? []
-      if (trustControl.isChecked() && (execModeSelect.value === "auto" || keptExecMode !== null)) {
-        args.push(...trustArgs)
+      if (trustsFolder()) {
+        args.push(...(getAiAgent(selectedHost).trustFolderArgs ?? []))
       }
       const model = modelSelect.getValue().modelId ?? ""
       if (model.length > 0 && isSafeAiModelId(model)) {
@@ -1454,11 +1485,6 @@ export default class TaskCreationController {
       },
       getScheduledTime: () => normalizeReminderTime(scheduledInput.value) ?? undefined,
       getAiTaskOptions: () => {
-        const cwd = normalizeDirectoryPath(workingDirectorySelect.getValue())
-        const usesDefault =
-          cwd.length > 0 &&
-          normalizeDirectoryPathForComparison(cwd) ===
-            normalizeDirectoryPathForComparison(defaultWorkingDirectory)
         const prompt = promptInput.value
         const selectedRecipePath = recipeSelect?.value ?? ""
         const recipePath = !recipeSelect
@@ -1471,13 +1497,43 @@ export default class TaskCreationController {
         return {
           host: selectedHost,
           args: buildArgs(),
-          cwd: cwd.length > 0 && !usesDefault ? cwd : undefined,
+          cwd: savedCwd(),
           prompt: prompt.trim().length > 0 ? prompt : "",
           ...(recipePath !== undefined ? { recipePath } : {}),
         }
       },
       commit: () => {
-        workingDirectorySelect.commitHistory()
+        // LEV-390: what the user chose here, on this device, needs no further
+        // approval: a folder they changed to, and trust they turned on. What
+        // the note already had is asked about on ▶ like any other note's.
+        const vault = this.resolveVaultWorkingDirectory() || undefined
+        const keyOf = (cwd: string | undefined): string | undefined => {
+          const normalized = cwd === undefined ? "" : normalizeDirectoryPath(cwd)
+          const folder = resolveTaskFolder(normalized.length > 0 ? normalized : undefined, vault)
+          return folder === undefined ? undefined : folderKey(folder)
+        }
+        const folder = resolveTaskFolder(savedCwd(), vault)
+        const changed =
+          folderTouched && folder !== undefined && folderKey(folder) !== keyOf(initialValue?.cwd)
+        // A folder that notes name (this one included) and this device never
+        // used or allowed came from the vault, not from a choice made here.
+        const own = new Set(workingDirectoryHistory.getStoredDirectories().map(keyOf))
+        const key = folder === undefined ? undefined : folderKey(folder)
+        const namedByNotesOnly =
+          key !== undefined &&
+          folder !== undefined &&
+          !own.has(key) &&
+          !isFolderApprovedOnThisDevice(storageApp, folder, false) &&
+          candidateDirectories.some((entry) => typeof entry === "string" && keyOf(entry) === key)
+        const folderChosen = changed && !namedByNotesOnly
+        // Trust is the user's only when they ticked it here, for a folder that
+        // is theirs: chosen here, or kept and used or allowed on this device.
+        const trust =
+          trustsFolder() && trustTouched && (changed ? folderChosen : !namedByNotesOnly)
+        if (folderChosen) workingDirectorySelect.commitHistory()
+        if (folder !== undefined && (folderChosen || trust)) {
+          approveFolderOnThisDevice(storageApp, folder, trust)
+        }
       },
       destroy: () => {
         recipeLoadDisposed = true

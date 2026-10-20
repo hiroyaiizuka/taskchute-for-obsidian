@@ -37,6 +37,7 @@ import { createShellForegroundProbe } from './services/terminal-title/ShellForeg
 import { RecipeService } from '../recipe/services/RecipeService'
 import { RecipeContextProvider } from '../recipe/services/RecipeContextProvider'
 import { AiRunSessionStateStore } from './services/AiRunSessionStateStore'
+import { folderConsentNeeded } from './services/AiFolderConsent'
 import {
   acquireRetainedAiTaskManager,
   AI_TASK_TERMINAL_RENDERER_LEASE_GENERATION_STORAGE_KEY,
@@ -272,6 +273,8 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     // Terminal is the default everywhere; resolveRunMode falls back where it cannot run.
     getRunMode: (): AiRunMode =>
       plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal',
+    // A folder (or trust) this device has not approved never spawns (LEV-390).
+    isWorkingFolderAllowed: (run) => folderConsentNeeded(localStorageApp, run) === null,
     sessionState,
     log,
   }

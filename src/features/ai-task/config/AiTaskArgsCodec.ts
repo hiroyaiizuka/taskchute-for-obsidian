@@ -133,6 +133,8 @@ export interface AiTaskRunArgs {
   ignoredArgs: string[]
   /** The note asked for skip-permissions, and the run uses auto mode instead. */
   skipPermissionsDowngraded: boolean
+  /** The run trusts the working folder's own settings (Cursor's --trust). */
+  trustFolder: boolean
 }
 
 /**
@@ -176,6 +178,7 @@ export function resolveAiTaskRunArgs(
     args: runArgs,
     ignoredArgs: [...decoded.passthroughArgs],
     skipPermissionsDowngraded,
+    trustFolder: decoded.trustFolder,
   }
 }
 
