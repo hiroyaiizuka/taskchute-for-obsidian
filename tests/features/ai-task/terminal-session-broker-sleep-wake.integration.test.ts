@@ -518,7 +518,6 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
     sessionId: string,
     marker: string,
     unique: string,
-    request: SpawnProcessRequest = readyShell(marker),
   ) {
     const attached = deferred<number>()
     const ready = deferred<void>()
@@ -529,7 +528,7 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
     let pid: number | undefined
     client.start(
       sessionId,
-      request,
+      readyShell(marker),
       join(tmpdir(), `taskchute-${sessionId}-${unique}.log`),
       undefined,
       {
@@ -863,35 +862,13 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       // The frozen-broker state: its socket still accepts, nothing answers.
       process.kill(brokerPid, 'SIGSTOP')
 
-      // The written-off sessions run a plain loop. readyShell's fd-3 watcher
-      // is a background subshell that can outlive a target killed while its
-      // tree is still forming (a guard race outside this ticket), which
-      // would only make this test wait on the broker's teardown of it.
-      const staleShell = (marker: string): SpawnProcessRequest => ({
-        command: '/bin/sh',
-        args: ['-c', 'while :; do sleep 1; done', marker],
-        env: { ...process.env },
-        stdinMode: 'pipe',
-      })
-      const blocked = startSession(
-        client,
-        'session-while-stopped',
-        'STALE_A_READY',
-        unique,
-        staleShell('STALE_A_READY'),
-      )
+      const blocked = startSession(client, 'session-while-stopped', 'STALE_A_READY', unique)
       await withTimeout(blocked.connectionLost, 30_000)
 
       // Old behavior: refused synchronously ("recovering from an unconfirmed
       // session failure"). It is now sent and judged on its own.
       let refusedAtOnce = false
-      const another = startSession(
-        client,
-        'session-also-while-stopped',
-        'STALE_B_READY',
-        unique,
-        staleShell('STALE_B_READY'),
-      )
+      const another = startSession(client, 'session-also-while-stopped', 'STALE_B_READY', unique)
       void another.exited.then((outcome) => {
         if (
           typeof outcome === 'object' &&
