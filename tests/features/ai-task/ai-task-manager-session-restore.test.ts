@@ -377,6 +377,30 @@ describe('AiTaskManager persisted session restore', () => {
     ])
   })
 
+  test('a shell restored as interrupted drops the name of the program that ran in it (LEV-376)', () => {
+    const snapshot = restoredSnapshot()
+    const deps = createDeps([
+      {
+        ...snapshot,
+        record: {
+          ...snapshot.record,
+          id: 'restored-shell',
+          host: 'shell',
+          taskPath: '',
+          taskName: 'Terminal',
+          terminalTitle: 'ID63 書き直し',
+          terminalLabel: 'ID63 書き直し',
+        },
+      },
+    ])
+    const manager = new AiTaskManager(deps)
+    const record = manager.getRun('restored-shell')
+
+    expect(record?.status).toBe('interrupted')
+    expect(record?.terminalTitle).toBeUndefined()
+    expect(record?.terminalLabel).toBeUndefined()
+  })
+
   test('shares one interrupted timer repair promise with every mounted view', async () => {
     const deps = createDeps([restoredSnapshot()])
     const manager = new AiTaskManager(deps)

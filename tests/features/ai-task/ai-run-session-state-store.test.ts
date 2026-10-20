@@ -115,6 +115,55 @@ describe('AiRunSessionStateStore', () => {
     expect(restored).toEqual([snapshot])
   })
 
+  test('a shell session keeps its tab name across a reload; other runs carry none (LEV-376)', () => {
+    let state: unknown = null
+    const store = new AiRunSessionStateStore({
+      loadLocalStorage: () => state,
+      saveLocalStorage: (_key: string, value: unknown) => {
+        state = value
+      },
+    })
+    const shell = createSnapshot({
+      record: {
+        id: 'shell-1',
+        taskPath: '',
+        taskName: 'ターミナル',
+        host: 'shell',
+        status: 'running',
+        mode: 'terminal',
+        startedAt: 1_000,
+        events: [],
+        terminalTitle: 'ID63 書き直し',
+        terminalLabel: 'ID63 書き直し',
+      },
+    })
+    const task = createSnapshot({
+      record: {
+        ...createSnapshot().record,
+        terminalTitle: 'not a shell',
+        terminalLabel: 'not a shell',
+      },
+    })
+
+    const ended = createSnapshot({
+      record: { ...shell.record, id: 'shell-2', status: 'succeeded' },
+    })
+
+    store.saveNow([shell, task, ended])
+    const [restoredShell, restoredTask, restoredEnded] = store.load()
+
+    expect(restoredShell?.record).toMatchObject({
+      terminalTitle: 'ID63 書き直し',
+      terminalLabel: 'ID63 書き直し',
+    })
+    expect(restoredTask?.record.terminalTitle).toBeUndefined()
+    expect(restoredTask?.record.terminalLabel).toBeUndefined()
+    // An ended session runs nothing: no name about a program survives.
+    expect(restoredEnded?.record.status).toBe('succeeded')
+    expect(restoredEnded?.record.terminalTitle).toBeUndefined()
+    expect(restoredEnded?.record.terminalLabel).toBeUndefined()
+  })
+
   test('default save deadline stays on the root window when popout focus changes', () => {
     const originalActiveWindow = activeWindow
     const focusedPopout = {

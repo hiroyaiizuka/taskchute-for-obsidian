@@ -463,8 +463,8 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
 
     test('multiple AI runs share one replaceable task tab until + or split is explicit', () => {
       controller.mount(container)
-      manager.emit(createRun({ id: 'run-a' }))
-      manager.emit(createRun({ id: 'run-b', mode: 'headless' }))
+      manager.emit(createRun({ id: 'run-a', taskName: 'AI デイリーレビュー' }))
+      manager.emit(createRun({ id: 'run-b', taskName: 'Weekly review', mode: 'headless' }))
 
       const strip = container.querySelector('.ai-run-pane__tabstrip')
       expect(strip).not.toBeNull()
@@ -479,11 +479,11 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       expect(
         tabs[0].querySelector('.ai-run-pane__tab-dot--running'),
       ).not.toBeNull()
-      // Terminal runs read "Terminal"; the label is the content type, not
-      // the task name (that lives in the sidebar).
-      expect(
-        tabs[0].querySelector('.ai-run-pane__tab-label')?.textContent,
-      ).toBe('Terminal')
+      // LEV-376: the tab carries the task's name, the same as its sidebar
+      // row (full name in the tooltip), not the content type.
+      const label = tabs[0].querySelector('.ai-run-pane__tab-label')
+      expect(label?.textContent).toBe('AI デイリーレビュー')
+      expect(label?.getAttribute('title')).toBe('AI デイリーレビュー')
 
       container
         .querySelector<HTMLElement>('.ai-run-pane__run[data-run-id="run-b"]')
@@ -491,13 +491,41 @@ describe('AiRunPaneController NOW PLAYING layout', () => {
       tabs = container.querySelectorAll('.ai-run-pane__tab')
       expect(tabs).toHaveLength(1)
       expect(tabs[0].getAttribute('data-run-id')).toBe('run-b')
+      // Headless runs too: the task's name, not "Events".
       expect(
         tabs[0].querySelector('.ai-run-pane__tab-label')?.textContent,
-      ).toBe('Events')
+      ).toBe('Weekly review')
       expect(tabs[0].classList.contains('is-active')).toBe(true)
       expect(
         container.querySelector('.ai-run-pane__tab[data-run-id="run-a"]'),
       ).toBeNull()
+    })
+
+    test('a shell tab shows what runs in it, and its own name otherwise (LEV-376)', () => {
+      controller.mount(container)
+      const shell = createRun({
+        id: 'shell-1',
+        host: 'shell',
+        taskPath: '',
+        taskName: 'Terminal',
+      })
+      manager.emit(shell)
+      const label = () =>
+        container.querySelector(
+          '.ai-run-pane__tab[data-run-id="shell-1"] .ai-run-pane__tab-label',
+        )
+      expect(label()?.textContent).toBe('Terminal')
+
+      // Claude Code named its conversation: the tab (and the row) follow.
+      shell.terminalLabel = 'ID63 書き直し'
+      manager.emit(shell)
+      expect(label()?.textContent).toBe('ID63 書き直し')
+      expect(label()?.getAttribute('title')).toBe('ID63 書き直し')
+
+      // Back at the prompt: the session's own name again.
+      delete shell.terminalLabel
+      manager.emit(shell)
+      expect(label()?.textContent).toBe('Terminal')
     })
 
     test('sidebar and content live inside a layout row that collapse hides', () => {
