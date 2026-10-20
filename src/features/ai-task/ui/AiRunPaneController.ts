@@ -483,6 +483,8 @@ export class AiRunPaneController {
    * which terminal status the run ends with.
    */
   private readonly pendingCloseRunIds = new Set<string>()
+  /** While set, terminals that come up do not take the keyboard (closeRun). */
+  private holdTerminalFocus = false
   private containerEl: HTMLElement | null = null
   private root: HTMLElement | null = null
   private sidebarEl: HTMLElement | null = null
@@ -1969,15 +1971,57 @@ export class AiRunPaneController {
    */
   private closeRun(runId: string): void {
     const parentRunId = this.host.manager.getRun(runId)?.parentRunId
-    this.closeRunView(runId)
-    // The last terminal beside a closed tab takes its row with it.
-    if (
-      parentRunId !== undefined &&
-      this.runViews.get(parentRunId)?.tabClosed === true &&
-      !this.hasChildRunViews(parentRunId)
-    ) {
-      this.closeRun(parentRunId)
+    // Whatever terminal comes up in its place leaves the keyboard where it
+    // is when it is somewhere outside this pane: a close that came on its
+    // own (the run stopped, its log was written) must not pull typing out of
+    // a note into a terminal.
+    const held = this.holdTerminalFocus
+    this.holdTerminalFocus = held || this.keyboardIsElsewhere()
+    try {
+      this.closeRunView(runId)
+      // A closed task has no workspace to come back to.
+      if (!this.runViews.has(runId)) this.taskWorkspaceStates.delete(runId)
+      // The last terminal beside a closed tab takes its row with it.
+      if (
+        parentRunId !== undefined &&
+        this.runViews.get(parentRunId)?.tabClosed === true &&
+        !this.hasChildRunViews(parentRunId)
+      ) {
+        this.closeRun(parentRunId)
+      }
+    } finally {
+      this.holdTerminalFocus = held
     }
+  }
+
+  /**
+   * The task on screen closed and another task comes up: the switch a click
+   * on its row makes — its workspace, remembered tab, split panels and
+   * terminals, even ones never shown since the pane was built (LEV-384).
+   */
+  private moveOnToTask(
+    panel: PanelView,
+    fallbackRunId: string,
+    taskScopeRunId: string,
+  ): void {
+    if (this.runViews.get(taskScopeRunId)?.row) {
+      this.showRunInFocusedPanel(taskScopeRunId)
+      return
+    }
+    // A shell without a task has no row to click.
+    this.selectRunInPanel(panel, fallbackRunId)
+    if (!this.isCollapsed()) this.ensureVisibleTerminalViews()
+  }
+
+  /** Whether the keyboard is in something outside this pane (a note, say). */
+  private keyboardIsElsewhere(): boolean {
+    const doc = this.root?.ownerDocument
+    const activeElement = doc?.activeElement ?? null
+    return (
+      activeElement !== null &&
+      activeElement !== doc?.body &&
+      this.root?.contains(activeElement) !== true
+    )
   }
 
   /** closeRun for the run itself; its parent's row is closeRun's to close. */
@@ -1988,6 +2032,8 @@ export class AiRunPaneController {
     if (keepsRow && view.tabClosed) return
     const panel = this.getPanel(view.panelId)
     const tabsBefore = panel ? this.panelTabRunIds(panel) : []
+    const closedRecord = this.host.manager.getRun(runId)
+    const closedScopeRunId = closedRecord ? this.getTaskScopeRunId(closedRecord) : null
     this.disposeTerminalBinding(view)
     this.pendingCloseRunIds.delete(runId)
     this.pendingEventSyncRunIds.delete(runId)
@@ -2014,22 +2060,30 @@ export class AiRunPaneController {
     if (panel) this.refreshContentTab(panel)
     if (panel && panel.selectedRunId === runId) {
       panel.selectedRunId = null
-      const taskView =
-        panel.taskRunId !== null ? this.runViews.get(panel.taskRunId) : undefined
+      // The task slot, when the strip lists it: the closed run's task, or
+      // the next task once a closed task handed the slot on
+      // (ensurePanelTaskSlot).
+      const remaining = this.panelTabRunIds(panel)
       let fallbackRunId =
-        taskView?.panelId === panel.id && !taskView.tabClosed
-          ? (panel.taskRunId ?? undefined)
+        panel.taskRunId !== null &&
+        remaining.includes(panel.taskRunId) &&
+        this.runViews.get(panel.taskRunId)?.panelId === panel.id
+          ? panel.taskRunId
           : undefined
       if (fallbackRunId === undefined) {
         // The tab beside the closed one, the right one first.
-        const remaining = this.panelTabRunIds(panel)
         const at = tabsBefore.indexOf(runId)
         fallbackRunId = [
           ...tabsBefore.slice(at + 1),
           ...tabsBefore.slice(0, Math.max(at, 0)).reverse(),
         ].find((id) => remaining.includes(id))
       }
-      if (fallbackRunId === undefined) {
+      // Another task only once the closed run's task has no tab left here
+      // or in another panel; while it has, the panels below merge instead.
+      if (
+        fallbackRunId === undefined &&
+        (closedScopeRunId === null || !this.scopeHasTabs(closedScopeRunId))
+      ) {
         for (const [id, other] of this.runViews) {
           if (other.panelId === panel.id && !other.tabClosed) fallbackRunId = id
         }
@@ -2039,6 +2093,16 @@ export class AiRunPaneController {
         const fallbackTaskScopeRunId = fallbackRecord
           ? this.getTaskScopeRunId(fallbackRecord)
           : null
+        if (
+          this.isPanelVisible(panel) &&
+          fallbackTaskScopeRunId !== null &&
+          fallbackTaskScopeRunId !== this.activeTaskScopeRunId &&
+          closedScopeRunId !== null &&
+          closedScopeRunId === this.activeTaskScopeRunId
+        ) {
+          this.moveOnToTask(panel, fallbackRunId, fallbackTaskScopeRunId)
+          return
+        }
         const mayActivateWorkspace =
           this.isPanelVisible(panel) &&
           fallbackTaskScopeRunId === this.activeTaskScopeRunId
@@ -2511,6 +2575,16 @@ export class AiRunPaneController {
     return runIds
   }
 
+  /** Whether any tab of the task scope `scopeRunId` is open, in any panel. */
+  private scopeHasTabs(scopeRunId: string): boolean {
+    for (const [runId, view] of this.runViews) {
+      if (view.tabClosed) continue
+      const record = this.host.manager.getRun(runId)
+      if (record && this.getTaskScopeRunId(record) === scopeRunId) return true
+    }
+    return false
+  }
+
   /** Whether a view is open for a terminal opened beside `runId`. */
   private hasChildRunViews(runId: string): boolean {
     for (const childRunId of this.runViews.keys()) {
@@ -2889,7 +2963,7 @@ export class AiRunPaneController {
         disposeFilePath,
       }
     }
-    if (this.focusedPanelId === panel.id) {
+    if (this.focusedPanelId === panel.id && !this.holdTerminalFocus) {
       view.terminal.adapter.focus()
     }
     view.terminal.adapter.fit?.()
