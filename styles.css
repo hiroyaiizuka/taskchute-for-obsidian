@@ -7754,9 +7754,17 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   line-height: 16px;
 }
 
-.ai-run-pane__file-tab-title,
-.ai-run-pane__tab-label {
+.ai-run-pane__file-tab-title {
   max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A run's tab carries its task's name (or what runs in the shell), so it gets
+   room for one; the full name is in the tooltip. */
+.ai-run-pane__tab-label {
+  max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

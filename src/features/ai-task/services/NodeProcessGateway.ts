@@ -203,6 +203,8 @@ export interface ProcessGateway {
   buildPtyCommand(request: PtyCommandRequest): PtyCommand
   /** Best-effort resize of a live `script` PTY; false while its tty is unavailable */
   resizePty(transcriptPath: string, cols: number, rows: number): boolean
+  /** The tty device of a live `script` PTY, or null while it is unavailable */
+  readPtyTtyPath?(transcriptPath: string): Promise<string | null>
   /** Unique writable path in the OS temp directory (Node boundary helper) */
   makeTempFilePath(prefix: string): string
   /** Read a temp file as utf8 and delete it (best-effort delete) */
@@ -620,6 +622,20 @@ function getTtySidecarPath(transcriptPath: string): string {
 
 function isTtyDevicePath(path: string): boolean {
   return path.startsWith('/dev/') && !path.includes('\0') && !/[\r\n]/.test(path)
+}
+
+/**
+ * The tty device a live `script` PTY wrote to `<transcript>.tty`, or null
+ * while it is unavailable: the sidecar is written from inside `script`, so it
+ * is missing for a moment after spawn.
+ */
+function readTtySidecar(transcriptPath: string): string | null {
+  try {
+    const ttyPath = loadFsModule().readFileSync(getTtySidecarPath(transcriptPath), 'utf8').trim()
+    return isTtyDevicePath(ttyPath) ? ttyPath : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -1809,11 +1825,11 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     const ttyFlag = platform === 'darwin' ? '-f' : platform === 'linux' ? '-F' : null
     if (ttyFlag === null) return false
 
+    const ttyPath = readTtySidecar(transcriptPath)
+    // An early resize is expected to miss the sidecar; TerminalDispatcher
+    // retries the latest request.
+    if (ttyPath === null) return false
     try {
-      const ttyPath = loadFsModule()
-        .readFileSync(getTtySidecarPath(transcriptPath), 'utf8')
-        .trim()
-      if (!isTtyDevicePath(ttyPath)) return false
       const childProcess = loadChildProcessModule()
       if (childProcess.execFileSync === undefined) return false
       childProcess.execFileSync(
@@ -1830,10 +1846,12 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       )
       return true
     } catch {
-      // The sidecar is created from inside `script`, so an early resize is
-      // expected to miss it. TerminalDispatcher retries the latest request.
       return false
     }
+  }
+
+  readPtyTtyPath(transcriptPath: string): Promise<string | null> {
+    return Promise.resolve(readTtySidecar(transcriptPath))
   }
 
   makeTempFilePath(prefix: string): string {

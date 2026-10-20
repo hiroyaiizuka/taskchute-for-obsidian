@@ -18,6 +18,8 @@ export const AI_RUN_SESSION_REPLAY_LIMIT = 128 * 1024
 export const AI_RUN_SESSION_EVENT_LIMIT = 400
 export const AI_RUN_SESSION_EVENT_TEXT_LIMIT = 4 * 1024
 export const AI_RUN_SESSION_SERIALIZED_LIMIT = 2_500_000
+/** Shell tab names are short display strings (see ShellTitleTracker). */
+export const AI_RUN_SESSION_TERMINAL_TITLE_LIMIT = 1024
 export const AI_RUN_SESSION_SAVE_DELAY_MS = 300
 /**
  * Lazy tier for terminal-output-driven saves. A busy TUI (spinner frames)
@@ -262,6 +264,12 @@ function normalizeRecord(value: unknown): AiRunRecord | null {
   }
   assignString('logNotePath')
   assignString('errorMessage', 8 * 1024)
+  // What a shell session's tab says about the program running in it; an
+  // ended session runs nothing, so only a live one keeps it.
+  if (record.host === 'shell' && ACTIVE_STATUSES.has(record.status)) {
+    assignString('terminalTitle', AI_RUN_SESSION_TERMINAL_TITLE_LIMIT)
+    assignString('terminalLabel', AI_RUN_SESSION_TERMINAL_TITLE_LIMIT)
+  }
   assignNumber('resumedAt')
   assignNumber('endedAt')
   assignNumber('exitCode')
