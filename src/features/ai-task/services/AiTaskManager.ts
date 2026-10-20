@@ -56,6 +56,7 @@ import type { RecipeContextSnapshot } from '@/features/recipe/services/RecipeDel
 import { buildRecipeDelegationPrompt } from '@/features/recipe/services/RecipeDelegationContextBuilder'
 import { assertAiRunLaunchSize } from './AiRunLaunchSizeGuard'
 import { resolveAiTaskRunArgs } from '../config/AiTaskArgsCodec'
+import { normalizeDirectoryPathForComparison } from './WorkingDirectoryHistory'
 import {
   terminalConnectionLostNotice,
   terminalFailureNotice,
@@ -377,6 +378,10 @@ export interface PreparedAiRun {
   readonly ignoredArgs?: readonly string[]
   /** The note asked for skip-permissions; the run uses auto mode. */
   readonly skipPermissionsDowngraded?: boolean
+  /** The run trusts the working folder's own settings (LEV-390). */
+  readonly trustFolder?: boolean
+  /** The working folder is the vault itself (LEV-390). */
+  readonly cwdIsVault?: boolean
   readonly binaryPath: string
   readonly binaryArgsPrefix?: readonly string[]
   readonly binaryEnvPatch?: Readonly<Record<string, string | undefined>>
@@ -892,6 +897,7 @@ export class AiTaskManager {
     )
 
     const cwd = this.resolveCwd(config.cwd)
+    const vaultPath = this.getVaultBasePath()
     const binaryResolution = await this.deps.binaryLocator.resolve(config.host)
     const {
       binaryPath,
@@ -917,6 +923,12 @@ export class AiTaskManager {
       extraArgs: Object.freeze([...runArgs.args]),
       ignoredArgs: Object.freeze([...runArgs.ignoredArgs]),
       skipPermissionsDowngraded: runArgs.skipPermissionsDowngraded,
+      trustFolder: runArgs.trustFolder,
+      cwdIsVault:
+        cwd !== undefined &&
+        vaultPath !== undefined &&
+        normalizeDirectoryPathForComparison(cwd) ===
+          normalizeDirectoryPathForComparison(vaultPath),
       binaryPath,
       binaryArgsPrefix: binaryArgsPrefix
         ? Object.freeze([...binaryArgsPrefix])

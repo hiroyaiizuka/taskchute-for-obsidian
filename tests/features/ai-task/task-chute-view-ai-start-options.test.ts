@@ -14,6 +14,7 @@ import type {
   PreparedAiRun,
 } from '@/features/ai-task/services/AiTaskManager'
 import { AI_SKIP_PERMISSIONS_STORAGE_KEY } from '@/features/ai-task/services/AiSkipPermissionsConsent'
+import { AI_APPROVED_FOLDERS_STORAGE_KEY } from '@/features/ai-task/services/AiFolderConsent'
 import { showConfirmModal } from '@/ui/modals/ConfirmModal'
 import type { TaskChutePluginLike, TaskInstance } from '@/types'
 
@@ -382,5 +383,102 @@ describe('TaskChuteView AI start triggers', () => {
     await internals.startLinkedAiTask(makeInstance('linked'))
 
     expect(triggers).toEqual(['manual', 'automatic', 'automatic'])
+  })
+})
+
+// LEV-390: a working folder (or "trust this folder") this device has not
+// approved is asked about on ▶, and holds an automatic start.
+describe('TaskChuteView working-folder consent', () => {
+  const confirm = showConfirmModal as jest.Mock
+  const NoticeMock = Notice as unknown as jest.Mock
+
+  function prepared(overrides: Partial<PreparedAiRun> = {}): PreparedAiRun {
+    return {
+      taskPath: TASK_PATH,
+      taskName: 'ai-task',
+      host: 'claude',
+      mode: 'terminal',
+      prompt: '',
+      cwd: '/Users/me',
+      cwdIsVault: false,
+      extraArgs: [],
+      binaryPath: '/bin/claude',
+      recipeSnapshot: null,
+      ...overrides,
+    }
+  }
+  const folderNotices = (): string[] =>
+    NoticeMock.mock.calls.map(([text]) => String(text)).filter((text) => text.includes('/Users/me'))
+
+  beforeEach(() => {
+    confirm.mockReset()
+    NoticeMock.mockClear()
+  })
+
+  test('▶ asks, and an allowed folder is kept on this device', async () => {
+    const storage = new Map<string, unknown>()
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared())
+    confirm.mockResolvedValue(true)
+
+    const first = await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+    const second = await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+
+    expect([first.kind, second.kind]).toEqual(['ready', 'ready'])
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(confirm.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ message: '/Users/me', confirmText: 'Allow this folder' }),
+    )
+    expect(storage.get(AI_APPROVED_FOLDERS_STORAGE_KEY)).toEqual(['/Users/me'])
+  })
+
+  test('▶ and Cancel: the task does not start', async () => {
+    const storage = new Map<string, unknown>()
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared({ trustFolder: true }))
+    confirm.mockResolvedValue(false)
+
+    const result = await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+
+    expect(result.kind).toBe('failed')
+    expect(String(confirm.mock.calls[0][1].message)).toContain('trusts this folder')
+    expect(storage.has(AI_APPROVED_FOLDERS_STORAGE_KEY)).toBe(false)
+  })
+
+  test('an automatic start does not ask and does not start, and says so once', async () => {
+    const { manager, internals } = setUp()
+    manager.prepareRun.mockResolvedValue(prepared())
+
+    const first = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+    const again = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+
+    expect([first.kind, again.kind]).toEqual(['failed', 'failed'])
+    expect(confirm).not.toHaveBeenCalled()
+    expect(folderNotices()).toHaveLength(1)
+    expect(folderNotices()[0]).toContain('did not start automatically')
+  })
+
+  test('the vault, and folders picked on this device, need nothing', async () => {
+    const storage = new Map<string, unknown>([
+      ['taskchute-plus.ai-task-working-directory-history', ['/Users/me']],
+    ])
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValueOnce(prepared({ cwd: '/vault', cwdIsVault: true }))
+    manager.prepareRun.mockResolvedValueOnce(prepared())
+
+    const vault = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+    const picked = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+
+    expect([vault.kind, picked.kind]).toEqual(['ready', 'ready'])
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  test('trusting the vault still needs this device to allow it', async () => {
+    const { manager, internals } = setUp()
+    manager.prepareRun.mockResolvedValue(prepared({ cwd: '/vault', cwdIsVault: true, trustFolder: true }))
+
+    const result = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+
+    expect(result.kind).toBe('failed')
   })
 })

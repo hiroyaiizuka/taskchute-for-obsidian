@@ -344,6 +344,14 @@ export const en = {
         runningPlaceholder: "Running…",
         unavailablePlaceholder: "Follow-up is not available for this run",
       },
+      folderConsent: {
+        title: 'Allow the working folder of "{name}" on this device?',
+        trust: "The task also trusts this folder: its settings and scripts run too.",
+        description:
+          "This device has not run AI tasks in this folder before. Allowing it is kept on this device only (not synced). If you do not know this folder, cancel.",
+        allow: "Allow this folder",
+        cancel: "Cancel",
+      },
       skipPermissions: {
         title: 'Run "{name}" with skip permissions?',
         message:
@@ -367,6 +375,8 @@ export const en = {
         terminalFallback:
           "The embedded terminal is not available on this computer, so the AI run uses conversation mode.",
         argsIgnored: '"{name}": arguments the task settings cannot set were not used: {args}',
+        folderNotApproved:
+          '"{name}" did not start automatically: its working folder {folder} is not allowed on this device yet. Start it with ▶ to allow it.',
         skipPermissionsDowngraded:
           '"{name}" asks for skip permissions, which this device has not allowed, so it runs in auto mode. You can allow it in the AI task settings.',
         shellStartFailed: "Failed to start terminal session: {message}",

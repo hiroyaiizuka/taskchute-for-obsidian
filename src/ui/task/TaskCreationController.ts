@@ -57,6 +57,7 @@ import { WorkingDirectorySelectController } from "@/features/ai-task/ui/WorkingD
 import { AiModelCatalog } from "@/features/ai-task/models/AiModelCatalog"
 import { AiModelSelectController } from "@/features/ai-task/ui/AiModelSelectController"
 import { AiTrustFolderControl } from "@/features/ai-task/ui/AiTrustFolderControl"
+import { approveFolderOnThisDevice } from "@/features/ai-task/services/AiFolderConsent"
 import type { Recipe, RecipeService } from "@/features/recipe/services/RecipeService"
 import { normalizeRecipeReference } from "@/features/recipe/services/RecipeService"
 
@@ -1220,12 +1221,16 @@ export default class TaskCreationController {
       return selected?.tokens ?? []
     }
 
+    // Offered in auto mode; a note that already had it keeps it while its mode is untouched.
+    const trustsFolder = (): boolean =>
+      (getAiAgent(selectedHost).trustFolderArgs ?? []).length > 0 &&
+      trustControl.isChecked() &&
+      (execModeSelect.value === "auto" || keptExecMode !== null)
+
     const buildArgs = (): string[] => {
       const args = [...currentVariantTokens()]
-      // Offered in auto mode; a note that already had it keeps it while its mode is untouched.
-      const trustArgs = getAiAgent(selectedHost).trustFolderArgs ?? []
-      if (trustControl.isChecked() && (execModeSelect.value === "auto" || keptExecMode !== null)) {
-        args.push(...trustArgs)
+      if (trustsFolder()) {
+        args.push(...(getAiAgent(selectedHost).trustFolderArgs ?? []))
       }
       const model = modelSelect.getValue().modelId ?? ""
       if (model.length > 0 && isSafeAiModelId(model)) {
@@ -1478,6 +1483,18 @@ export default class TaskCreationController {
       },
       commit: () => {
         workingDirectorySelect.commitHistory()
+        // Chosen here, on this device: its runs need no further approval
+        // (LEV-390). The vault needs none unless the task trusts it.
+        const cwd = normalizeDirectoryPath(workingDirectorySelect.getValue())
+        const usesDefault =
+          cwd.length === 0 ||
+          normalizeDirectoryPathForComparison(cwd) ===
+            normalizeDirectoryPathForComparison(defaultWorkingDirectory)
+        if (!usesDefault) {
+          approveFolderOnThisDevice(storageApp, cwd)
+        } else if (trustsFolder()) {
+          approveFolderOnThisDevice(storageApp, this.resolveVaultWorkingDirectory())
+        }
       },
       destroy: () => {
         recipeLoadDisposed = true

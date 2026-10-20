@@ -329,6 +329,28 @@ describe('AiTaskManager.startRun', () => {
     expect(prepared.skipPermissionsDowngraded).toBe(false)
   })
 
+  // LEV-390: what the view needs to ask about the working folder.
+  test('reports whether the working folder is the vault, and whether the run trusts it', async () => {
+    const inVault = await createHarness({
+      frontmatter: { ai_task: true },
+    }).manager.prepareRun(makeTaskFile())
+    expect(inVault.cwd).toBe('/vault/base')
+    expect(inVault.cwdIsVault).toBe(true)
+    expect(inVault.trustFolder).toBe(false)
+
+    const elsewhere = await createHarness({
+      frontmatter: {
+        ai_task: true,
+        ai_task_host: 'cursor',
+        ai_task_cwd: '/Users/me',
+        ai_task_args: '--sandbox disabled --trust',
+      },
+    }).manager.prepareRun(makeTaskFile())
+    expect(elsewhere.cwd).toBe('/Users/me')
+    expect(elsewhere.cwdIsVault).toBe(false)
+    expect(elsewhere.trustFolder).toBe(true)
+  })
+
   test('runs a skip-permissions note in auto mode unless this device allowed it', async () => {
     const harness = createHarness({
       frontmatter: { ai_task: true, ai_task_args: '--dangerously-skip-permissions --model opus' },

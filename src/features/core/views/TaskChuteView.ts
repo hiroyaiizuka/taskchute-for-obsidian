@@ -83,6 +83,11 @@ import {
   resolveSkipPermissionsForRun,
   type AiRunTrigger,
 } from "@/features/ai-task/services/AiSkipPermissionsConsent"
+import {
+  approveFolderOnThisDevice,
+  folderConsentNeeded,
+  type FolderConsentRequest,
+} from "@/features/ai-task/services/AiFolderConsent"
 import { AiTaskEditService } from "@/features/ai-task/services/AiTaskEditService"
 import { AiTaskObsidianLinkCoordinator } from "@/features/ai-task/services/AiTaskObsidianLinkCoordinator"
 import { AiTaskLinkSync } from "@/features/ai-task/services/AiTaskLinkSync"
@@ -154,6 +159,7 @@ export class TaskChuteView
   public taskInstances: TaskInstance[] = []
   /** Non-due linked AI routines available only for event materialization. */
   public linkedAiTaskCandidates: TaskInstance[] = []
+  private readonly folderNotApprovedNotified = new Set<string>()
   public currentInstance: TaskInstance | null = null
   public globalTimerInterval: ReturnType<Window['setInterval']> | null = null
   public timerService: TimerService | null = null
@@ -1026,6 +1032,25 @@ export class TaskChuteView
         allowSkipPermissions,
       })
       this.notifyAiRunArgs(prepared, trigger)
+      // LEV-390: a working folder (or trust) this device has not approved.
+      const folder = folderConsentNeeded({
+        storage: this.app,
+        cwd: prepared.cwd,
+        cwdIsVault: prepared.cwdIsVault === true,
+        trust: prepared.trustFolder === true,
+      })
+      if (folder) {
+        if (trigger !== 'manual') {
+          this.notifyFolderNotApproved(prepared, folder)
+          return { kind: 'failed' }
+        }
+        const allowed = await showConfirmModal(
+          this.app,
+          this.folderConsentConfirmOptions(prepared, folder),
+        )
+        if (!allowed) return { kind: 'failed' }
+        approveFolderOnThisDevice(this.app, folder.folder)
+      }
       return { kind: 'ready', prepared }
     } catch (error) {
       this.notifyAiRunError(error)
@@ -2071,6 +2096,54 @@ export class TaskChuteView
       cancelText: this.tv("aiTask.skipPermissions.useAuto", "Run in auto mode this time"),
       destructive: true,
     }
+  }
+
+  /** Asked when the user starts a task in a folder this device has not approved. */
+  private folderConsentConfirmOptions(
+    prepared: PreparedAiRun,
+    folder: FolderConsentRequest,
+  ): ConfirmModalOptions {
+    const lines = [folder.folder]
+    if (folder.trust) {
+      lines.push(
+        this.tv(
+          "aiTask.folderConsent.trust",
+          "The task also trusts this folder: its settings and scripts run too.",
+        ),
+      )
+    }
+    return {
+      title: this.tv(
+        "aiTask.folderConsent.title",
+        'Allow the working folder of "{name}" on this device?',
+        { name: prepared.taskName },
+      ),
+      message: lines.join("\n"),
+      description: this.tv(
+        "aiTask.folderConsent.description",
+        "This device has not run AI tasks in this folder before. Allowing it is kept on this device only (not synced). If you do not know this folder, cancel.",
+      ),
+      confirmText: this.tv("aiTask.folderConsent.allow", "Allow this folder"),
+      cancelText: this.tv("aiTask.folderConsent.cancel", "Cancel"),
+      destructive: true,
+    }
+  }
+
+  /** Once per task and folder: an automatic start held for its folder. */
+  private notifyFolderNotApproved(
+    prepared: PreparedAiRun,
+    folder: FolderConsentRequest,
+  ): void {
+    const key = `${prepared.taskPath}\u0000${folder.folder}`
+    if (this.folderNotApprovedNotified.has(key)) return
+    this.folderNotApprovedNotified.add(key)
+    new Notice(
+      this.tv(
+        "aiTask.notices.folderNotApproved",
+        '"{name}" did not start automatically: its working folder {folder} is not allowed on this device yet. Start it with ▶ to allow it.',
+        { name: prepared.taskName, folder: folder.folder },
+      ),
+    )
   }
 
   /** What the run left out of the note, or ran differently (LEV-386). */

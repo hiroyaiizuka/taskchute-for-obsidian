@@ -1150,6 +1150,11 @@ describe('AI mode submission', () => {
       'taskchute-plus.ai-task-working-directory-history',
       ['/Users/me/Projects/custom'],
     )
+    // LEV-390: chosen here, on this device: its runs are not asked about.
+    expect(second.saveLocalStorage).toHaveBeenCalledWith(
+      'taskchute-plus-ai-approved-folders',
+      ['/Users/me/Projects/custom'],
+    )
   })
 
   test('hands the aiTask payload (host, args, cwd, prompt) to createTaskFile', async () => {

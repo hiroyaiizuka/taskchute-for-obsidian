@@ -86,6 +86,7 @@ function makePreparedRun(path = TASK_PATH): PreparedAiRun {
     mode: 'headless',
     prompt: 'prepared',
     cwd: '/vault',
+    cwdIsVault: true,
     extraArgs: [],
     binaryPath: '/bin/claude',
     recipeSnapshot: null,

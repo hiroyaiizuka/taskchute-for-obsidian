@@ -251,6 +251,7 @@ describe('resolveAiTaskRunArgs', () => {
       args: ['--permission-mode', 'auto', '--model', 'opus', '--effort=high'],
       ignoredArgs: [],
       skipPermissionsDowngraded: false,
+      trustFolder: false,
     })
   })
 
@@ -286,6 +287,7 @@ describe('resolveAiTaskRunArgs', () => {
       args: [...auto],
       ignoredArgs: [],
       skipPermissionsDowngraded: true,
+      trustFolder: false,
     })
     expect(requestsSkipPermissions(host, [...args])).toBe(true)
   })
@@ -295,6 +297,7 @@ describe('resolveAiTaskRunArgs', () => {
       args: ['--dangerously-bypass-approvals-and-sandbox'],
       ignoredArgs: [],
       skipPermissionsDowngraded: false,
+      trustFolder: false,
     })
   })
 
