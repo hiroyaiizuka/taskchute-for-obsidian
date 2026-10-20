@@ -285,6 +285,14 @@ export const ja = {
         discardConfirmation: "未保存の変更を破棄しますか？",
       },
       tabUntitled: "無題の実行",
+      dismissNotice: "閉じる",
+      terminalNotice: {
+        nodeNotFound: "Node.js が見つかりません。ターミナルの実行には Node.js が必要です。Node.js をインストールしてから、もう一度ターミナルを開いてください。",
+        startFailed: "ターミナルを開始できませんでした: {error}",
+        connectionLost: "ターミナルとの接続が切れました。プロセスの終了を確認しています…",
+        inputDropped: "入力を送れませんでした。ターミナルとの接続が切れています。",
+        interrupted: "ターミナルに接続できなくなったため、中断しました。",
+      },
       contentTab: {
         terminal: "ターミナル",
         events: "イベント",

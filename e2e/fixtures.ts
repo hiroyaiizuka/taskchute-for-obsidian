@@ -11,6 +11,8 @@ interface Fixtures {
   isolatedHome: boolean
   /** That home folder, when isolatedHome is on. */
   home: string | undefined
+  /** PATH Obsidian starts with; the test runner's when undefined. */
+  processPath: string | undefined
   /** A fresh Obsidian with the built plugin loaded, closed after the test. */
   obsidian: ObsidianSession
 }
@@ -18,6 +20,7 @@ interface Fixtures {
 export const test = base.extend<Fixtures>({
   language: ["en", { option: true }],
   isolatedHome: [false, { option: true }],
+  processPath: [undefined, { option: true }],
   home: async ({ isolatedHome }, use, testInfo) => {
     if (!isolatedHome) {
       await use(undefined)
@@ -29,7 +32,7 @@ export const test = base.extend<Fixtures>({
     await use(dir)
   },
 
-  obsidian: async ({ language, home }, use, testInfo) => {
+  obsidian: async ({ language, home, processPath }, use, testInfo) => {
     const obsidianExecutable = process.env.TASKCHUTE_E2E_OBSIDIAN
     if (!obsidianExecutable) throw new Error("global-setup did not locate Obsidian")
 
@@ -39,6 +42,7 @@ export const test = base.extend<Fixtures>({
       obsidianExecutable,
       ldLibraryPath: process.env.TASKCHUTE_E2E_LD_LIBRARY_PATH ?? "",
       home,
+      processPath,
     })
     try {
       await use(session)

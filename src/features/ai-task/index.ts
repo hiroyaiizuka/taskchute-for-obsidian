@@ -182,6 +182,9 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
             rendererLeaseOwnerId: initialRendererLease.ownerId,
             rendererLeaseGeneration: initialRendererLease.generation,
             getEnv: () => gateway.getBaseEnv(),
+            // A + terminal can be the first thing opened, before any AI task
+            // has captured the login shell's PATH that nvm & co. live on.
+            prepareEnv: () => gateway.refreshLoginShellPath(),
             log: (level, ...args) => log(level, ...args),
           }),
         )

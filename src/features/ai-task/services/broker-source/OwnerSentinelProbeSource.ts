@@ -37,6 +37,18 @@
  * one case the descriptor was there to catch, a same-second reuse of the number
  * by an unrelated program.
  *
+ * The macOS probe is a synchronous `lsof`, run on the event loop of whichever
+ * program asks. lsof stats every mount point before it answers, and a volume
+ * that stops responding (an FSKit or network mount after the Mac wakes) can
+ * hold it — and with it the broker — indefinitely. `-b` skips those blocking
+ * kernel calls (the descriptor name still comes from the process table), `-w`
+ * keeps the warnings that `-b` causes off the guard's stderr, which is the
+ * user's terminal, and the timeout bounds whatever is left. The bound is the
+ * one every synchronous probe shares, posixProbeTimeoutMs() from
+ * PosixProcessSnapshotSource — which each of the three programs splices in
+ * alongside this fragment. A timed-out probe is a failed probe: 'unreadable',
+ * never 'missing'.
+ *
  * Comments inside the template below are shipped inside each program's single
  * argv string, which is capped at 128KB on Linux. Rationale belongs up here.
  *
@@ -77,8 +89,15 @@ function readSentinelFdPath(pid, fd) {
     try {
       const output = cp.execFileSync(
         '/usr/sbin/lsof',
-        ['-a', '-p', String(pid), '-d', String(fd), '-Fn'],
-        { encoding: 'utf8', maxBuffer: 16 * 1024, windowsHide: true },
+        ['-b', '-w', '-a', '-p', String(pid), '-d', String(fd), '-Fn'],
+        {
+          encoding: 'utf8',
+          maxBuffer: 16 * 1024,
+          timeout: posixProbeTimeoutMs(),
+          killSignal: 'SIGKILL',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          windowsHide: true,
+        },
       );
       const nameLine = String(output).split('\n')
         .find(line => line.startsWith('n'));

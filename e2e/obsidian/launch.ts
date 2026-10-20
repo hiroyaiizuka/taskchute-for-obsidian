@@ -19,6 +19,12 @@ export interface LaunchOptions {
    * user's, so a test never reads or writes the real ~/.claude and the like.
    */
   home?: string
+  /**
+   * PATH for Obsidian (and every process it spawns) instead of the test
+   * runner's. A Dock-launched Obsidian on macOS gets launchd's minimal PATH,
+   * which a terminal-started test run would otherwise never see.
+   */
+  processPath?: string
 }
 
 export interface ObsidianSession {
@@ -180,6 +186,7 @@ export async function launchObsidian(options: LaunchOptions): Promise<ObsidianSe
         ...process.env,
         LD_LIBRARY_PATH: options.ldLibraryPath,
         ...(options.home ? { HOME: options.home, USERPROFILE: options.home } : {}),
+        ...(options.processPath !== undefined ? { PATH: options.processPath } : {}),
       },
     },
   )

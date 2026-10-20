@@ -141,6 +141,34 @@ describe('posixSnapshotPsArgs', () => {
     },
   )
 
+  // Every caller runs ps synchronously on its event loop. An unbounded ps that
+  // hangs after the Mac wakes would freeze the broker while its socket still
+  // accepts connections; the bounded call throws, and callers read that as
+  // "snapshot unavailable" (unknown), exactly like any other failed ps.
+  test('bounds every snapshot so a hung ps cannot stall the caller', () => {
+    const options = posix.posixSnapshotPsOptions({}) as unknown as {
+      timeout?: number
+      killSignal?: string
+    }
+
+    expect(options.timeout).toBeGreaterThan(0)
+    expect(options.timeout).toBeLessThanOrEqual(30_000)
+    expect(options.killSignal).toBe('SIGKILL')
+  })
+
+  test.each(PROGRAMS)('every ps the %s program runs is bounded', (_name, source) => {
+    const calls = source.split("'/bin/ps'").slice(1)
+
+    expect(calls.length).toBeGreaterThan(0)
+    for (const call of calls) {
+      const options = call.slice(0, 400)
+      expect(
+        options.includes('posixSnapshotPsOptions(') ||
+          options.includes('timeout: posixProbeTimeoutMs()'),
+      ).toBe(true)
+    }
+  })
+
   test('pins the locale so lstart stays parseable', () => {
     const options = posix.posixSnapshotPsOptions({ LANG: 'ja_JP.UTF-8', HOME: '/home/x' })
 
