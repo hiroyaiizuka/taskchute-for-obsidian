@@ -8,9 +8,15 @@ const HOME = '/home/me'
 const VAULT = '/home/me/Vault'
 const projects = `${HOME}/.claude/projects/p`
 
-function claudeFile(id: string, cwd: string, title: string, mtimeMs: number, extra = '') {
+/** The CLIs name sessions by UUID: one made from a short fixture name. */
+function sessionId(name: string): string {
+  const hex = Array.from(name, (char) => char.charCodeAt(0).toString(16).padStart(2, '0')).join('').padEnd(32, '0')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
+
+function claudeFile(name: string, cwd: string, title: string, mtimeMs: number, extra = '') {
   return {
-    [`${projects}/${id}.jsonl`]: {
+    [`${projects}/${sessionId(name)}.jsonl`]: {
       mtimeMs,
       content: jsonl(
         { type: 'user', cwd, message: { content: `ask about ${title} ${extra}`.trim() } },
@@ -85,27 +91,27 @@ describe('AgentSessionHistory', () => {
   test('archiving hides a session; the archived view shows it and it can be restored', async () => {
     const { history, stored } = setup({ ...claudeFile('a', VAULT, 'Keep', 2), ...claudeFile('b', VAULT, 'Hide', 1) })
     await history.refresh()
-    history.archiveSession('claude', 'b')
+    history.archiveSession('claude', sessionId('b'))
 
     expect(titles(await history.page({ folder: VAULT }))).toEqual(['Keep'])
     expect(await history.page({ folder: VAULT, archived: true })).toEqual({
       items: [expect.objectContaining({ title: 'Hide', archived: true })],
       nextCursor: null,
     })
-    expect(stored()).toEqual({ version: 1, items: { 'claude:b': expect.any(Number) } })
+    expect(stored()).toEqual({ version: 1, items: { [`claude:${sessionId('b')}`]: expect.any(Number) } })
 
-    history.restoreSession('claude', 'b')
+    history.restoreSession('claude', sessionId('b'))
     expect(titles(await history.page({ folder: VAULT }))).toEqual(['Keep', 'Hide'])
   })
 
   test("the archive forgets sessions whose files are gone, so it never outgrows what exists", async () => {
     const { history, remove, stored } = setup({ ...claudeFile('a', VAULT, 'A', 2), ...claudeFile('b', VAULT, 'B', 1) })
     await history.refresh()
-    history.archiveSession('claude', 'a')
-    history.archiveSession('claude', 'b')
-    remove(`${projects}/a.jsonl`)
+    history.archiveSession('claude', sessionId('a'))
+    history.archiveSession('claude', sessionId('b'))
+    remove(`${projects}/${sessionId('a')}.jsonl`)
     await history.refresh()
-    expect(stored()).toEqual({ version: 1, items: { 'claude:b': expect.any(Number) } })
+    expect(stored()).toEqual({ version: 1, items: { [`claude:${sessionId('b')}`]: expect.any(Number) } })
   })
 
   test('an unchanged file is read once; a changed one is read again', async () => {
@@ -115,9 +121,9 @@ describe('AgentSessionHistory', () => {
     await history.refresh()
     await history.page({ folder: VAULT })
     expect(readRange).toHaveBeenCalledTimes(1)
-    expect(await history.canResume({ path: `${projects}/a.jsonl`, cwd: VAULT })).toBe(true)
+    expect(await history.canResume({ path: `${projects}/${sessionId('a')}.jsonl`, cwd: VAULT })).toBe(true)
     expect(await history.canResume({ path: `${projects}/missing.jsonl`, cwd: VAULT })).toBe(false)
-    expect(await history.canResume({ path: `${projects}/a.jsonl`, cwd: `${VAULT}/gone` })).toBe(false)
+    expect(await history.canResume({ path: `${projects}/${sessionId('a')}.jsonl`, cwd: `${VAULT}/gone` })).toBe(false)
   })
 
   test('the archive record survives a reload of the store', () => {

@@ -1,3 +1,4 @@
+import * as childProcess from 'child_process'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -66,6 +67,11 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
     `"$0" "$@" <&0 & child=$!; wait "$child"' "$@"; st=$?; ` +
     `printf '${TERMINAL_EXIT_SENTINEL}%s\\n' "$st" >&2; kill -9 0 2>/dev/null; }`
 
+  // Run first inside util-linux `script` (see the LEV-388 tests below).
+  const LINUX_RESTORE_SHELL =
+    'if [ -n "${TASKCHUTE_ORIGINAL_SHELL:-}" ]; then SHELL=$TASKCHUTE_ORIGINAL_SHELL; ' +
+    'export SHELL; else unset SHELL; fi; unset TASKCHUTE_ORIGINAL_SHELL; '
+
   test('darwin: wraps the binary in the cat | script -q -F pipeline with an stty preamble', () => {
     setPlatform('darwin')
     const gateway = new NodeProcessGateway()
@@ -129,7 +135,7 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
     expect(wrapper).toContain('kill -9 0 2>/dev/null')
     expect(wrapper).toContain(
       `/usr/bin/script -qefc ${posixQuote(
-        "tty > \"$TASKCHUTE_AI_TTY_PATH\" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; trap \"trap - HUP TERM; kill -9 0\" HUP TERM; '/bin/claude' '--dangerously-skip-permissions' 'do it' <&0 & child=$!; wait \"$child\"",
+        `${LINUX_RESTORE_SHELL}tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; trap "trap - HUP TERM; kill -9 0" HUP TERM; '/bin/claude' '--dangerously-skip-permissions' 'do it' <&0 & child=$!; wait "$child"`,
       )} "$0"`,
     )
   })
@@ -145,9 +151,70 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
 
     expect(command.args[1]).toContain(
       posixQuote(
-        "tty > \"$TASKCHUTE_AI_TTY_PATH\" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; trap \"trap - HUP TERM; kill -9 0\" HUP TERM; '/bin/claude' 'it'\\''s; rm -rf /' <&0 & child=$!; wait \"$child\"",
+        `${LINUX_RESTORE_SHELL}tty > "$TASKCHUTE_AI_TTY_PATH" 2>/dev/null; stty rows 24 cols 80 2>/dev/null; trap "trap - HUP TERM; kill -9 0" HUP TERM; '/bin/claude' 'it'\\''s; rm -rf /' <&0 & child=$!; wait "$child"`,
       ),
     )
+  })
+
+  // LEV-388: util-linux `script -c` runs its command through `$SHELL -c`.
+  // The command is quoted for POSIX sh, which fish reads differently (\' and
+  // \\ are escapes inside fish single quotes), so `script` is started with
+  // SHELL=/bin/sh and the user's own shell is put back for the CLI.
+  test('linux: script runs its command with /bin/sh, never the user shell', () => {
+    setPlatform('linux')
+    const wrapper = new NodeProcessGateway().buildPtyCommand(BASE_REQUEST).args[1]
+
+    expect(wrapper).toContain(
+      'TASKCHUTE_ORIGINAL_SHELL=${SHELL-}; export TASKCHUTE_ORIGINAL_SHELL; ' +
+        'TASKCHUTE_AI_TTY_PATH="$0.tty" SHELL=/bin/sh /usr/bin/script -qefc ',
+    )
+  })
+
+  const posixTest = process.platform === 'win32' ? test.skip : test
+
+  /** The command util-linux `script -qefc` is given, unquoted. */
+  function linuxScriptCommand(wrapper: string): string {
+    const match = /\/usr\/bin\/script -qefc ('(?:[^']|'\\'')*') "\$0"/u.exec(wrapper)
+    if (!match) throw new Error('No script -qefc command in the wrapper')
+    return match[1].slice(1, -1).replace(/'\\''/gu, "'")
+  }
+
+  posixTest("linux: the CLI gets the user's SHELL back and its arguments intact", () => {
+    setPlatform('linux')
+    const report =
+      'process.stdout.write(JSON.stringify({ shell: process.env.SHELL ?? null, ' +
+      'saved: process.env.TASKCHUTE_ORIGINAL_SHELL ?? null, args: process.argv.slice(1) }))'
+    const tricky = "it\\'s $(echo pwned) \\\\ 'quoted'"
+    const command = linuxScriptCommand(
+      new NodeProcessGateway().buildPtyCommand({
+        ...BASE_REQUEST,
+        binaryPath: process.execPath,
+        args: ['-e', report, tricky],
+      }).args[1],
+    )
+    // What util-linux `script` does with the command: `$SHELL -c <command>`.
+    const runAsScriptWould = (originalShell: string): unknown =>
+      JSON.parse(
+        childProcess.execFileSync('/bin/sh', ['-c', command], {
+          env: {
+            PATH: process.env.PATH ?? '/usr/bin:/bin',
+            SHELL: '/bin/sh',
+            TASKCHUTE_ORIGINAL_SHELL: originalShell,
+            TASKCHUTE_AI_TTY_PATH: '/dev/null',
+          },
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: 10_000,
+        }),
+      )
+
+    expect(runAsScriptWould('/usr/local/bin/fish')).toEqual({
+      shell: '/usr/local/bin/fish',
+      saved: null,
+      args: [tricky],
+    })
+    // No SHELL to begin with: the CLI gets none, as `script` would have left it.
+    expect(runAsScriptWould('')).toEqual({ shell: null, saved: null, args: [tricky] })
   })
 
   test('sanitizes non-integer terminal dimensions', () => {
@@ -385,11 +452,54 @@ describe('NodeProcessGateway temp file helpers', () => {
     const first = gateway.makeTempFilePath('ai run/1')
     const second = gateway.makeTempFilePath('ai run/1')
 
-    expect(first).not.toBe(second)
-    for (const candidate of [first, second]) {
-      expect(path.dirname(candidate)).toBe(os.tmpdir().replace(/[\\/]+$/, ''))
-      expect(path.basename(candidate)).toMatch(/^ai-run-1-/)
-      expect(path.basename(candidate)).not.toContain('/')
+    try {
+      expect(first).not.toBe(second)
+      for (const candidate of [first, second]) {
+        expect(path.dirname(candidate)).toBe(os.tmpdir().replace(/[\\/]+$/, ''))
+        expect(path.basename(candidate)).toMatch(/^ai-run-1-/)
+        expect(path.basename(candidate)).not.toContain('/')
+      }
+    } finally {
+      fs.rmSync(first, { force: true })
+      fs.rmSync(second, { force: true })
+    }
+  })
+
+  // LEV-388: `script` creates a missing transcript with the umask (often
+  // 0644), and the OS temp directory is shared on Linux. The file is made
+  // here, owner-only, so the transcript is never readable by other users.
+  test('makeTempFilePath creates the transcript empty and owner-only', () => {
+    const gateway = new NodeProcessGateway()
+    const target = gateway.makeTempFilePath('gateway-owner-only')
+    try {
+      const stats = fs.lstatSync(target)
+      expect(stats.isFile()).toBe(true)
+      expect(stats.size).toBe(0)
+      if (process.platform !== 'win32') {
+        expect(stats.mode & 0o777).toBe(0o600)
+      }
+    } finally {
+      fs.rmSync(target, { force: true })
+    }
+  })
+
+  test('makeTempFilePath never hands out a name that already exists', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
+    jest.spyOn(Math, 'random').mockReturnValue(0.5)
+    const taken = new NodeProcessGateway().makeTempFilePath('gateway-name-taken')
+    let fresh: string | undefined
+    try {
+      fs.writeFileSync(taken, 'planted', 'utf8')
+
+      // A second gateway starts from the same sequence, so its first pick is `taken`.
+      fresh = new NodeProcessGateway().makeTempFilePath('gateway-name-taken')
+
+      expect(fresh).not.toBe(taken)
+      expect(fs.readFileSync(taken, 'utf8')).toBe('planted')
+    } finally {
+      jest.restoreAllMocks()
+      fs.rmSync(taken, { force: true })
+      if (fresh !== undefined) fs.rmSync(fresh, { force: true })
     }
   })
 
@@ -478,6 +588,8 @@ describe('NodeProcessGateway temp file helpers', () => {
     const link = gateway.makeTempFilePath('gateway-planted-link')
     try {
       fs.writeFileSync(target, 'keep me secret', 'utf8')
+      // Swapped for a link after the gateway created it.
+      fs.rmSync(link, { force: true })
       fs.symlinkSync(target, link)
 
       await expect(gateway.readAndDeleteFile(link)).rejects.toThrow('regular file')
@@ -500,6 +612,7 @@ describe('NodeProcessGateway temp file helpers', () => {
       await expect(gateway.readPtyTtyPath(own)).resolves.toBe('/dev/ttys001')
       await expect(gateway.readPtyTtyPath(foreign)).resolves.toBeNull()
     } finally {
+      fs.rmSync(own, { force: true })
       fs.rmSync(`${own}.tty`, { force: true })
       fs.rmSync(`${foreign}.tty`, { force: true })
     }
@@ -508,6 +621,7 @@ describe('NodeProcessGateway temp file helpers', () => {
   test('readAndDeleteFile removes the tty sidecar even when the transcript is missing', async () => {
     const gateway = new NodeProcessGateway()
     const missing = gateway.makeTempFilePath('gateway-missing-with-sidecar')
+    fs.rmSync(missing, { force: true })
     fs.writeFileSync(`${missing}.tty`, '/dev/ttys001\n', 'utf8')
 
     await expect(gateway.readAndDeleteFile(missing)).rejects.toBeDefined()

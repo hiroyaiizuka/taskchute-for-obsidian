@@ -277,7 +277,7 @@ describe('AiTaskManager terminal mode routing', () => {
 
     const record = await harness.manager.resumeAgentSession({
       host: 'claude',
-      sessionId: 'abc-123',
+      sessionId: '4b2c1d3e-0a1b-4c2d-8e3f-abc123abc123',
       cwd: '/work/project',
       name: 'Plan the move',
       cols: 100,
@@ -291,7 +291,7 @@ describe('AiTaskManager terminal mode routing', () => {
         terminalFallbackCommand: 'claude',
         prompt: '',
         cwd: '/work/project',
-        extraArgs: ['--resume', 'abc-123'],
+        extraArgs: ['--resume', '4b2c1d3e-0a1b-4c2d-8e3f-abc123abc123'],
         cols: 100,
         rows: 30,
       }),
@@ -304,14 +304,14 @@ describe('AiTaskManager terminal mode routing', () => {
 
     const joined = await harness.manager.resumeAgentSession({
       host: 'claude',
-      sessionId: 'abc-123',
+      sessionId: '4b2c1d3e-0a1b-4c2d-8e3f-abc123abc123',
       cwd: '/work/project',
       name: 'Plan the move',
       parentRunId: task.id,
     })
     const unknown = await harness.manager.resumeAgentSession({
       host: 'claude',
-      sessionId: 'abc-123',
+      sessionId: '4b2c1d3e-0a1b-4c2d-8e3f-abc123abc123',
       cwd: '/work/project',
       name: 'Plan the move',
       parentRunId: 'ai-run-closed',
@@ -582,7 +582,7 @@ describe('AiTaskManager runtime terminal capability', () => {
       supported = true
     })
 
-    await harness.manager.resumeAgentSession({ host: 'claude', sessionId: 'abc-123', cwd: '/work/project', name: 'Plan the move' })
+    await harness.manager.resumeAgentSession({ host: 'claude', sessionId: '4b2c1d3e-0a1b-4c2d-8e3f-abc123abc123', cwd: '/work/project', name: 'Plan the move' })
 
     expect(harness.terminal.runs).toHaveLength(1)
   })

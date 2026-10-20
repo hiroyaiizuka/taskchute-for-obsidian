@@ -518,6 +518,9 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
     // every window (pop-outs included), so there is nothing to inject here.
     this.timerWindow = container.ownerDocument.defaultView ?? window
     const windowsPty = this.options.windowsPty
+    const activateUrl =
+      this.options.openExternalUrl ??
+      ((url: string) => openInOwnerWindow(container.ownerDocument, url))
     const terminal = new Terminal({
       cols,
       rows,
@@ -527,6 +530,14 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
       cursorBlink: true,
       theme: TERMINAL_DARK_THEME,
       ...(windowsPty ? { windowsPty: { ...windowsPty } } : {}),
+      // OSC 8 hyperlinks open like printed links, http(s) only. Without a
+      // handler xterm asks with confirm() and then opens a blank window of
+      // its own that it points at the link (LEV-388).
+      linkHandler: {
+        activate: (_event, uri) => {
+          if (isHttpUrl(uri)) activateUrl(uri)
+        },
+      },
     })
     if (windowsPty) {
       terminal.attachCustomKeyEventHandler((event) =>
@@ -557,9 +568,6 @@ class XtermTerminalViewAdapter implements TerminalViewAdapterLike {
     const activatePath = (target: TerminalFilePathActivation): void => {
       for (const listener of Array.from(this.filePathListeners)) listener(target)
     }
-    const activateUrl =
-      this.options.openExternalUrl ??
-      ((url: string) => openInOwnerWindow(container.ownerDocument, url))
     this.linkProviderDisposables = [
       terminal.registerLinkProvider(
         new FilePathLinkProvider(

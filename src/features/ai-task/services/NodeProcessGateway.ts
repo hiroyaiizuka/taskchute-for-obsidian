@@ -161,6 +161,9 @@ export const LINUX_STDIN_PUMP = 'dd bs=65536'
  */
 export const MAX_TRANSCRIPT_READ_BYTES = 8 * 1024 * 1024
 
+/** Names makeTempFilePath tries before giving up on taken ones */
+const MAX_TEMP_FILE_ATTEMPTS = 8
+
 /** Line prepended when readAndDeleteFile keeps only the transcript tail */
 export const TRANSCRIPT_TRUNCATED_MARKER =
   '[transcript truncated: earlier output was dropped]'
@@ -205,7 +208,7 @@ export interface ProcessGateway {
   resizePty(transcriptPath: string, cols: number, rows: number): boolean
   /** The tty device of a live `script` PTY, or null while it is unavailable */
   readPtyTtyPath?(transcriptPath: string): Promise<string | null>
-  /** Unique writable path in the OS temp directory (Node boundary helper) */
+  /** Unique path in the OS temp directory, created empty and owner-only */
   makeTempFilePath(prefix: string): string
   /** Read a temp file as utf8 and delete it (best-effort delete) */
   readAndDeleteFile(path: string): Promise<string>
@@ -266,6 +269,7 @@ interface OsModuleLike {
 
 interface FsModuleLike {
   readFileSync(path: string, encoding: 'utf8'): string
+  writeFileSync(path: string, data: string, options: { mode: number; flag: 'wx' }): void
   promises: {
     readFile(path: string): Promise<Uint8Array>
     readFile(path: string, encoding: string): Promise<string>
@@ -1803,6 +1807,14 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       const execCommand = [request.binaryPath, ...request.args]
         .map(shellQuote)
         .join(' ')
+      // script runs that string through `$SHELL -c`, but the quoting is
+      // POSIX: fish reads \' and \\ inside single quotes as escapes, so a
+      // quote in a prompt could end the string early (LEV-388). script is
+      // started with SHELL=/bin/sh, and the user's shell is put back before
+      // the CLI starts (an empty one means there was none).
+      const restoreShell =
+        'if [ -n "${TASKCHUTE_ORIGINAL_SHELL:-}" ]; then SHELL=$TASKCHUTE_ORIGINAL_SHELL; ' +
+        'export SHELL; else unset SHELL; fi; unset TASKCHUTE_ORIGINAL_SHELL'
       // The stdin pump is `dd`, not `cat`: a `cat` that copies with splice(2)
       // (uutils coreutils, the default on Ubuntu 25.10 and later) keeps the
       // pipe locked while it waits for the next keystroke, and `script` then
@@ -1815,8 +1827,12 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
         args: [
           '-c',
           wrap(
-            `TASKCHUTE_AI_TTY_PATH="$0.tty" /usr/bin/script -qefc ` +
-              `${shellQuote(`${ptyPreamble}; ${ptySupervisor.replace('"$0" "$@"', execCommand)}`)} "$0"`,
+            'TASKCHUTE_ORIGINAL_SHELL=${SHELL-}; export TASKCHUTE_ORIGINAL_SHELL; ' +
+              'TASKCHUTE_AI_TTY_PATH="$0.tty" SHELL=/bin/sh /usr/bin/script -qefc ' +
+              `${shellQuote(
+                `${restoreShell}; ${ptyPreamble}; ` +
+                  ptySupervisor.replace('"$0" "$@"', execCommand),
+              )} "$0"`,
             LINUX_STDIN_PUMP,
           ),
           request.transcriptPath,
@@ -1871,13 +1887,33 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     return Promise.resolve(readTtySidecar(transcriptPath))
   }
 
+  /**
+   * The file is created here, empty, owner-only and exclusively (LEV-388):
+   * `script` would create a missing transcript with the umask (often 0644)
+   * in a temp directory other users share on Linux, and it keeps the mode of
+   * a file it truncates. Exclusive creation also never reuses a name someone
+   * else got to first. If the directory cannot be written at all, the path
+   * is handed out uncreated, as before, and the PTY reports the failure.
+   */
   makeTempFilePath(prefix: string): string {
     const tempDir = loadOsModule().tmpdir().replace(/[\\/]+$/, '')
-    this.tempFileSequence += 1
-    const unique = `${Date.now().toString(36)}-${this.tempFileSequence}-${Math.random()
-      .toString(36)
-      .slice(2, 8)}`
-    return `${tempDir}/${sanitizeTempPrefix(prefix)}-${unique}.log`
+    const fs = loadFsModule()
+    for (let attempt = 1; ; attempt += 1) {
+      this.tempFileSequence += 1
+      const unique = `${Date.now().toString(36)}-${this.tempFileSequence}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`
+      const path = `${tempDir}/${sanitizeTempPrefix(prefix)}-${unique}.log`
+      try {
+        fs.writeFileSync(path, '', { mode: 0o600, flag: 'wx' })
+        return path
+      } catch (error) {
+        if ((error as { code?: unknown } | null)?.code !== 'EEXIST') return path
+        if (attempt >= MAX_TEMP_FILE_ATTEMPTS) {
+          throw new Error('Could not create a temp file of this plugin')
+        }
+      }
+    }
   }
 
   async readAndDeleteFile(path: string): Promise<string> {

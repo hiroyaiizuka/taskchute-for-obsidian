@@ -10,7 +10,7 @@
  */
 
 import type { AgentSessionFile, AgentSessionSource, AgentSessionSummary, SessionFileSystem } from './AgentSessionTypes'
-import { joinSessionPath } from './AgentSessionTypes'
+import { checkedSessionId, joinSessionPath } from './AgentSessionTypes'
 import { isRecord, preview, readJsonLineEnds, readSmallText, type JsonRecord } from './jsonLines'
 import { forEachJsonLine, joinMessages } from './sessionText'
 
@@ -116,6 +116,6 @@ export function createCodexSessions(): AgentSessionSource {
     return joinMessages(messages)
   },
 
-  resumeArgs: (id) => ['resume', id],
+  resumeArgs: (id) => ['resume', checkedSessionId(id)],
   }
 }

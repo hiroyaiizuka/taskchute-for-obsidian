@@ -69,6 +69,23 @@ export interface AgentSessionSource {
   resumeArgs(id: string): string[]
 }
 
+const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
+
+/**
+ * Whether `id` is shaped like the ids the CLIs give their sessions: a UUID.
+ * The id is read from a file or folder name and goes into the CLI's
+ * arguments, so a name like `--settings` or `../x` must not pass (LEV-388).
+ */
+export function isAgentSessionId(id: string): boolean {
+  return SESSION_ID.test(id)
+}
+
+/** The id itself, or a thrown error when it is not one (see isAgentSessionId). */
+export function checkedSessionId(id: string): string {
+  if (!isAgentSessionId(id)) throw new Error('Not a valid session id')
+  return id
+}
+
 /** Joins path parts with the separator the home folder uses. */
 export function joinSessionPath(home: string, ...parts: string[]): string {
   const sep = home.includes('\\') && !home.includes('/') ? '\\' : '/'

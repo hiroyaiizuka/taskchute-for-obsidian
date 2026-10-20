@@ -10,7 +10,7 @@
  */
 
 import type { AgentSessionFile, AgentSessionSource, AgentSessionSummary, SessionFileSystem } from './AgentSessionTypes'
-import { joinSessionPath } from './AgentSessionTypes'
+import { checkedSessionId, isAgentSessionId, joinSessionPath } from './AgentSessionTypes'
 import { isRecord, preview, readJsonLineEnds, type JsonRecord } from './jsonLines'
 import { forEachJsonLine, joinMessages } from './sessionText'
 
@@ -66,10 +66,13 @@ export const claudeSessions: AgentSessionSource = {
       const dir = joinSessionPath(root, folder.name)
       for (const entry of await fs.listEntries(dir)) {
         if (!entry.isFile || !entry.name.endsWith('.jsonl')) continue
+        // The name is the id `--resume` is given: only a session id is listed.
+        const id = entry.name.slice(0, -'.jsonl'.length)
+        if (!isAgentSessionId(id)) continue
         const path = joinSessionPath(dir, entry.name)
         const stat = await fs.stat(path)
         if (!stat) continue
-        files.push({ host: 'claude', id: entry.name.slice(0, -'.jsonl'.length), path, size: stat.size, mtimeMs: stat.mtimeMs })
+        files.push({ host: 'claude', id, path, size: stat.size, mtimeMs: stat.mtimeMs })
       }
     }
     return files
@@ -120,5 +123,5 @@ export const claudeSessions: AgentSessionSource = {
     return joinMessages(messages)
   },
 
-  resumeArgs: (id) => ['--resume', id],
+  resumeArgs: (id) => ['--resume', checkedSessionId(id)],
 }
