@@ -947,7 +947,12 @@ export class AiRunPaneController {
     if (history) void this.sessionHistoryView?.refresh()
   }
 
-  /** Resume a past session from the history in a new terminal tab of the focused panel. */
+  /**
+   * Resume a past session from the history in a new terminal tab of the
+   * focused panel. Like a + terminal, the tab joins the task the panel
+   * shows, beside the task's own tab, so it is there again whenever that
+   * task is.
+   */
   private async resumeSession(item: AgentSessionListItem): Promise<void> {
     const manager = this.host.manager
     const found = manager.getSessionHistory?.()
@@ -966,6 +971,7 @@ export class AiRunPaneController {
     this.focusPanel(panel)
     const agent = getAiAgent(item.host)
     const size = this.computeTerminalSize()
+    const parentRunId = this.shellParentRunId(panel)
     const preexistingRunIds = new Set(this.runViews.keys())
     try {
       const record = await manager.resumeAgentSession({
@@ -975,6 +981,7 @@ export class AiRunPaneController {
         name: `${agent.icon} ${item.title}`,
         cols: size.cols,
         rows: size.rows,
+        ...(parentRunId ? { parentRunId } : {}),
       })
       if (this.panels.includes(panel)) this.adoptRunIntoPanel(panel, record.id)
     } catch (error) {
@@ -1732,10 +1739,7 @@ export class AiRunPaneController {
       contextPanel.selectedRunId !== null
         ? manager.getRun(contextPanel.selectedRunId)
         : undefined
-    const parentRunId =
-      contextRecord?.host === 'shell'
-        ? (contextRecord.parentRunId ?? contextRecord.id)
-        : contextRecord?.id
+    const parentRunId = this.shellParentRunId(contextPanel)
     return manager.startShellSession({
       cols: size.cols,
       rows: size.rows,
@@ -1743,6 +1747,22 @@ export class AiRunPaneController {
       ...(contextRecord?.cwd ? { cwd: contextRecord.cwd } : {}),
       ...(parentRunId ? { parentRunId } : {}),
     })
+  }
+
+  /**
+   * The run a new terminal opened from this panel (+, split, or a resumed
+   * session) belongs to: the one whose tab set the panel shows. With a
+   * terminal selected, that is the terminal's owner (or the terminal itself,
+   * when it has none); with nothing selected, there is none.
+   */
+  private shellParentRunId(panel: PanelView): string | undefined {
+    const record =
+      panel.selectedRunId !== null
+        ? this.host.manager.getRun(panel.selectedRunId)
+        : undefined
+    return record?.host === 'shell'
+      ? (record.parentRunId ?? record.id)
+      : record?.id
   }
 
   /**

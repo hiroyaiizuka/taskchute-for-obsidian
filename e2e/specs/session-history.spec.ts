@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, enableAiTasks, openTaskChute } from "../helpers/aiTask"
+import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeFakeClaude } from "../helpers/aiTask"
 
 // LEV-320: past agent sessions of the vault's folder, listed in the AI pane
 // and resumed in a new terminal tab. Obsidian gets a home folder of its own,
@@ -129,4 +129,102 @@ test("resumes a session in a new terminal tab with the CLI's resume arguments", 
     return plugin.aiTaskManager.getRuns().map((run) => ({ host: run.host, taskPath: run.taskPath, taskName: run.taskName, cwd: run.cwd }))
   }, PLUGIN_ID)
   expect(runs).toEqual([{ host: "shell", taskPath: "", taskName: "👑 引っ越しの準備", cwd: vault }])
+})
+
+/** An AI task note for today, ready to start from its row. */
+async function createAiTask(page: Page, name: string): Promise<string> {
+  const taskPath = `${TASK_FOLDER}/${name}.md`
+  const note = [
+    "---",
+    "tags:",
+    "  - task",
+    `target_date: "${await todayKey(page)}"`,
+    "ai_task: true",
+    "ai_task_host: claude",
+    "---",
+    "",
+    "## Prompt",
+    "",
+    `${name}.`,
+    "",
+  ].join("\n")
+  await page.evaluate(
+    async ([folder, file, content]) => {
+      const vault = window.app.vault as unknown as {
+        getAbstractFileByPath(path: string): unknown
+        createFolder(path: string): Promise<unknown>
+        create(path: string, data: string): Promise<unknown>
+      }
+      if (!vault.getAbstractFileByPath(folder)) await vault.createFolder(folder).catch(() => undefined)
+      await vault.create(file, content)
+    },
+    [TASK_FOLDER, taskPath, note] as const,
+  )
+  await page.waitForFunction((p) => {
+    const app = window.app as unknown as {
+      metadataCache: { getCache(path: string): { frontmatter?: unknown } | null }
+    }
+    return !!app.metadataCache.getCache(p)?.frontmatter
+  }, taskPath)
+  return taskPath
+}
+
+/** The id of the run the history resumed (a terminal of its own, named after the session). */
+async function resumedRunId(page: Page, name: string): Promise<string | null> {
+  return page.evaluate(
+    ([id, taskName]) => {
+      const plugin = window.app.plugins.plugins[id] as {
+        aiTaskManager: { getRuns(): Array<{ id: string; host: string; taskName: string }> }
+      }
+      return plugin.aiTaskManager.getRuns().find((run) => run.host === "shell" && run.taskName === taskName)?.id ?? null
+    },
+    [PLUGIN_ID, name] as const,
+  )
+}
+
+/** The runs whose tabs the visible panel lists, left to right. */
+async function tabRunIds(page: Page): Promise<string[]> {
+  return page
+    .locator(".ai-run-pane__panel:not([hidden]) .ai-run-pane__tabs .ai-run-pane__tab")
+    .evaluateAll((tabs) => tabs.map((tab) => tab.getAttribute("data-run-id") ?? ""))
+}
+
+// LEV-381: a resumed session joins the task that was showing, as + does: a new
+// tab next to the task's own, still there after showing another task and
+// coming back.
+test("a resumed session opens as a new tab beside the task's, and stays when switching tasks", async ({ obsidian, home }, testInfo) => {
+  const { page } = obsidian
+  const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
+  writeSessions(home!, vault)
+  await enableAiTasks(page, writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed"), "terminal")
+  const journal = await createAiTask(page, "AI Weekly Journal")
+  const review = await createAiTask(page, "AI Weekly Review")
+  await openTaskChute(page)
+
+  const sidebarRow = (name: string) => page.locator(".ai-run-pane__run", { hasText: name })
+  await taskRow(page, journal).locator(".play-stop-button").click()
+  await expect(sidebarRow("AI Weekly Journal")).toHaveCount(1)
+  await taskRow(page, review).locator(".play-stop-button").click()
+  await expect(sidebarRow("AI Weekly Review")).toHaveCount(1)
+  const journalRunId = (await sidebarRow("AI Weekly Journal").getAttribute("data-run-id"))!
+
+  // AI Weekly Journal is showing; resume a session from the history.
+  await sidebarRow("AI Weekly Journal").click()
+  await expect.poll(() => tabRunIds(page)).toEqual([journalRunId])
+  await openHistory(page)
+  await page.locator(".ai-session-history__row", { hasText: "引っ越しの準備" }).locator(".ai-session-history__resume").click()
+  await expect.poll(() => resumedRunId(page, "👑 引っ越しの準備"), { timeout: 20_000 }).not.toBeNull()
+  const resumed = (await resumedRunId(page, "👑 引っ越しの準備"))!
+
+  // A new tab beside the task's, and it is the one shown.
+  await expect.soft.poll(() => tabRunIds(page)).toEqual([journalRunId, resumed])
+  await expect.soft(page.locator(`.ai-run-pane__tab[data-run-id="${resumed}"]`)).toHaveAttribute("aria-selected", "true")
+
+  // Back to the task list, over to AI Weekly Review, and back again: still there.
+  await page.locator(".ai-run-pane__sidebar-history").click()
+  await sidebarRow("AI Weekly Review").click()
+  await expect.poll(() => tabRunIds(page)).not.toContain(journalRunId)
+  await sidebarRow("AI Weekly Journal").click()
+  await expect.poll(() => tabRunIds(page)).toEqual([journalRunId, resumed])
+  await expect(page.locator(`.ai-run-pane__tab[data-run-id="${resumed}"]`)).toHaveAttribute("aria-selected", "true")
 })

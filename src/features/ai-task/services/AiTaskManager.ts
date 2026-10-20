@@ -395,6 +395,12 @@ export interface AiSessionResumeOptions {
   name: string
   cols?: number
   rows?: number
+  /**
+   * Top-level AI run whose tab set the session joins, as a + terminal does
+   * (AiShellSessionOptions.parentRunId). Dropped when that run is gone by
+   * the time the session starts.
+   */
+  parentRunId?: string
 }
 
 export interface AiShellSessionOptions {
@@ -1356,7 +1362,8 @@ export class AiTaskManager {
   /**
    * Resume a past agent session (from the session history) in a new terminal
    * tab, in the folder it ran in. Like a shell session, the run belongs to no
-   * task: no log note, no task state. The CLI is run with its own resume
+   * task: no log note, no task state. Like a + terminal, it joins the tab set
+   * of `parentRunId`, when given. The CLI is run with its own resume
    * arguments (`claude --resume <id>` and the like), so the conversation
    * continues where it left off. The caller checks the session still exists
    * first: a CLI asked for a missing id may not fail (see AgentSessionHistory).
@@ -1374,12 +1381,20 @@ export class AiTaskManager {
       normalizeBinaryResolution(resolution)
     this.throwIfDisposed()
 
+    // The run to join may have closed while the binary was resolved; a
+    // session that joined it would sit in a tab set nobody can show.
+    const parentRunId =
+      options.parentRunId !== undefined && this.runs.has(options.parentRunId)
+        ? options.parentRunId
+        : undefined
+
     this.runSequence += 1
     const record: AiRunRecord = {
       id: `ai-run-${Date.now()}-${this.runSequence}`,
       taskPath: '',
       taskName: options.name,
       cwd: options.cwd,
+      ...(parentRunId === undefined ? {} : { parentRunId }),
       host: 'shell',
       status: 'starting',
       mode: 'terminal',
