@@ -2155,6 +2155,83 @@ describe('AiRunPaneController split panels', () => {
         expect(rowIds()).toEqual(['run-a'])
         expect(manager.stopRun).not.toHaveBeenCalledWith('run-a')
       })
+
+      // A task holds the panel's task slot behind their workspace; repairing
+      // the slot must not swap the strip to that task while they show.
+      const finish = (runId: string): void => {
+        const record = manager.getRun(runId)
+        if (!record) throw new Error(`${runId} missing`)
+        record.status = 'stopped'
+        manager.emit(record)
+        manager.emit(record, 'persisted')
+      }
+      const shownTab = (): string | null =>
+        panelTab(panels()[0])?.getAttribute('data-run-id') ?? null
+
+      test('a split closed among them leaves them on screen', async () => {
+        await terminalsWithNoTask()
+        manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+        controller.openRun('run-a')
+        showTask('resumed-1')
+
+        panels()[0].querySelector<HTMLButtonElement>('.ai-run-pane__split')?.click()
+        expect(manager.getRun('shell-2')?.parentRunId).toBe('resumed-1')
+        finish('shell-2')
+
+        expect(tabRunIds()).toEqual(['resumed-1', 'shell-1'])
+        expect(shownTab()).not.toBeNull()
+        expect(selectedRowId()).toBe('resumed-1')
+      })
+
+      test('a task stopping behind them leaves them on screen', async () => {
+        await terminalsWithNoTask()
+        manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+        controller.openRun('run-a')
+        manager.emit(
+          createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }),
+        )
+        controller.openRun('run-b')
+        showTask('resumed-1')
+
+        finish('run-b')
+
+        expect(rowIds()).toEqual(['resumed-1', 'run-a'])
+        expect(tabRunIds()).toEqual(['resumed-1', 'shell-1'])
+        expect(shownTab()).toBe('shell-1')
+        expect(selectedRowId()).toBe('resumed-1')
+        showTask('run-a')
+        expect(tabRunIds()).toEqual(['run-a'])
+      })
+
+      test('after a remount, the strip and the row match what is shown', async () => {
+        await terminalsWithNoTask()
+        manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+        controller.openRun('run-a')
+
+        controller.unmount()
+        controller.mount(container)
+
+        // They came back first, so they show; the task waits on its row.
+        expect(rowIds()).toEqual(['resumed-1', 'run-a'])
+        expect(tabRunIds()).toEqual(['resumed-1', 'shell-1'])
+        expect(shownTab()).toBe('resumed-1')
+        expect(selectedRowId()).toBe('resumed-1')
+        showTask('run-a')
+        expect(tabRunIds()).toEqual(['run-a'])
+        expect(selectedRowId()).toBe('run-a')
+      })
+
+      test('their row carries the terminal-row style', async () => {
+        await terminalsWithNoTask()
+        manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+
+        const classes = (runId: string): string[] =>
+          Array.from(
+            container.querySelector(`.ai-run-pane__run[data-run-id="${runId}"]`)?.classList ?? [],
+          )
+        expect(classes('resumed-1')).toContain('ai-run-pane__run--shell')
+        expect(classes('run-a')).not.toContain('ai-run-pane__run--shell')
+      })
     })
   })
 })

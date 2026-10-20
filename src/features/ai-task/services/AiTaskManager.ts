@@ -3126,6 +3126,16 @@ export class AiTaskManager {
         normalizedActiveState = true
       }
     }
+    // A terminal whose run did not come back with it (a stopped run is not
+    // kept by a reload inside its persist window) owns itself, so the pane
+    // shows it under a row of its own (LEV-385).
+    for (const internal of this.runs.values()) {
+      const parentRunId = internal.record.parentRunId
+      if (parentRunId !== undefined && !this.runs.has(parentRunId)) {
+        delete internal.record.parentRunId
+        normalizedActiveState = true
+      }
+    }
     if (normalizedActiveState) this.persistSessionStateNow()
   }
 

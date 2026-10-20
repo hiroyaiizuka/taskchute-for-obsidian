@@ -568,6 +568,35 @@ describe('AiTaskManager persisted session restore', () => {
     expect(deps.sessionState.saveNow).toHaveBeenCalledWith([])
   })
 
+  // LEV-385: a terminal whose run did not come back with it (a stopped run
+  // is not kept by a reload inside its persist window) owns itself, so the
+  // pane gives it a row of its own instead of hiding it under none.
+  test('a terminal whose parent run did not come back belongs to no run', () => {
+    const shell = restoredSnapshot({
+      record: {
+        ...restoredSnapshot().record,
+        id: 'restored-shell',
+        taskPath: '',
+        taskName: 'Terminal',
+        host: 'shell',
+        status: 'succeeded',
+        endedAt: 2_500,
+        exitCode: 0,
+        parentRunId: 'gone-run',
+      },
+    })
+    const deps = createDeps([shell])
+    const manager = new AiTaskManager(deps)
+
+    expect(manager.getRun('restored-shell')).toBeDefined()
+    expect(manager.getRun('restored-shell')?.parentRunId).toBeUndefined()
+    const saved = (deps.sessionState.saveNow as jest.Mock).mock.calls.at(-1)?.[0] as
+      | Array<{ record: { id: string; parentRunId?: string } }>
+      | undefined
+    expect(saved?.find((entry) => entry.record.id === 'restored-shell')?.record.parentRunId)
+      .toBeUndefined()
+  })
+
   test('terminal output schedules the lazy save tier while other mutations stay prompt', () => {
     const captured: { callbacks?: TerminalRunCallbacks } = {}
     const snapshot = restoredSnapshot({

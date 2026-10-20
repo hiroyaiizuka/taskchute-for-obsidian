@@ -451,17 +451,19 @@ test("terminals opened with no task keep a row of their own once a task starts",
   // The terminals have a row from the start.
   await expect.soft(runRow(resumed)).toHaveCount(1)
 
-  // A task starts and the pane shows it.
+  // A task starts and the pane shows it, with no click.
   await taskRow(page, journal).locator(".play-stop-button").click()
   await expect(sidebarRow("AI Weekly Journal")).toHaveCount(1)
   const journalRunId = (await sidebarRow("AI Weekly Journal").getAttribute("data-run-id"))!
-  await sidebarRow("AI Weekly Journal").click()
   await expect.poll(() => tabRunIds(page)).toEqual([journalRunId])
+  await expect(sidebarRow("AI Weekly Journal")).toHaveAttribute("aria-selected", "true")
 
   // The terminals' row is still there, and brings them back.
   await expect(runRow(resumed)).toHaveCount(1)
+  await expect(runRow(resumed)).toHaveAttribute("aria-selected", "false")
   await runRow(resumed).click()
   await expect.poll(() => tabRunIds(page)).toEqual([resumed, terminal])
+  await expect(runRow(resumed)).toHaveAttribute("aria-selected", "true")
   await expect.poll(() => runStatuses(page, [resumed, terminal])).toEqual(["running", "running"])
   await sidebarRow("AI Weekly Journal").click()
   await expect.poll(() => tabRunIds(page)).toEqual([journalRunId])
