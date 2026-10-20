@@ -226,6 +226,40 @@ describe('readSentinelFdPath on darwin', () => {
   })
 })
 
+// LEV-379: the broker's non-blocking probe runs lsof through execFile, whose
+// error carries the exit as `code` (a number), where execFileSync carries it as
+// `status`. Both have to read the same way.
+describe('sentinelLsofReading', () => {
+  const read = (error: Error | null, output?: string): Reading =>
+    (probeFor('darwin') as Probe & {
+      sentinelLsofReading: (error: Error | null, output?: string) => Reading
+    }).sentinelLsofReading(error, output)
+
+  test('reads the name field as the descriptor path', () => {
+    expect(read(null, 'p4242\nf9\nn/tmp/owner.jsonl\n')).toEqual({ path: '/tmp/owner.jsonl' })
+  })
+
+  test('reads output without a name field as no such descriptor', () => {
+    expect(read(null, 'p4242\nf9\n')).toBe('missing')
+  })
+
+  test.each([
+    ['execFileSync, exit 1', { status: 1 }],
+    ['execFile, exit 1', { code: 1 }],
+  ])('reads %s as lsof answering that nothing matched', (_shape, fields) => {
+    expect(read(errorWith(fields))).toBe('missing')
+  })
+
+  test.each([
+    ['a missing lsof', { code: 'ENOENT' }],
+    ['a timed-out lsof', { code: null, killed: true, signal: 'SIGKILL' }],
+    ['an oversized answer', { code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER' }],
+    ['another exit', { code: 2 }],
+  ])('reads %s as the probe being unavailable', (_shape, fields) => {
+    expect(read(errorWith(fields))).toBe('unreadable')
+  })
+})
+
 describe('readSentinelFdPath under the test override', () => {
   test('reports the probe unavailable on any platform', () => {
     const context = createContext({

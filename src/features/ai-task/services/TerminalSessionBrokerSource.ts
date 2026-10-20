@@ -43,6 +43,109 @@ import {
  */
 let cachedBrokerSource: string | undefined
 
+/**
+ * Notes on the broker program, kept out of its template: a comment there
+ * ships inside the one argv string the program must fit (see
+ * broker-source-budget.test.ts). The program refers to them as "Note X".
+ *
+ * Note A: The inherited sentinel FD remains stable across reparenting and
+ * exec, unlike ppid/argv, and uniquely identifies this session even when a
+ * numeric PID/PGID is reused within the same lstart second. When it cannot
+ * be read at all, ownership falls back to the evidence that is available
+ * rather than staying unproven forever — an unproven owner is never
+ * signalled and never written off, which is how a detached child outlived
+ * the session that started it.
+ *
+ * Note B: sitecustomize/Node hooks cover ordinary intermediaries, but Python
+ * -S and native helpers can bypass language hooks. Every cooperative child
+ * still inherits this per-session environment marker, including after
+ * setsid/double-fork reparenting, so recover those roots from the process
+ * snapshot before signalling. A process that deliberately scrubs its
+ * environment is outside this local containment contract.
+ *
+ * Note C: A CLI can spawn a setsid/detached tool outside the wrapper's
+ * process group. Node-based agents inherit a tiny spawn hook that records
+ * PID birth identity synchronously; the ordinary ancestry snapshot covers
+ * other tools that remain attached. Do not emit exit/termination ACK until
+ * every tracked identity disappears. On POSIX, every ps/lsof here runs off
+ * the event loop (LEV-379).
+ *
+ * Note D: Only an authenticated command received AFTER this deadline was
+ * armed cancels it (see the connection handler below). The old renderer's
+ * socket can remain open until the timer boundary during true app exit;
+ * treating mere socket presence as a renewal would skip cleanup and fall
+ * back to the much longer clientless TTL.
+ *
+ * Note E: A short-lived intermediary can create a new session/process group
+ * and exit before the user stops the AI run. Sample the fresh ancestry a few
+ * times at startup so that ordinary immediate daemonization is recorded with
+ * a birth identity. This is bounded startup work, not a per-output or
+ * permanent polling loop.
+ *
+ * Note F: ACK is a child-close confirmation, not merely an indication that a
+ * kill signal was attempted. If a child failed to close by the hard
+ * deadline, close the current waiters without ACK but keep the broker and
+ * ownership records alive for a later authenticated retry.
+ *
+ * Note G: Both injected hooks serialize pid, startedAt, startedAtLower,
+ * active in that order. If the final append is torn, recover the reusable-
+ * PID-safe identity from the prefix and conservatively treat it as active
+ * unless a complete 'active:false' field is already present.
+ *
+ * Note H: Modern renderers share one broker-lineage owner and use a
+ * persisted monotonic generation. Permit a one-way migration from older
+ * bundles whose owner was random, but once the canonical owner is active no
+ * late unseen legacy owner may reclaim the broker.
+ *
+ * Note I: An old renderer socket may remain authenticated after a
+ * replacement. Authentication proves only the vault broker secret; the
+ * monotonic renderer lease is what prevents its delayed input/stop/resize
+ * from controlling the newly adopted session.
+ *
+ * Note J: Preserve the ancestry as it existed when ps took the snapshot. By
+ * the time this async callback runs, a short-lived intermediary may already
+ * have exited and its detached child may be reparented.
+ *
+ * Note K: fd 3 is a broker-lifetime pipe. The PTY wrapper blocks a tiny
+ * watchdog on it; a broker crash/SIGKILL closes the parent end in the kernel
+ * and the watchdog tears down its own process group without trusting a
+ * reusable PID.
+ *
+ * Note L: The first waiter may already have triggered the ACK fan-out and
+ * server.close(). Existing authenticated sockets can still deliver a
+ * shutdown request in that window, so acknowledge it immediately.
+ *
+ * Note M: JSON escaping can expand control-char-heavy replay up to 6x, so
+ * the raw replay cap alone cannot keep the serialized frame under the
+ * client's frame limit. Trim from the head: the newest tail redraws the TUI.
+ *
+ * Note N: A broken tracking file must not hold a completed terminal and
+ * broker forever. Parsed identities remain in ownedPids and are still
+ * reaped; only the unusable channel is abandoned after bounded retries.
+ *
+ * LEV-379: ps and lsof answer in seconds on a busy Mac, longer right after
+ * wake, and the broker serves every terminal from one event loop. So when a
+ * session ends or is force-stopped, the evidence a decision about its
+ * processes needs is gathered off that loop first (gatherOwnershipEvidence:
+ * one ps snapshot through execFile, then each recorded process's sentinel
+ * descriptor through probeSentinelStateAsync), and the existing synchronous
+ * decisions run over it (pidOwnershipState takes the gathered probes).
+ * Without a snapshot, the confirmation retries later instead of falling back
+ * to a blocking ps. Windows keeps the synchronous path.
+ *
+ * Each gather runs at most four lsof at a time, and a session asks for one
+ * signal at a time (signalTreeSoon). A recorded process the gather did not
+ * probe counts as unknown until the next round, never as a blocking lsof.
+ * When ps keeps failing (three rounds in a row), a session still finishes
+ * once kill(0) finds every recorded process gone (ownedGoneWithoutSnapshot); nothing is signalled on
+ * that evidence alone. A probe can be as old as the slowest lsof of its
+ * round (up to the 30 s bound) when it is used: macOS hands out PIDs in
+ * sequence, so a reuse inside that window is not a practical risk, and the
+ * birth window is still checked against the round's snapshot.
+ * Without a snapshot nothing is signalled, as before: ownership is unknown,
+ * and the root may be the session guard in the middle of its own cleanup.
+ */
+
 export function buildTerminalBrokerSource(): string {
   if (cachedBrokerSource !== undefined) return cachedBrokerSource
   cachedBrokerSource = String.raw`
@@ -73,6 +176,9 @@ const stuckMsRaw = Number(process.env.TASKCHUTE_BROKER_STUCK_MS);
 const stuckClientMs = Number.isFinite(stuckMsRaw) && stuckMsRaw > 0 ? stuckMsRaw : 5000;
 // Test hook: lets tests observe resize batching without a real terminal.
 const sttyPath = process.env.TASKCHUTE_BROKER_STTY || '/bin/stty';
+// Test hook: a ps as slow as a busy Mac's.
+const psPath = process.env.TASKCHUTE_BROKER_TEST_PS || '/bin/ps';
+const posixPs = process.platform === 'darwin' || process.platform === 'linux';
 const ownerSetupFailureForTest =
   process.env.TASKCHUTE_BROKER_TEST_OWNER_SETUP_FAILURE || '';
 const stopGraceMs = 1500;
@@ -183,10 +289,7 @@ function claimRendererLease(message) {
     activeRendererLease = lease;
     return true;
   }
-  // Modern renderers share one broker-lineage owner and use a persisted
-  // monotonic generation. Permit a one-way migration from older bundles
-  // whose owner was random, but once the canonical owner is active no late
-  // unseen legacy owner may reclaim the broker.
+  // Note H (buildTerminalBrokerSource).
   if (
     activeRendererLease.ownerId === canonicalRendererLeaseOwnerId &&
     lease.ownerId !== canonicalRendererLeaseOwnerId
@@ -478,10 +581,7 @@ function applyOwnerRecord(session, record) {
   return true;
 }
 function applyPartialOwnerRecord(session, text) {
-  // Both injected hooks serialize pid, startedAt, startedAtLower, active in
-  // that order. If the final append is torn, recover the reusable-PID-safe
-  // identity from the prefix and conservatively treat it as active unless a
-  // complete 'active:false' field is already present.
+  // Note G (buildTerminalBrokerSource).
   const match = String(text).match(
     /^\s*\{\s*"pid"\s*:\s*(\d+)\s*,\s*"startedAt"\s*:\s*(\d+)(?:\s*,\s*"startedAtLower"\s*:\s*(\d+))?/,
   );
@@ -506,9 +606,7 @@ function markOwnerTrackingFailure(session, corruption) {
   if (corruption) session.ownerTrackingCorrupt = true;
   session.ownerTrackingFailures += 1;
   if (session.ownerTrackingFailures >= ownerTrackingFailureLimit) {
-    // A broken tracking file must not hold a completed terminal and broker
-    // forever. Parsed identities remain in ownedPids and are still reaped;
-    // only the unusable channel is abandoned after bounded retries.
+    // Note N (buildTerminalBrokerSource).
     session.ownerTrackingAbandoned = true;
     session.ownerTrackingUnknown = false;
     session.ownerPidReadPending = false;
@@ -637,7 +735,7 @@ function readPosixProcessSnapshot() {
   if (process.platform !== 'darwin' && process.platform !== 'linux') return null;
   try {
     return parsePosixProcessSnapshot(
-      cp.execFileSync('/bin/ps', posixSnapshotPsArgs(process.platform), posixSnapshotPsOptions(process.env)),
+      cp.execFileSync(psPath, posixSnapshotPsArgs(process.platform), posixSnapshotPsOptions(process.env)),
     );
   } catch (_) { return null; }
 }
@@ -647,7 +745,7 @@ function readPosixProcessSnapshotAsync(callback) {
     return;
   }
   try {
-    cp.execFile('/bin/ps', posixSnapshotPsArgs(process.platform), posixSnapshotPsOptions(process.env), (error, stdout) => {
+    cp.execFile(psPath, posixSnapshotPsArgs(process.platform), posixSnapshotPsOptions(process.env), (error, stdout) => {
       if (error || typeof stdout !== 'string') {
         callback(null);
         return;
@@ -657,7 +755,7 @@ function readPosixProcessSnapshotAsync(callback) {
   } catch (_) { callback(null); }
 }
 ${OWNER_SENTINEL_PROBE_SOURCE}
-function pidOwnershipState(pid, identity, snapshot) {
+function pidOwnershipState(pid, identity, snapshot, probes) {
   const liveness = pidLivenessState(pid);
   if (liveness === 'dead') return 'dead';
   if (liveness === 'unknown') return 'unknown';
@@ -692,7 +790,7 @@ function pidOwnershipState(pid, identity, snapshot) {
       actualStart = entry.startedAt;
     } else {
       const value = cp.execFileSync(
-        '/bin/ps',
+        psPath,
         ['-p', String(pid), '-o', 'lstart='],
         {
           encoding: 'utf8',
@@ -723,14 +821,9 @@ function pidOwnershipState(pid, identity, snapshot) {
       process.platform !== 'win32' &&
       identity.kind === 'process'
     ) {
-      // The inherited sentinel FD remains stable across reparenting and exec,
-      // unlike ppid/argv, and uniquely identifies this session even when a
-      // numeric PID/PGID is reused within the same lstart second. When it
-      // cannot be read at all, ownership falls back to the evidence that is
-      // available rather than staying unproven forever — an unproven owner is
-      // never signalled and never written off, which is how a detached child
-      // outlived the session that started it.
-      const sentinel = probeSentinelState(pid, identity);
+      // Note A (buildTerminalBrokerSource).
+      if (probes && !probes.has(pid)) return 'unknown';
+      const sentinel = probes ? probes.get(pid) : probeSentinelState(pid, identity);
       if (sentinel === 'unreadable' || sentinel === 'unknown') {
         if (resolveUnprovenSentinel(identity, entry) !== 'match') {
           return 'mismatch';
@@ -772,7 +865,7 @@ function captureSnapshotDescendants(session, snapshot) {
     }
   }
 }
-function scanOwnedPids(session, providedSnapshot) {
+function scanOwnedPids(session, providedSnapshot, probes) {
   readOwnerPidRecords(session);
   if (
     (process.platform !== 'darwin' && process.platform !== 'linux')
@@ -793,12 +886,7 @@ function scanOwnedPids(session, providedSnapshot) {
   }
   const roots = [];
   const ownerMarker = ownerPidFileEnvName + '=' + session.ownerPidFile;
-  // sitecustomize/Node hooks cover ordinary intermediaries, but Python -S
-  // and native helpers can bypass language hooks. Every cooperative child
-  // still inherits this per-session environment marker, including after
-  // setsid/double-fork reparenting, so recover those roots from the process
-  // snapshot before signalling. A process that deliberately scrubs its
-  // environment is outside this local containment contract.
+  // Note B (buildTerminalBrokerSource).
   for (const [pid, entry] of snapshot.entries()) {
     if (
       pid === process.pid ||
@@ -816,7 +904,7 @@ function scanOwnedPids(session, providedSnapshot) {
     if (!session.ownedPids.has(pid)) session.ownedPids.set(pid, identity);
   }
   for (const [ownedPid, identity] of Array.from(session.ownedPids.entries())) {
-    const ownership = pidOwnershipState(ownedPid, identity, snapshot);
+    const ownership = pidOwnershipState(ownedPid, identity, snapshot, probes);
     if (ownership === 'match') roots.push(ownedPid);
     else if (ownership === 'dead' || ownership === 'mismatch') {
       session.ownedPids.delete(ownedPid);
@@ -843,40 +931,100 @@ function scanOwnedPids(session, providedSnapshot) {
     if (nested) pending.push.apply(pending, nested);
   }
 }
+// LEV-379: see buildTerminalBrokerSource.
+function probeSentinelStateAsync(pid, identity, callback) {
+  const fd = identity && identity.sentinelFd;
+  if (
+    process.platform !== 'darwin' ||
+    !Number.isInteger(fd) ||
+    !identity.sentinelPath ||
+    process.env.TASKCHUTE_OWNER_SENTINEL_TEST_UNREADABLE === '1'
+  ) {
+    callback(probeSentinelState(pid, identity));
+    return;
+  }
+  try {
+    cp.execFile(sentinelLsofPath(), sentinelLsofArgs(pid, fd), sentinelLsofOptions(),
+      (error, stdout) => callback(sentinelStateFrom(identity, sentinelLsofReading(error, stdout))));
+  } catch (_) { callback('unreadable'); }
+}
+function gatherOwnershipEvidence(session, callback, takenSnapshot) {
+  let called = false;
+  const done = evidence => {
+    if (!called) { called = true; callback(evidence); }
+  };
+  const withSnapshot = snapshot => {
+    if (!snapshot || session.completed) return done(null);
+    const probes = new Map();
+    const pending = [];
+    try {
+      readOwnerPidRecords(session);
+      for (const [pid, identity] of session.ownedPids.entries()) {
+        if (identity && identity.kind === 'process' && snapshot.has(pid)) {
+          pending.push([pid, identity]);
+        }
+      }
+    } catch (_) { return done(null); }
+    let remaining = pending.length;
+    if (remaining === 0) return done({ snapshot, probes });
+    const next = () => {
+      const item = pending.shift();
+      if (!item) return;
+      probeSentinelStateAsync(item[0], item[1], state => {
+        probes.set(item[0], state);
+        if (--remaining === 0) done({ snapshot, probes });
+        else next();
+      });
+    };
+    for (let i = 0; i < 4; i += 1) next();
+  };
+  if (takenSnapshot) withSnapshot(takenSnapshot);
+  else readPosixProcessSnapshotAsync(withSnapshot);
+}
+function settleOwnershipBurst(session) {
+  session.ownershipBurstPending = Math.max(0, session.ownershipBurstPending - 1);
+}
+function ownedGoneWithoutSnapshot(session) {
+  readOwnerPidRecords(session);
+  if (
+    session.ownershipBurstPending > 0 ||
+    session.ownerTrackingUnknown ||
+    session.ownerPidReadPending
+  ) return false;
+  const rootPid = session.child && session.child.pid;
+  for (const pid of Array.from(session.ownedPids.keys())) {
+    if (pid === rootPid && session.rootExited) continue;
+    if (pidLivenessState(pid) !== 'dead') return false;
+    session.ownedPids.delete(pid);
+  }
+  return true;
+}
 function scheduleInitialOwnershipBurst(session) {
-  // A short-lived intermediary can create a new session/process group and
-  // exit before the user stops the AI run. Sample the fresh ancestry a few
-  // times at startup so that ordinary immediate daemonization is recorded
-  // with a birth identity. This is bounded startup work, not a per-output or
-  // permanent polling loop.
+  // Note E (buildTerminalBrokerSource).
   const delays = [10, 40];
   session.ownershipBurstPending += delays.length;
   for (const delay of delays) {
     const timer = global.setTimeout(() => {
       if (session.completed || !sessions.has(session.id)) {
-        session.ownershipBurstPending = Math.max(
-          0,
-          session.ownershipBurstPending - 1,
-        );
+        settleOwnershipBurst(session);
         return;
       }
       const consumeSnapshot = snapshot => {
+        let handedOff = false;
         try {
-          if (
-            !snapshot ||
-            session.completed ||
-            !sessions.has(session.id)
-          ) return;
-          // Preserve the ancestry as it existed when ps took the snapshot.
-          // By the time this async callback runs, a short-lived intermediary
-          // may already have exited and its detached child may be reparented.
+          if (!snapshot || session.completed || !sessions.has(session.id)) return;
+          // Note J (buildTerminalBrokerSource).
           captureSnapshotDescendants(session, snapshot);
-          scanOwnedPids(session, snapshot);
+          handedOff = true;
+          gatherOwnershipEvidence(session, evidence => {
+            try {
+              if (evidence && !session.completed && sessions.has(session.id)) {
+                scanOwnedPids(session, evidence.snapshot, evidence.probes);
+              }
+            } finally { settleOwnershipBurst(session); }
+          }, snapshot);
         } finally {
-          session.ownershipBurstPending = Math.max(
-            0,
-            session.ownershipBurstPending - 1,
-          );
+          if (!handedOff) settleOwnershipBurst(session);
         }
       };
       readPosixProcessSnapshotAsync(consumeSnapshot);
@@ -1102,14 +1250,14 @@ function runWindowsTaskkill(pid, force) {
     return true;
   } catch (_) { return false; }
 }
-function signalTree(session, signal, providedSnapshot) {
+function signalTree(session, signal, providedSnapshot, probes) {
   const pid = session.child && session.child.pid;
   if (session.completed) return;
   const snapshot = providedSnapshot || readPosixProcessSnapshot();
-  scanOwnedPids(session, snapshot);
+  scanOwnedPids(session, snapshot, probes);
   if (pid && !session.rootExited) {
     const rootIdentity = session.ownedPids.get(pid);
-    const rootOwnership = pidOwnershipState(pid, rootIdentity, snapshot);
+    const rootOwnership = pidOwnershipState(pid, rootIdentity, snapshot, probes);
     if (
       rootOwnership === 'dead' ||
       rootOwnership === 'mismatch'
@@ -1132,7 +1280,7 @@ function signalTree(session, signal, providedSnapshot) {
   }
   for (const [ownedPid, identity] of Array.from(session.ownedPids.entries())) {
     if (ownedPid === process.pid || ownedPid === pid) continue;
-    const ownership = pidOwnershipState(ownedPid, identity, snapshot);
+    const ownership = pidOwnershipState(ownedPid, identity, snapshot, probes);
     if (ownership === 'dead' || ownership === 'mismatch') {
       session.ownedPids.delete(ownedPid);
       continue;
@@ -1151,6 +1299,22 @@ function signalTree(session, signal, providedSnapshot) {
     }
   }
 }
+// LEV-379: see buildTerminalBrokerSource.
+function signalTreeSoon(session, signal) {
+  if (session.completed || session.finishing) return;
+  if (!posixPs) return signalTree(session, signal);
+  if (session.signalSoon) {
+    if (signal === 'SIGKILL') session.signalSoon = signal;
+    return;
+  }
+  session.signalSoon = signal;
+  gatherOwnershipEvidence(session, evidence => {
+    const pending = session.signalSoon;
+    session.signalSoon = null;
+    if (!evidence || session.completed || session.finishing) return;
+    signalTree(session, pending, evidence.snapshot, evidence.probes);
+  });
+}
 function requestGuardStop(session, force) {
   if (!session || session.completed) return;
   let delivered = false;
@@ -1162,7 +1326,7 @@ function requestGuardStop(session, force) {
     } catch (_) {}
   }
   if (!delivered) {
-    signalTree(session, force ? 'SIGKILL' : 'SIGTERM');
+    signalTreeSoon(session, force ? 'SIGKILL' : 'SIGTERM');
     return;
   }
   if (force) {
@@ -1171,14 +1335,15 @@ function requestGuardStop(session, force) {
     if (session.forceKillTimer) return;
     session.forceKillTimer = global.setTimeout(() => {
       session.forceKillTimer = null;
-      signalTree(session, 'SIGKILL');
+      signalTreeSoon(session, 'SIGKILL');
     }, 250);
     session.forceKillTimer.unref();
   }
 }
-function ownedProcessesStatus(session) {
-  const snapshot = readPosixProcessSnapshot();
-  scanOwnedPids(session, snapshot);
+function ownedProcessesStatus(session, evidence) {
+  const snapshot = evidence ? evidence.snapshot : readPosixProcessSnapshot();
+  const probes = evidence ? evidence.probes : undefined;
+  scanOwnedPids(session, snapshot, probes);
   if (
     session.ownershipBurstPending > 0 ||
     session.ownerTrackingUnknown ||
@@ -1189,7 +1354,7 @@ function ownedProcessesStatus(session) {
   const rootPid = session.child && session.child.pid;
   for (const [pid, identity] of Array.from(session.ownedPids.entries())) {
     if (pid === rootPid && session.rootExited) continue;
-    const ownership = pidOwnershipState(pid, identity, snapshot);
+    const ownership = pidOwnershipState(pid, identity, snapshot, probes);
     if (ownership === 'match' || ownership === 'unknown') {
       return { gone: false, snapshot };
     }
@@ -1272,32 +1437,47 @@ function finish(session, code, signal, streamsClosed) {
   session.finishing = true;
   session.rootExited = true;
   session.outcome = outcomeFor(session, code, signal);
-  // A CLI can spawn a setsid/detached tool outside the wrapper's process
-  // group. Node-based agents inherit a tiny spawn hook that records PID birth
-  // identity synchronously; the ordinary ancestry snapshot covers other
-  // tools that remain attached. Do not emit exit/termination ACK until every
-  // tracked identity disappears.
-  scanOwnedPids(session);
-  signalTree(session, 'SIGKILL');
+  // Note C (buildTerminalBrokerSource).
   session.ownershipRetryDelay = 20;
-  const awaitOwnedExit = () => {
-    const status = ownedProcessesStatus(session);
-    if (status.gone && session.childClosed) {
-      finalizeSession(session);
-      return;
-    }
-    signalTree(session, 'SIGKILL', status.snapshot);
+  const retryLater = () => {
     session.ownershipRetryDelay = Math.min(
       ownershipRetryMaxMs,
       Math.max(ownershipRetryMs, session.ownershipRetryDelay * 2),
     );
-    const timer = global.setTimeout(
-      awaitOwnedExit,
-      session.ownershipRetryDelay,
-    );
-    timer.unref();
+    global.setTimeout(awaitOwnedExit, session.ownershipRetryDelay).unref();
   };
-  awaitOwnedExit();
+  const awaitOwnedExit = () => {
+    if (session.completed) return;
+    const confirm = evidence => {
+      if (session.completed) return;
+      if (posixPs && !evidence) {
+        session.psFailures = (session.psFailures || 0) + 1;
+        if (
+          session.psFailures >= 3 &&
+          ownedGoneWithoutSnapshot(session) &&
+          session.childClosed
+        ) return finalizeSession(session);
+        return retryLater();
+      }
+      session.psFailures = 0;
+      const status = ownedProcessesStatus(session, evidence);
+      if (status.gone && session.childClosed) return finalizeSession(session);
+      signalTree(session, 'SIGKILL', status.snapshot, evidence && evidence.probes);
+      retryLater();
+    };
+    if (posixPs) gatherOwnershipEvidence(session, confirm);
+    else confirm(null);
+  };
+  if (!posixPs) {
+    scanOwnedPids(session);
+    signalTree(session, 'SIGKILL');
+    return awaitOwnedExit();
+  }
+  gatherOwnershipEvidence(session, evidence => {
+    if (session.completed) return;
+    if (evidence) signalTree(session, 'SIGKILL', evidence.snapshot, evidence.probes);
+    awaitOwnedExit();
+  });
 }
 function spawnSession(message, socket) {
   if (
@@ -1341,9 +1521,7 @@ function spawnSession(message, socket) {
   const guardToken = crypto.randomBytes(24).toString('hex');
   const ownerPidFile = ownerSessionPrefix + ownerToken + '.jsonl';
   const spawnEnv = Object.assign({}, request.env || process.env);
-  // fd 3 is a broker-lifetime pipe. The PTY wrapper blocks a tiny watchdog
-  // on it; a broker crash/SIGKILL closes the parent end in the kernel and the
-  // watchdog tears down its own process group without trusting a reusable PID.
+  // Note K (buildTerminalBrokerSource).
   if (process.platform !== 'win32') {
     spawnEnv.TASKCHUTE_BROKER_WATCH_FD = '3';
   }
@@ -1580,9 +1758,7 @@ function attachSession(id, socket) {
     transcriptPath: session.transcriptPath,
     outcome: session.outcome || undefined,
   };
-  // JSON escaping can expand control-char-heavy replay up to 6x, so the raw
-  // replay cap alone cannot keep the serialized frame under the client's
-  // frame limit. Trim from the head: the newest tail redraws the TUI.
+  // Note M (buildTerminalBrokerSource).
   let frame = JSON.stringify(payload);
   let optimistic = true;
   while (frame.length > attachedFrameBudget && payload.replay.length > 0) {
@@ -1670,9 +1846,7 @@ function handle(socket, message) {
     // client receives the same completion ACK after all live children close;
     // a second request must not sit until its local timeout.
     if (shuttingDown) {
-      // The first waiter may already have triggered the ACK fan-out and
-      // server.close(). Existing authenticated sockets can still deliver a
-      // shutdown request in that window, so acknowledge it immediately.
+      // Note L (buildTerminalBrokerSource).
       if (shutdownAckReady) send(socket, { type: 'shutdown-ack' });
       else socket.destroy();
       return;
@@ -1694,10 +1868,7 @@ function handle(socket, message) {
         timer.unref();
         return;
       }
-      // ACK is a child-close confirmation, not merely an indication that a
-      // kill signal was attempted. If a child failed to close by the hard
-      // deadline, close the current waiters without ACK but keep the broker
-      // and ownership records alive for a later authenticated retry.
+      // Note F (buildTerminalBrokerSource).
       if (hasLiveSession) {
         for (const waiter of Array.from(shutdownWaiters)) waiter.destroy();
         shutdownWaiters.clear();
@@ -1740,11 +1911,7 @@ function handle(socket, message) {
     cancelDeferredShutdown();
     deferredShutdownTimer = global.setTimeout(() => {
       deferredShutdownTimer = null;
-      // Only an authenticated command received AFTER this deadline was armed
-      // cancels it (see the connection handler below). The old renderer's
-      // socket can remain open until the timer boundary during true app exit;
-      // treating mere socket presence as a renewal would skip cleanup and
-      // fall back to the much longer clientless TTL.
+      // Note D (buildTerminalBrokerSource).
       for (const active of sessions.values()) {
         if (!active.completed) {
           active.stopRequested = true;
@@ -1771,10 +1938,7 @@ function handle(socket, message) {
     !rendererLeaseIsCurrent(message) &&
     !(message.op === 'terminate-unavailable' && spawnedUnderLease(id, message))
   ) {
-    // An old renderer socket may remain authenticated after a replacement.
-    // Authentication proves only the vault broker secret; the monotonic
-    // renderer lease is what prevents its delayed input/stop/resize from
-    // controlling the newly adopted session.
+    // Note I (buildTerminalBrokerSource).
     socket.destroy();
     return;
   }

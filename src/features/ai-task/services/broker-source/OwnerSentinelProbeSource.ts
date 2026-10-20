@@ -86,29 +86,44 @@ function readSentinelFdPath(pid, fd) {
     }
   }
   if (process.platform === 'darwin') {
+    let output;
     try {
-      const output = cp.execFileSync(
-        '/usr/sbin/lsof',
-        ['-b', '-w', '-a', '-p', String(pid), '-d', String(fd), '-Fn'],
-        {
-          encoding: 'utf8',
-          maxBuffer: 16 * 1024,
-          timeout: posixProbeTimeoutMs(),
-          killSignal: 'SIGKILL',
-          stdio: ['ignore', 'pipe', 'ignore'],
-          windowsHide: true,
-        },
+      output = cp.execFileSync(
+        sentinelLsofPath(),
+        sentinelLsofArgs(pid, fd),
+        Object.assign(sentinelLsofOptions(), { stdio: ['ignore', 'pipe', 'ignore'] }),
       );
-      const nameLine = String(output).split('\n')
-        .find(line => line.startsWith('n'));
-      return nameLine ? { path: nameLine.slice(1) } : 'missing';
     } catch (error) {
-      // lsof exits 1 when nothing matched. A missing or unrunnable lsof throws
-      // the same shape of error and means the opposite.
-      return error && error.status === 1 ? 'missing' : 'unreadable';
+      return sentinelLsofReading(error);
     }
+    return sentinelLsofReading(null, output);
   }
   return 'unsupported';
+}
+// The lsof call is shared with the broker's non-blocking probe.
+function sentinelLsofPath() {
+  return '/usr/sbin/lsof';
+}
+function sentinelLsofArgs(pid, fd) {
+  return ['-b', '-w', '-a', '-p', String(pid), '-d', String(fd), '-Fn'];
+}
+function sentinelLsofOptions() {
+  return {
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024,
+    timeout: posixProbeTimeoutMs(),
+    killSignal: 'SIGKILL',
+    windowsHide: true,
+  };
+}
+function sentinelLsofReading(error, output) {
+  if (error) {
+    // Exit 1: nothing matched. Any other failure: no answer.
+    const exit = typeof error.status === 'number' ? error.status : error.code;
+    return exit === 1 ? 'missing' : 'unreadable';
+  }
+  const nameLine = String(output).split('\n').find(line => line.startsWith('n'));
+  return nameLine ? { path: nameLine.slice(1) } : 'missing';
 }
 function sentinelStateFrom(identity, reading) {
   if (
