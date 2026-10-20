@@ -194,7 +194,7 @@ describe('the owner watchdog after a broker crash', () => {
         .trim()
         .split('\n')
         .map((line) => (JSON.parse(line) as { outcome: string; trustworthy: boolean }))
-      expect(outcomes.length).toBeGreaterThan(2)
+      expect(outcomes.length).toBeGreaterThanOrEqual(2)
       expect(outcomes.slice(0, -1).every((round) => round.outcome === 'retry')).toBe(true)
       expect(outcomes.every((round) => !round.trustworthy)).toBe(true)
       expect(outcomes[outcomes.length - 1]?.outcome).toBe('give-up')

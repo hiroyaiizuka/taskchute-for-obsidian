@@ -142,7 +142,7 @@ function readOwnedRecords() {
   for (const target of files) {
     if (!readOwnerFile(target, active)) trustworthy = false;
   }
-  return { active, files, trustworthy };
+  return { active, files, trustworthy, listed: listed.trustworthy };
 }
 
 function readPosixSnapshot() {
@@ -345,7 +345,10 @@ function reapUntilGone(startedAt) {
     trustworthy: records.trustworthy,
   };
   const reapOutcome = planReapOutcome(summary);
-  if (reapOutcome === 'retry' && planReapGiveUp(summary)) {
+  if (
+    reapOutcome === 'retry' &&
+    planReapGiveUp(Object.assign({ listed: records.listed }, summary))
+  ) {
     if (giveUpSince === null) giveUpSince = monotonicMs();
   } else {
     giveUpSince = null;

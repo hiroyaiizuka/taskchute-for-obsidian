@@ -44,15 +44,16 @@
  * Keep this plain ES2018 — nothing transpiles the contents of this template.
  *
  * `planReapGiveUp` (LEV-378) ends one kind of retrying: when the only thing
- * keeping the session from 'cleanup' is a record file the watchdog will not
- * read (one readable by others, which an old Node hook left behind after the
- * broker had removed it). Nothing in such a file can ever be reaped — it is
- * never parsed — so waiting cannot change the answer, and another round only
- * spends two ps a second for as long as the Mac stays up. Everything else
- * still retries: a process just signalled, a live guard, and any owner whose
- * state is unknown, which is where a failing ps lands. The watchdog gives up
- * only after that answer has held for a while on a clock that does not run
- * during sleep, so a burst of rounds right after wake cannot end it.
+ * keeping the session from 'cleanup' is a record file, or a line in one, that
+ * the watchdog could not authenticate (a file readable by others, which an old
+ * Node hook left behind after the broker had removed it; a torn line). Nothing
+ * such a record names can be reaped, so waiting cannot change the answer, and
+ * another round only spends two ps a second for as long as the Mac stays up.
+ * Everything else still retries: a process just signalled, a live guard, any
+ * owner whose state is unknown (which is where a failing ps lands), and a
+ * record directory that could not be listed at all. The watchdog gives up only
+ * after that answer has held for a while on a clock that does not run during
+ * sleep, so a burst of rounds right after wake cannot end it.
  */
 export const OWNER_REAP_PLAN_SOURCE =
   String.raw`function ownerRecordLimitBytes() {
@@ -335,7 +336,7 @@ function planReapSignals(states, expanded, context) {
 // Anything short of proven-and-gone retries: a transient ps/readdir failure
 // must never read as "clean" or abandon the last recovery actor. Permanent
 // corruption preserves this guard and the owner evidence for diagnosis — except
-// a record file it will not read and nothing else, which planReapGiveUp ends.
+// a record it could not authenticate and nothing else, which planReapGiveUp ends.
 function planReapOutcome(summary) {
   return (
     summary.matching === 0 &&
@@ -346,6 +347,7 @@ function planReapOutcome(summary) {
 }
 function planReapGiveUp(summary) {
   return (
+    summary.listed &&
     summary.matching === 0 &&
     !summary.unknown &&
     !summary.sessionGuardAlive &&

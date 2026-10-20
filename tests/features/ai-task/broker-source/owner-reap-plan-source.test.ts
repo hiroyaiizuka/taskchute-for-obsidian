@@ -87,6 +87,7 @@ const plan = context as unknown as {
     trustworthy: boolean
   }) => string
   planReapGiveUp: (summary: {
+    listed: boolean
     matching: number
     unknown: boolean
     sessionGuardAlive: boolean
@@ -540,6 +541,7 @@ describe('planReapOutcome', () => {
 // the watchdog trying.
 describe('planReapGiveUp', () => {
   const summary = (overrides = {}) => ({
+    listed: true,
     matching: 0,
     unknown: false,
     sessionGuardAlive: false,
@@ -556,6 +558,7 @@ describe('planReapGiveUp', () => {
     ['an owner is unknown, as when ps fails', { unknown: true }],
     ['the guard is still finishing its own cleanup', { sessionGuardAlive: true }],
     ['every record was read (cleanup decides)', { trustworthy: true }],
+    ['the record directory could not even be listed', { listed: false }],
   ])('never while %s', (_name, overrides) => {
     expect(plan.planReapGiveUp(summary(overrides))).toBe(false)
   })
