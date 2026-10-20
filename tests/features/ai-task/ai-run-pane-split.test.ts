@@ -1715,10 +1715,10 @@ describe('AiRunPaneController split panels', () => {
         }
         expect(options.title).toBe('Close "AI Weekly Journal"?')
         expect(options.message.split('\n')).toEqual([
-          "This closes all 3 of the task's tabs.",
-          '・AI Weekly Journal (running)',
-          '・👑 weekly-journal (running)',
-          '・Terminal (running)',
+          "This closes all 3 of this row's tabs.",
+          '• AI Weekly Journal (running)',
+          '• 👑 weekly-journal (running)',
+          '• Terminal (running)',
         ])
         expect(options.description).toBe(
           'Anything running is stopped. The task note and its run logs are kept.',
@@ -1760,13 +1760,116 @@ describe('AiRunPaneController split panels', () => {
         await flush()
 
         const options = confirm.mock.calls[0]?.[0] as { message: string }
-        expect(options.message.split('\n')[0]).toBe("This closes all 2 of the task's tabs.")
+        expect(options.message.split('\n')[0]).toBe("This closes all 2 of this row's tabs.")
         expect(manager.stopRun.mock.calls.map(([runId]) => runId as string).sort()).toEqual([
           'resumed-1',
           'shell-1',
         ])
         finish('resumed-1')
         finish('shell-1')
+        expect(rows().map((r) => r.getAttribute('data-run-id'))).toEqual(['run-b'])
+      })
+
+      test("stops the task's timer once, for the task only", async () => {
+        const onStopAndCloseTaskRun = jest.fn()
+        Object.assign(host, { onStopAndCloseTaskRun })
+        await journalWithTwoBeside()
+        answer = true
+
+        pressRowClose('run-a')
+        await flush()
+
+        expect(onStopAndCloseTaskRun).toHaveBeenCalledTimes(1)
+        expect(onStopAndCloseTaskRun).toHaveBeenCalledWith(expect.objectContaining({ id: 'run-a' }))
+      })
+
+      test('what closes while the dialog is open is left alone', async () => {
+        const onStopAndCloseTaskRun = jest.fn()
+        Object.assign(host, { onStopAndCloseTaskRun })
+        let resolveAnswer: (value: boolean) => void = () => undefined
+        confirm.mockImplementation(
+          () => new Promise<boolean>((resolve) => {
+            resolveAnswer = resolve
+          }),
+        )
+        await journalWithTwoBeside()
+
+        pressRowClose('run-a')
+        await flush()
+        // The task stops on its own while the dialog is still up.
+        finish('run-a')
+        resolveAnswer(true)
+        await flush()
+
+        expect(manager.stopRun.mock.calls.map(([runId]) => runId as string).sort()).toEqual([
+          'resumed-1',
+          'shell-1',
+        ])
+        expect(onStopAndCloseTaskRun).not.toHaveBeenCalled()
+        finish('resumed-1')
+        finish('shell-1')
+        expect(rows().map((r) => r.getAttribute('data-run-id'))).toEqual(['run-b'])
+      })
+
+      test('a row with one finished tab says so, with nothing to stop', async () => {
+        controller.mount(container)
+        // A finished (not stopped) run keeps its tab until its ×.
+        const task = createRun({ id: 'run-a', taskName: 'AI Weekly Journal', status: 'succeeded' })
+        manager.emit(task)
+        manager.emit(task, 'persisted')
+        answer = true
+
+        pressRowClose('run-a')
+        await flush()
+
+        const options = confirm.mock.calls[0]?.[0] as { message: string; description: string }
+        expect(options.message.split('\n')).toEqual([
+          "This closes this row's tab.",
+          '• AI Weekly Journal',
+        ])
+        expect(options.description).toBe('The task note and its run logs are kept.')
+        expect(manager.stopRun).not.toHaveBeenCalled()
+        expect(rows()).toHaveLength(0)
+      })
+
+      test('closes a split panel beside the task as well', async () => {
+        controller.mount(container)
+        manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+        splitButton()?.click()
+        expect(panels()).toHaveLength(2)
+        answer = true
+
+        pressRowClose('run-a')
+        await flush()
+
+        expect(manager.stopRun.mock.calls.map(([runId]) => runId as string).sort()).toEqual([
+          'run-a',
+          'shell-1',
+        ])
+        finish('run-a')
+        finish('shell-1')
+        expect(rows()).toHaveLength(0)
+        expect(panels()).toHaveLength(1)
+        expect(
+          container.querySelector('.ai-run-pane')?.classList.contains('is-hidden'),
+        ).toBe(true)
+      })
+
+      test('a row left with no tab to show goes without asking', async () => {
+        // Its last terminal went while no pane was listening.
+        manager.emit(
+          createRun({ id: 'run-a', taskName: 'AI Weekly Journal', status: 'stopped', viewClosed: true }),
+        )
+        manager.emit(
+          createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }),
+        )
+        controller.mount(container)
+        expect(rows().map((r) => r.getAttribute('data-run-id'))).toEqual(['run-a', 'run-b'])
+
+        pressRowClose('run-a')
+        await flush()
+
+        expect(confirm).not.toHaveBeenCalled()
         expect(rows().map((r) => r.getAttribute('data-run-id'))).toEqual(['run-b'])
       })
     })

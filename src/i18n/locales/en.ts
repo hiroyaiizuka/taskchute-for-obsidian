@@ -243,9 +243,10 @@ export const en = {
       closeRow: {
         label: "Close all of this task's tabs",
         title: 'Close "{name}"?',
-        messageOne: "This closes the task's tab.",
-        messageMany: "This closes all {count} of the task's tabs.",
-        runningTab: "{name} (running)",
+        messageOne: "This closes this row's tab.",
+        messageMany: "This closes all {count} of this row's tabs.",
+        tab: "• {name}",
+        runningTab: "• {name} (running)",
         keeps: "The task note and its run logs are kept.",
         keepsRunning: "Anything running is stopped. The task note and its run logs are kept.",
         confirm: "Close all",

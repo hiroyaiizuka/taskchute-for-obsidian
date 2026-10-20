@@ -1924,9 +1924,10 @@ export class AiRunPaneController {
   }
 
   /**
-   * × entry point shared by the sidebar row and the content tab: an ACTIVE
-   * run is stopped first and its view closes when 'persisted' arrives (the
-   * exit-time snapshot must be read from a live adapter); a run already in
+   * × entry point of a content tab, and of each tab the row's × closes
+   * (requestCloseRow): an ACTIVE run is stopped first and its view closes
+   * when 'persisted' arrives (the exit-time snapshot must be read from a
+   * live adapter); a run already in
    * any final-status-but-mid-persist window waits for that same notification;
    * finished runs close immediately only after their persist chain completed.
    */
@@ -2344,7 +2345,12 @@ export class AiRunPaneController {
   /** The row's ×, once the user says yes: close each tab of the row. */
   private async requestCloseRow(runId: string): Promise<void> {
     const tabRunIds = this.rowTabRunIds(runId)
-    if (tabRunIds.length === 0) return
+    if (tabRunIds.length === 0) {
+      // A row left with no tab to show (its last one went while this pane
+      // was not listening, e.g. unmounted or in another leaf) just goes.
+      if (this.runViews.get(runId)?.tabClosed) this.closeRun(runId)
+      return
+    }
     if (this.host.confirm) {
       const confirmed = await this.host.confirm(
         this.closeRowConfirmOptions(runId, tabRunIds),
@@ -2384,19 +2390,21 @@ export class AiRunPaneController {
     const tabLines = tabRunIds.map((tabRunId) => {
       const tab = this.host.manager.getRun(tabRunId)
       const tabName = tab ? runTabLabel(tab, labels) : tabRunId
-      if (!tab || !ACTIVE_STATUSES.has(tab.status)) return `・${tabName}`
+      if (!tab || !ACTIVE_STATUSES.has(tab.status)) {
+        return this.host.tv('aiTask.closeRow.tab', '• {name}', { name: tabName })
+      }
       anyRunning = true
-      return `・${this.host.tv('aiTask.closeRow.runningTab', '{name} (running)', { name: tabName })}`
+      return this.host.tv('aiTask.closeRow.runningTab', '• {name} (running)', { name: tabName })
     })
     const count = tabRunIds.length
     const summary =
       count > 1
         ? this.host.tv(
             'aiTask.closeRow.messageMany',
-            "This closes all {count} of the task's tabs.",
+            "This closes all {count} of this row's tabs.",
             { count },
           )
-        : this.host.tv('aiTask.closeRow.messageOne', "This closes the task's tab.")
+        : this.host.tv('aiTask.closeRow.messageOne', "This closes this row's tab.")
     return {
       title: this.host.tv('aiTask.closeRow.title', 'Close "{name}"?', { name }),
       message: [summary, ...tabLines].join('\n'),
