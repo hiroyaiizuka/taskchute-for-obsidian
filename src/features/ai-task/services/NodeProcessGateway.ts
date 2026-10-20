@@ -275,6 +275,7 @@ interface FsModuleLike {
     ): Promise<NodeDirectoryEntryLike[]>
     realpath(path: string): Promise<string>
     stat(path: string): Promise<NodeStatsLike>
+    lstat(path: string): Promise<NodeStatsLike>
     open(path: string, flags: 'r' | 'r+'): Promise<NodeFileHandleLike>
     unlink(path: string): Promise<void>
   }
@@ -667,6 +668,21 @@ async function readTranscriptTail(path: string, fileSize: number): Promise<strin
   } finally {
     await handle.close()
   }
+}
+
+/**
+ * Whether `path` is one makeTempFilePath hands out: directly in the OS temp
+ * directory, a sanitized prefix, the unique suffix and .log. A transcript
+ * path also comes back from the terminal broker, another process reached
+ * over a local socket; no file outside this shape is read or deleted on its
+ * word (LEV-387).
+ */
+function isGatewayTempFilePath(path: string): boolean {
+  const tempDir = loadOsModule().tmpdir().replace(/[\\/]+$/, '')
+  if (!path.startsWith(`${tempDir}/`)) return false
+  return /^[A-Za-z0-9._-]+-[0-9a-z]+-[0-9]+-[0-9a-z]{0,6}\.log$/.test(
+    path.slice(tempDir.length + 1),
+  )
 }
 
 /** Temp-file-name-safe prefix (path separators and shell metachars removed) */
@@ -1851,6 +1867,7 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   }
 
   readPtyTtyPath(transcriptPath: string): Promise<string | null> {
+    if (!isGatewayTempFilePath(transcriptPath)) return Promise.resolve(null)
     return Promise.resolve(readTtySidecar(transcriptPath))
   }
 
@@ -1864,9 +1881,15 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
   }
 
   async readAndDeleteFile(path: string): Promise<string> {
+    if (!isGatewayTempFilePath(path)) {
+      throw new Error('Not a temp file of this plugin; left untouched')
+    }
     const fs = loadFsModule().promises
     try {
-      const size = (await fs.stat(path)).size
+      // A link planted under the name (a shared /tmp) is never followed.
+      const stats = await fs.lstat(path)
+      if (!stats.isFile()) throw new Error('Not a regular file; not read')
+      const size = stats.size
       if (size <= MAX_TRANSCRIPT_READ_BYTES) {
         return await fs.readFile(path, 'utf8')
       }

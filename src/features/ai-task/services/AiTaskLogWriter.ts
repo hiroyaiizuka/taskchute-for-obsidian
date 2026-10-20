@@ -134,6 +134,15 @@ function composeFrontmatter(record: AiRunRecord): string[] {
   return lines
 }
 
+/**
+ * A list line built from fields the CLI reports (tool name, model, session,
+ * result): a newline in one would end the line and render the rest as live
+ * Markdown (LEV-387).
+ */
+function oneLine(text: string): string {
+  return text.replace(/[\r\n]+/g, ' ')
+}
+
 function composeInitLine(event: Extract<AiStreamEvent, { kind: 'init' }>): string {
   const parts = ['- [init]']
   if (event.model !== undefined) parts.push(`model ${event.model}`)
@@ -149,16 +158,27 @@ function composeTranscript(events: AiStreamEvent[]): string[] {
   return ['## Transcript', '', ...composeTranscriptLines(events)]
 }
 
+/**
+ * Agent output as a fenced block, so the log note never renders it as live
+ * Markdown: no embeds, HTML or blocks another plugin runs (dataviewjs) from
+ * what a prompt injection made the agent print (LEV-387). Terminal-mode logs
+ * are fenced the same way.
+ */
+function fencedText(text: string): string[] {
+  const fence = pickFence(text)
+  return [`${fence}text`, text, fence]
+}
+
 /** Transcript body lines without the heading (also used for continuations) */
 function composeTranscriptLines(events: AiStreamEvent[]): string[] {
   const lines: string[] = []
   for (const event of events) {
     switch (event.kind) {
       case 'assistant-text':
-        lines.push(event.text, '')
+        lines.push(...fencedText(event.text), '')
         break
       case 'tool-use':
-        lines.push(`- [tool] ${event.toolName}`)
+        lines.push(oneLine(`- [tool] ${event.toolName}`))
         break
       case 'tool-result':
         lines.push(`- [tool result]${event.isError === true ? ' (error)' : ''}`)
@@ -167,16 +187,16 @@ function composeTranscriptLines(events: AiStreamEvent[]): string[] {
         lines.push(`> user: ${event.text}`, '')
         break
       case 'init':
-        lines.push(composeInitLine(event))
+        lines.push(oneLine(composeInitLine(event)))
         break
       case 'result':
-        lines.push(composeResultLine(event))
+        lines.push(oneLine(composeResultLine(event)))
         break
       case 'elision':
         lines.push(`- [${event.omittedCount} events omitted]`)
         break
       case 'raw':
-        lines.push(`- [raw] ${event.text}`)
+        lines.push('- [raw]', ...fencedText(event.text))
         break
       case 'stderr':
         // Rendered separately in the stderr tail section
@@ -198,7 +218,8 @@ function composeStderrSection(events: AiStreamEvent[]): string[] {
   if (stderrLines.length > tail.length) {
     lines.push(`Showing the last ${tail.length} of ${stderrLines.length} lines.`, '')
   }
-  lines.push('```text', ...tail, '```')
+  const fence = pickFence(tail.join('\n'))
+  lines.push(`${fence}text`, ...tail, fence)
   return lines
 }
 

@@ -98,7 +98,7 @@
  * textContent only (xterm renders inside its own subtree via the adapter).
  */
 
-import { Notice, setIcon } from 'obsidian'
+import { Notice, Platform, setIcon } from 'obsidian'
 import {
   AiRunAlreadyActiveError,
   AiSessionUnavailableError,
@@ -2208,11 +2208,12 @@ export class AiRunPaneController {
         try {
           this.host.manager.sendTerminalInput(
             record.id,
-            formatWorkspacePathForTerminal(path),
+            formatWorkspacePathForTerminal(path, { windows: Platform.isWin }),
           )
           this.runViews.get(record.id)?.terminal?.adapter.focus()
         } catch {
-          // Invalid drag payloads (notably NUL) are ignored, never executed.
+          // Invalid drag payloads (notably NUL, or a backslash off Windows)
+          // are ignored, never executed.
         }
       })
     }

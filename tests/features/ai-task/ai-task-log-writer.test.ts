@@ -274,6 +274,52 @@ describe('AiTaskLogWriter.writeRunLog', () => {
     expect(harness.created[0].content).not.toContain('## Stderr')
   })
 
+  // LEV-387: a prompt injection can make the agent print a dataviewjs block,
+  // an embed or HTML; written as live Markdown it would run or load when the
+  // log note is opened.
+  test('fences agent output, raw lines and stderr so none of it renders live', async () => {
+    const harness = createHarness()
+    const injected = '```dataviewjs\napp.vault.adapter.read(".ssh/id_rsa")\n```'
+
+    await harness.writer.writeRunLog(
+      makeRecord({
+        events: [
+          { kind: 'assistant-text', text: `Done.\n${injected}\n![x](https://evil.example/p.png)` },
+          { kind: 'raw', text: '<iframe src="https://evil.example"></iframe>' },
+          { kind: 'stderr', text: 'warning ``` not a fence' },
+        ],
+      }),
+    )
+    const content = harness.created[0].content
+
+    expect(content).toContain(
+      `\`\`\`\`text\nDone.\n${injected}\n![x](https://evil.example/p.png)\n\`\`\`\``,
+    )
+    expect(content).toContain(
+      '- [raw]\n```text\n<iframe src="https://evil.example"></iframe>\n```',
+    )
+    expect(content).toContain('````text\nwarning ``` not a fence\n````')
+  })
+
+  test('keeps a reported field with a newline on its own list line', async () => {
+    const harness = createHarness()
+
+    await harness.writer.writeRunLog(
+      makeRecord({
+        events: [
+          { kind: 'init', sessionId: 's\n```dataviewjs', model: 'm\r\n![x](https://evil.example/p.png)' },
+          { kind: 'tool-use', toolName: 'Bash\n<iframe src="https://evil.example">', input: {} },
+        ],
+      }),
+    )
+    const content = harness.created[0].content
+
+    expect(content).toContain('- [init] model m ![x](https://evil.example/p.png) session s ```dataviewjs')
+    expect(content).toContain('- [tool] Bash <iframe src="https://evil.example">')
+    expect(content).not.toContain('\n```dataviewjs')
+    expect(content).not.toContain('\n<iframe')
+  })
+
   test('renders user follow-up text as a quoted user line in the transcript', async () => {
     const harness = createHarness()
     const events: AiStreamEvent[] = [
