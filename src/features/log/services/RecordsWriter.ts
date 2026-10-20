@@ -92,6 +92,23 @@ export function serializeRecordEntry(entry: TaskLogEntry): RecordsEntry {
   return record
 }
 
+/**
+ * Whether `dateKey` is a real calendar date written YYYY-MM-DD. The key is
+ * read from log and backup JSON and becomes a folder and file name, so
+ * anything else (`../../x`, `2026-13-99`) must not reach a path (LEV-388).
+ */
+export function isRecordDateKey(dateKey: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(dateKey)
+  if (!match) return false
+  const [year, month, day] = match.slice(1).map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day))
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  )
+}
+
 interface RecordWritePayload {
   dateKey: string
   entries: TaskLogEntry[]
@@ -103,7 +120,12 @@ interface RecordWritePayload {
 export class RecordsWriter {
   constructor(private readonly plugin: TaskChutePluginLike) {}
 
+  /** Writes nothing for a date key that is not a real date (see isRecordDateKey). */
   async writeDay(payload: RecordWritePayload): Promise<void> {
+    if (!isRecordDateKey(payload.dateKey)) {
+      console.warn('[RecordsWriter] Skipped a record with an invalid date key', payload.dateKey)
+      return
+    }
     const logBase = this.plugin.pathManager.getLogDataPath()
     const [year] = payload.dateKey.split('-')
     await this.plugin.pathManager.ensureFolderExists(logBase)

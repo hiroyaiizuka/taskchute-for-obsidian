@@ -16,7 +16,7 @@
  */
 
 import type { AgentSessionFile, AgentSessionSource, AgentSessionSummary, SessionFileSystem } from './AgentSessionTypes'
-import { joinSessionPath } from './AgentSessionTypes'
+import { checkedSessionId, isAgentSessionId, joinSessionPath } from './AgentSessionTypes'
 import { isRecord, preview, readSmallText } from './jsonLines'
 import { joinMessages } from './sessionText'
 
@@ -175,7 +175,8 @@ export const cursorSessions: AgentSessionSource = {
       if (!workspace.isDirectory) continue
       const workspaceDir = joinSessionPath(root, workspace.name)
       for (const chat of await fs.listEntries(workspaceDir)) {
-        if (!chat.isDirectory) continue
+        // The name is the id `--resume` is given: only a session id is listed.
+        if (!chat.isDirectory || !isAgentSessionId(chat.name)) continue
         const path = joinSessionPath(workspaceDir, chat.name, 'meta.json')
         const stat = await fs.stat(path)
         if (stat) files.push({ host: 'cursor', id: chat.name, path, size: stat.size, mtimeMs: stat.mtimeMs })
@@ -217,5 +218,5 @@ export const cursorSessions: AgentSessionSource = {
     return joinMessages(messages.map(wordsOf).filter((text): text is string => text !== undefined))
   },
 
-  resumeArgs: (id) => ['--resume', id],
+  resumeArgs: (id) => ['--resume', checkedSessionId(id)],
 }

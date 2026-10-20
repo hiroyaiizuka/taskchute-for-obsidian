@@ -543,6 +543,80 @@ describe('XtermTerminalViewAdapter (recording stub)', () => {
     open.mockRestore()
   })
 
+  // LEV-388: without a handler xterm opens OSC 8 hyperlinks itself, with
+  // confirm() and a blank window.open() that is then pointed at the link.
+  describe('OSC 8 hyperlinks', () => {
+    interface RecordingLinkHandler {
+      activate(event: MouseEvent, text: string): void
+      hover?(event: MouseEvent, text: string): void
+      leave?(event: MouseEvent, text: string): void
+      allowNonHttpProtocols?: boolean
+    }
+    // Cmd-click on macOS, Ctrl-click elsewhere, as for file links.
+    const click = { ctrlKey: false, metaKey: true } as MouseEvent
+    const plainClick = { ctrlKey: false, metaKey: false } as MouseEvent
+
+    function linkHandler(): RecordingLinkHandler {
+      const handler = lastTerminal().options.linkHandler as RecordingLinkHandler | undefined
+      if (!handler) throw new Error('The terminal has no linkHandler')
+      return handler
+    }
+
+    test('open through the same http(s) path as printed links', () => {
+      const openExternalUrl = jest.fn<void, [string]>()
+      const adapter = createTerminalViewAdapter({ openExternalUrl, isMacOS: true })
+      adapter.open(document.body.createDiv(), 80, 24)
+
+      linkHandler().activate(click, 'https://example.com/pr/1')
+
+      expect(openExternalUrl).toHaveBeenCalledWith('https://example.com/pr/1')
+      expect(linkHandler().allowNonHttpProtocols).not.toBe(true)
+    })
+
+    test('ignore every other scheme', () => {
+      const openExternalUrl = jest.fn<void, [string]>()
+      const open = jest.spyOn(window, 'open').mockImplementation(() => null)
+      const adapter = createTerminalViewAdapter({ openExternalUrl, isMacOS: true })
+      adapter.open(document.body.createDiv(), 80, 24)
+
+      for (const uri of ['javascript:alert(1)', 'file:///etc/passwd', 'obsidian://open?vault=x', 'not a url']) {
+        linkHandler().activate(click, uri)
+      }
+
+      expect(openExternalUrl).not.toHaveBeenCalled()
+      expect(open).not.toHaveBeenCalled()
+    })
+
+    test('fall back to the owner document window with noopener', () => {
+      const open = jest.spyOn(window, 'open').mockImplementation(() => null)
+      const adapter = createTerminalViewAdapter({ isMacOS: true })
+      adapter.open(document.body.createDiv(), 80, 24)
+
+      linkHandler().activate(click, 'https://example.com/help')
+
+      expect(open).toHaveBeenCalledWith('https://example.com/help', '_blank', 'noopener,noreferrer')
+    })
+
+    // The text of an OSC 8 link can say one address and point at another.
+    test('show their address on hover, and open only on Cmd/Ctrl-click', () => {
+      const openExternalUrl = jest.fn<void, [string]>()
+      const container = document.body.createDiv()
+      const adapter = createTerminalViewAdapter({ openExternalUrl, isMacOS: false })
+      adapter.open(container, 80, 24)
+
+      linkHandler().hover?.(plainClick, 'https://attacker.example/')
+      expect(container.title).toBe('https://attacker.example/')
+      linkHandler().leave?.(plainClick, 'https://attacker.example/')
+      expect(container.hasAttribute('title')).toBe(false)
+
+      linkHandler().activate(plainClick, 'https://attacker.example/')
+      linkHandler().activate({ ctrlKey: false, metaKey: true } as MouseEvent, 'https://attacker.example/')
+      expect(openExternalUrl).not.toHaveBeenCalled()
+      linkHandler().activate({ ctrlKey: true, metaKey: false } as MouseEvent, 'https://attacker.example/')
+      expect(openExternalUrl).toHaveBeenCalledWith('https://attacker.example/')
+    })
+  })
+
   test('grid resize events relay even when subscribed before open and can detach', () => {
     const adapter = createTerminalViewAdapter()
     const seen: Array<{ cols: number; rows: number }> = []

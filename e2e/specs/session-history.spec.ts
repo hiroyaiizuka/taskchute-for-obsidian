@@ -54,7 +54,7 @@ function writeSessions(home: string, vault: string) {
     now - 7200,
   )
   write(
-    path.join(home, ".cursor", "chats", "w", "cursor-chat-1", "meta.json"),
+    path.join(home, ".cursor", "chats", "w", "44444444-4444-4444-8444-444444444444", "meta.json"),
     JSON.stringify({ schemaVersion: 1, hasConversation: true, cwd: vault, updatedAtMs: (now - 10800) * 1000 }),
     now - 10800,
   )

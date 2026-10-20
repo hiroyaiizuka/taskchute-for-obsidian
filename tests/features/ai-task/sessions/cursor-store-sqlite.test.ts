@@ -26,7 +26,7 @@ describe('Cursor store.db (real SQLite)', () => {
 
   beforeEach(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'taskchute-cursor-store-'))
-    chatDir = path.join(home, '.cursor', 'chats', 'workspace', 'chat-1')
+    chatDir = path.join(home, '.cursor', 'chats', 'workspace', 'c4a71e00-0000-4000-8000-000000000001')
     fs.mkdirSync(chatDir, { recursive: true })
     fs.writeFileSync(
       path.join(chatDir, 'meta.json'),
@@ -81,7 +81,7 @@ describe('Cursor store.db (real SQLite)', () => {
 
   const expected = expect.objectContaining({
     host: 'cursor',
-    id: 'chat-1',
+    id: 'c4a71e00-0000-4000-8000-000000000001',
     cwd: '/work/project',
     title: 'README を英語に訳して',
     firstText: 'README を英語に訳して',
@@ -105,7 +105,7 @@ describe('Cursor store.db (real SQLite)', () => {
     fs.writeFileSync(path.join(chatDir, 'store.db'), 'not a database')
     expect(await readChat()).toEqual({
       host: 'cursor',
-      id: 'chat-1',
+      id: 'c4a71e00-0000-4000-8000-000000000001',
       path: path.join(chatDir, 'meta.json'),
       cwd: '/work/project',
       title: 'project',

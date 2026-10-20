@@ -45,7 +45,7 @@ const titles = (page: { items: Array<{ title: string }> }) => page.items.map((it
 
 describe('conversation text', () => {
   test("Claude Code: the user's and the agent's words, never tool calls, tool output or wrapped commands", async () => {
-    const path = `${projects}/a.jsonl`
+    const path = `${projects}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`
     const { fs } = memorySessionFs(HOME, { [path]: { content: conversation(VAULT, 'the parking permit') } })
     const [file] = await claudeSessions.listFiles(fs)
     const extracted = await claudeSessions.conversationText!(fs, file)
@@ -78,8 +78,8 @@ describe('conversation text', () => {
   })
 
   test('Cursor: every message of the chat, in order, from store.db', async () => {
-    const meta = `${HOME}/.cursor/chats/w/chat-1/meta.json`
-    const store = `${HOME}/.cursor/chats/w/chat-1/store.db`
+    const meta = `${HOME}/.cursor/chats/w/c4a71e00-0000-4000-8000-000000000001/meta.json`
+    const store = `${HOME}/.cursor/chats/w/c4a71e00-0000-4000-8000-000000000001/store.db`
     const encoder = new TextEncoder()
     const message = (role: string, content: unknown) => encoder.encode(JSON.stringify({ role, content }))
     const ids = [1, 2, 3, 4].map((n) => n.toString(16).padStart(2, '0').repeat(32))
@@ -129,8 +129,8 @@ describe('conversation text', () => {
 describe('full-text search in the history', () => {
   test('finds a word that is only in the middle of the conversation, and shows where', async () => {
     const { history } = setup({
-      [`${projects}/a.jsonl`]: { mtimeMs: 2, content: conversation(VAULT, 'the parking permit') },
-      [`${projects}/b.jsonl`]: { mtimeMs: 1, content: conversation(VAULT, 'the moving boxes') },
+      [`${projects}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`]: { mtimeMs: 2, content: conversation(VAULT, 'the parking permit') },
+      [`${projects}/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jsonl`]: { mtimeMs: 1, content: conversation(VAULT, 'the moving boxes') },
     })
     await history.refresh()
     const page = await history.page({ folder: VAULT, query: 'parking permit' })
@@ -142,7 +142,7 @@ describe('full-text search in the history', () => {
 
   test('the words may be split between the title and the conversation', async () => {
     const { history } = setup({
-      [`${projects}/a.jsonl`]: {
+      [`${projects}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`]: {
         content: jsonl({ type: 'ai-title', aiTitle: 'Deploy notes' }, user(VAULT, 'Start'), assistant(VAULT, text('The staging server timed out.'))),
       },
     })
@@ -152,14 +152,14 @@ describe('full-text search in the history', () => {
 
   test('a conversation is extracted once, kept across restarts, and again only when its file changes', async () => {
     const store = new MemorySessionTextStore()
-    const files = { [`${projects}/a.jsonl`]: { mtimeMs: 1, content: conversation(VAULT, 'the parking permit') } }
+    const files = { [`${projects}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`]: { mtimeMs: 1, content: conversation(VAULT, 'the parking permit') } }
     const first = setup(files, store)
     await first.history.refresh()
     await first.history.page({ folder: VAULT, query: 'parking' })
     const readsAfterFirstSearch = first.readRange.mock.calls.length
     await first.history.page({ folder: VAULT, query: 'permit' })
     expect(first.readRange.mock.calls.length).toBe(readsAfterFirstSearch)
-    expect(await store.loadAll()).toEqual([expect.objectContaining({ path: `${projects}/a.jsonl`, mtimeMs: 1 })])
+    expect(await store.loadAll()).toEqual([expect.objectContaining({ path: `${projects}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`, mtimeMs: 1 })])
 
     // Obsidian restarted: the kept text is used, the file is only summarised.
     const second = setup(files, store)
@@ -168,7 +168,7 @@ describe('full-text search in the history', () => {
     expect(second.readRange.mock.calls.length).toBe(1)
 
     // The file changed: extracted again.
-    const changed = setup({ [`${projects}/a.jsonl`]: { mtimeMs: 2, content: conversation(VAULT, 'the moving boxes') } }, store)
+    const changed = setup({ [`${projects}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`]: { mtimeMs: 2, content: conversation(VAULT, 'the moving boxes') } }, store)
     await changed.history.refresh()
     expect(titles(await changed.history.page({ folder: VAULT, query: 'boxes' }))).toEqual(['Plan the move'])
     expect(titles(await changed.history.page({ folder: VAULT, query: 'permit' }))).toEqual([])
@@ -176,25 +176,25 @@ describe('full-text search in the history', () => {
 
   test('a kept text goes when its session file goes', async () => {
     const { history, remove, textStore } = setup({
-      [`${projects}/a.jsonl`]: { mtimeMs: 2, content: conversation(VAULT, 'one') },
-      [`${projects}/b.jsonl`]: { mtimeMs: 1, content: conversation(VAULT, 'two') },
+      [`${projects}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`]: { mtimeMs: 2, content: conversation(VAULT, 'one') },
+      [`${projects}/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jsonl`]: { mtimeMs: 1, content: conversation(VAULT, 'two') },
     })
     await history.refresh()
     await history.prepareSearch(VAULT)
-    expect((await textStore.loadAll()).map((entry) => entry.path).sort()).toEqual([`${projects}/a.jsonl`, `${projects}/b.jsonl`])
-    remove(`${projects}/a.jsonl`)
+    expect((await textStore.loadAll()).map((entry) => entry.path).sort()).toEqual([`${projects}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`, `${projects}/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jsonl`])
+    remove(`${projects}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`)
     await history.refresh()
-    expect((await textStore.loadAll()).map((entry) => entry.path)).toEqual([`${projects}/b.jsonl`])
+    expect((await textStore.loadAll()).map((entry) => entry.path)).toEqual([`${projects}/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jsonl`])
   })
 
   test("preparing search extracts only the folder's sessions", async () => {
     const { history, textStore } = setup({
-      [`${projects}/a.jsonl`]: { content: conversation(VAULT, 'here') },
-      [`${projects}/b.jsonl`]: { content: conversation('/home/me/Elsewhere', 'there') },
+      [`${projects}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`]: { content: conversation(VAULT, 'here') },
+      [`${projects}/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.jsonl`]: { content: conversation('/home/me/Elsewhere', 'there') },
     })
     await history.refresh()
     await history.prepareSearch(VAULT)
-    expect((await textStore.loadAll()).map((entry) => entry.path)).toEqual([`${projects}/a.jsonl`])
+    expect((await textStore.loadAll()).map((entry) => entry.path)).toEqual([`${projects}/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`])
   })
 
   test('without IndexedDB the texts are kept in memory for the run', async () => {

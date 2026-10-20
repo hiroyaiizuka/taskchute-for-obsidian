@@ -14,7 +14,7 @@ async function readOne(source: typeof claudeSessions, fs: ReturnType<typeof memo
 }
 
 describe('Claude Code sessions', () => {
-  const path = `${HOME}/.claude/projects/-home-me-Vault/11111111-aaaa.jsonl`
+  const path = `${HOME}/.claude/projects/-home-me-Vault/11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa.jsonl`
 
   test('title, folder, first and last message; commands, tool results and unknown lines are skipped', async () => {
     const { fs } = memorySessionFs(HOME, {
@@ -35,7 +35,7 @@ describe('Claude Code sessions', () => {
 
     expect(await readOne(claudeSessions, fs)).toEqual({
       host: 'claude',
-      id: '11111111-aaaa',
+      id: '11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       path,
       cwd: VAULT,
       title: 'Moving plan',
@@ -43,7 +43,7 @@ describe('Claude Code sessions', () => {
       lastText: 'Here is the plan.',
       updatedAt: 5,
     })
-    expect(claudeSessions.resumeArgs('11111111-aaaa')).toEqual(['--resume', '11111111-aaaa'])
+    expect(claudeSessions.resumeArgs('11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa')).toEqual(['--resume', '11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa'])
   })
 
   test('a name the user gave wins over the generated title; the first prompt is the last resort', async () => {
@@ -111,8 +111,8 @@ describe('Codex sessions', () => {
 })
 
 describe('Cursor sessions', () => {
-  const path = `${HOME}/.cursor/chats/abc/chat-1/meta.json`
-  const store = `${HOME}/.cursor/chats/abc/chat-1/store.db`
+  const path = `${HOME}/.cursor/chats/abc/c4a71e00-0000-4000-8000-000000000001/meta.json`
+  const store = `${HOME}/.cursor/chats/abc/c4a71e00-0000-4000-8000-000000000001/store.db`
   const metaJson = JSON.stringify({ schemaVersion: 1, hasConversation: true, cwd: VAULT, updatedAtMs: 42 })
   const encoder = new TextEncoder()
   const hex = (text: string) => Array.from(encoder.encode(text), (byte) => byte.toString(16).padStart(2, '0')).join('')
@@ -144,7 +144,7 @@ describe('Cursor sessions', () => {
     const { fs } = memorySessionFs(HOME, { [path]: { content: metaJson } }, [], { [store]: storeOf('README の英訳', conversation) })
     expect(await readOne(cursorSessions, fs)).toEqual({
       host: 'cursor',
-      id: 'chat-1',
+      id: 'c4a71e00-0000-4000-8000-000000000001',
       path,
       cwd: VAULT,
       title: 'README の英訳',
@@ -152,7 +152,7 @@ describe('Cursor sessions', () => {
       lastText: '英語に訳しました。',
       updatedAt: 42,
     })
-    expect(cursorSessions.resumeArgs('chat-1')).toEqual(['--resume', 'chat-1'])
+    expect(cursorSessions.resumeArgs('c4a71e00-0000-4000-8000-000000000001')).toEqual(['--resume', 'c4a71e00-0000-4000-8000-000000000001'])
   })
 
   test('a chat Cursor has not named yet is titled by its first prompt', async () => {
@@ -173,7 +173,7 @@ describe('Cursor sessions', () => {
 
   test('without a readable store the session is named after its folder, with no messages', async () => {
     const meta = { [path]: { content: metaJson } }
-    const expected = { host: 'cursor', id: 'chat-1', path, cwd: VAULT, title: 'Vault', updatedAt: 42 }
+    const expected = { host: 'cursor', id: 'c4a71e00-0000-4000-8000-000000000001', path, cwd: VAULT, title: 'Vault', updatedAt: 42 }
     // No store.db, a store in a format this plugin does not know, and a runtime with no SQLite reader.
     expect(await readOne(cursorSessions, memorySessionFs(HOME, meta).fs)).toEqual(expected)
     expect(await readOne(cursorSessions, memorySessionFs(HOME, meta, [], { [store]: { meta: { '0': 'not hex' }, blobs: {} } }).fs)).toEqual(expected)
@@ -187,6 +187,34 @@ describe('Cursor sessions', () => {
       const { fs } = memorySessionFs(HOME, { [path]: { content: typeof meta === 'string' ? meta : JSON.stringify(meta) } })
       expect(await readOne(cursorSessions, fs)).toBeNull()
     }
+  })
+})
+
+// LEV-388: the id comes from a file or folder name and is handed to the CLI
+// as `--resume <id>`, so a crafted name must never become a flag or a path.
+describe('session ids that become CLI arguments', () => {
+  const CLAUDE_ID = '0b6ab215-cae6-47cf-b0ed-4e39d1342669'
+  const CURSOR_ID = 'a5b966cc-9156-44ce-ba77-4bf5de46da4c'
+  const CRAFTED = ['--settings', '../x', '-h', '', `${CLAUDE_ID} --settings`]
+  const claudeLine = jsonl({ type: 'user', cwd: VAULT, message: { content: 'hi' } })
+  const cursorMeta = JSON.stringify({ schemaVersion: 1, cwd: VAULT })
+
+  test('a Claude Code file or a Cursor folder not named by a session id is not listed', async () => {
+    const { fs } = memorySessionFs(HOME, {
+      [`${HOME}/.claude/projects/p/--settings.jsonl`]: { content: claudeLine },
+      [`${HOME}/.claude/projects/p/${CLAUDE_ID}.jsonl`]: { content: claudeLine },
+      [`${HOME}/.cursor/chats/abc/--settings/meta.json`]: { content: cursorMeta },
+      [`${HOME}/.cursor/chats/abc/${CURSOR_ID}/meta.json`]: { content: cursorMeta },
+    })
+
+    expect((await claudeSessions.listFiles(fs)).map((file) => file.id)).toEqual([CLAUDE_ID])
+    expect((await cursorSessions.listFiles(fs)).map((file) => file.id)).toEqual([CURSOR_ID])
+  })
+
+  test.each(CRAFTED)('no resume arguments are built for %p', (id) => {
+    expect(() => claudeSessions.resumeArgs(id)).toThrow('session id')
+    expect(() => cursorSessions.resumeArgs(id)).toThrow('session id')
+    expect(() => createCodexSessions().resumeArgs(id)).toThrow('session id')
   })
 })
 
