@@ -77,12 +77,21 @@ class FakeManager {
   readonly stopRun = jest.fn()
   readonly followUp = jest.fn(() => Promise.resolve())
   readonly sendTerminalInput = jest.fn()
-  /** Mirrors the real manager: drops a finished run's record for good */
+  /**
+   * Mirrors the real manager: drops a finished run's record for good, or
+   * keeps it (viewClosed) while runs opened beside it remain, and drops a
+   * kept parent with the last of them.
+   */
   readonly releaseRun = jest.fn((runId: string): void => {
-    const index = this.records.findIndex((record) => record.id === runId)
-    if (index >= 0) {
-      this.records.splice(index, 1)
+    const record = this.getRun(runId)
+    if (!record) return
+    if (this.records.some((other) => other.parentRunId === runId)) {
+      record.viewClosed = true
+      return
     }
+    this.records.splice(this.records.indexOf(record), 1)
+    const parent = record.parentRunId ? this.getRun(record.parentRunId) : undefined
+    if (parent?.viewClosed) this.releaseRun(parent.id)
   })
   failNextShellStart: Error | null = null
   private shellSequence = 0
@@ -574,7 +583,10 @@ describe('AiRunPaneController split panels', () => {
       // screen as a dead panel.
       expect(panels()).toHaveLength(1)
       expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('shell-1')
-      expect(rows()).toHaveLength(0)
+      // run-a's row stays for shell-1, opened beside it, with no × of its
+      // own left (LEV-382).
+      expect(rows()).toHaveLength(1)
+      expect(rows()[0].querySelector('.ai-run-pane__run-close')).toBeNull()
       expect(adapters[1].disposed).toBe(false)
       expect(
         container.querySelector('.ai-run-pane')?.classList.contains('is-hidden'),
@@ -1294,7 +1306,7 @@ describe('AiRunPaneController split panels', () => {
       expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('run-a')
     })
 
-    test('closing a parent AI run also stops and removes its owned shell tabs', () => {
+    test('closing a parent AI run leaves its shell tabs running, under its row until the last one closes', () => {
       controller.mount(container)
       const parent = createRun({ id: 'run-a', cwd: '/workspace/project' })
       manager.emit(parent)
@@ -1309,17 +1321,25 @@ describe('AiRunPaneController split panels', () => {
           '.ai-run-pane__run[data-run-id="run-a"] .ai-run-pane__run-close',
         )
         ?.click()
+      manager.emit(parent, 'persisted')
 
-      // The parent view (and its live terminal snapshot provider) stays until
-      // persistence completes; only then does owned-shell teardown begin.
+      // LEV-382: only the parent's own view goes. The shell beside it keeps
+      // running, and the parent's row stays as the way back to it.
       expect(manager.stopRun).not.toHaveBeenCalledWith('shell-1')
       expect(rows()).toHaveLength(1)
-      manager.emit(parent, 'persisted')
-      expect(manager.stopRun).toHaveBeenCalledWith('shell-1')
-      expect(rows()).toHaveLength(0)
+      expect(manager.getRun('run-a')?.viewClosed).toBe(true)
+      expect(
+        Array.from(container.querySelectorAll('.ai-run-pane__tab'), (tab) =>
+          tab.getAttribute('data-run-id'),
+        ),
+      ).toEqual(['shell-1'])
+
+      // The row goes with the last shell beside it.
       shell.status = 'stopped'
       manager.emit(shell)
       manager.emit(shell, 'persisted')
+      expect(rows()).toHaveLength(0)
+      expect(manager.getRun('run-a')).toBeUndefined()
       expect(container.querySelectorAll('.ai-run-pane__tab')).toHaveLength(0)
       expect(
         container.querySelector('.ai-run-pane')?.classList.contains('is-hidden'),
@@ -1544,7 +1564,7 @@ describe('AiRunPaneController split panels', () => {
       expect(tabRunIds()).toEqual(['run-a', 'shell-1', 'resumed-1'])
     })
 
-    test('closes with the task it joined, as a + terminal does', async () => {
+    test('stays open when the task it joined is closed, as a + terminal does', async () => {
       controller.mount(container)
       const task = createRun({ id: 'run-a', taskName: 'AI Weekly Journal' })
       manager.emit(task)
@@ -1557,7 +1577,90 @@ describe('AiRunPaneController split panels', () => {
         .querySelector<HTMLButtonElement>('.ai-run-pane__run[data-run-id="run-a"] .ai-run-pane__run-close')
         ?.click()
 
-      expect(manager.stopRun).toHaveBeenCalledWith('resumed-1')
+      expect(manager.stopRun).not.toHaveBeenCalledWith('resumed-1')
+      expect(tabRunIds()).toEqual(['resumed-1'])
+      expect(rows()).toHaveLength(1)
+    })
+
+    // LEV-382: AI Weekly Journal with a resumed session and a + terminal
+    // beside it; the × on the task's own tab used to close all three.
+    test("the task tab's × closes that tab only; its row leads back to the rest", async () => {
+      controller.mount(container)
+      const task = createRun({ id: 'run-a', taskName: 'AI Weekly Journal' })
+      manager.emit(task)
+      manager.emit(
+        createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }),
+      )
+      showTask('run-a')
+      await resumeFromHistory()
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+      expect(tabRunIds()).toEqual(['run-a', 'resumed-1', 'shell-1'])
+
+      // The task's own tab, selected, then its ×: the task stops, and once
+      // its log is written only its tab goes.
+      container.querySelector<HTMLElement>('.ai-run-pane__tab[data-run-id="run-a"]')?.click()
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__tab[data-run-id="run-a"] .ai-run-pane__tab-close')
+        ?.click()
+      expect(manager.stopRun).toHaveBeenCalledWith('run-a')
+      task.status = 'stopped'
+      manager.emit(task)
+      manager.emit(task, 'persisted')
+
+      expect(manager.stopRun).not.toHaveBeenCalledWith('resumed-1')
+      expect(manager.stopRun).not.toHaveBeenCalledWith('shell-1')
+      expect(tabRunIds()).toEqual(['resumed-1', 'shell-1'])
+      // The tab beside the closed one is shown.
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('resumed-1')
+      const row = container.querySelector('.ai-run-pane__run[data-run-id="run-a"]')
+      expect(row).not.toBeNull()
+      expect(row?.querySelector('.ai-run-pane__run-close')).toBeNull()
+
+      // Over to the other task and back: the row shows them again.
+      showTask('run-b')
+      expect(tabRunIds()).toEqual(['run-b'])
+      showTask('run-a')
+      expect(tabRunIds()).toEqual(['resumed-1', 'shell-1'])
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('resumed-1')
+
+      // The row goes with the last of them.
+      for (const runId of ['shell-1', 'resumed-1']) {
+        const record = manager.getRun(runId)
+        if (!record) throw new Error(`${runId} missing`)
+        record.status = 'stopped'
+        manager.emit(record)
+        manager.emit(record, 'persisted')
+      }
+      expect(container.querySelector('.ai-run-pane__run[data-run-id="run-a"]')).toBeNull()
+      expect(manager.getRun('run-a')).toBeUndefined()
+      expect(rows().map((r) => r.getAttribute('data-run-id'))).toEqual(['run-b'])
+    })
+
+    test('after a remount, a task whose tab was closed comes back as the row of the tabs beside it', () => {
+      manager.emit(
+        createRun({ id: 'run-a', taskName: 'AI Weekly Journal', status: 'stopped', viewClosed: true }),
+      )
+      manager.emit(
+        createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }),
+      )
+      manager.emit(
+        createRun({
+          id: 'resumed-1',
+          taskPath: '',
+          taskName: 'weekly-journal',
+          host: 'shell',
+          parentRunId: 'run-a',
+        }),
+      )
+
+      controller.mount(container)
+
+      expect(rows().map((r) => r.getAttribute('data-run-id'))).toEqual(['run-a', 'run-b'])
+      expect(manager.getRun('run-a')).toBeDefined()
+      showTask('run-a')
+      expect(tabRunIds()).toEqual(['resumed-1'])
+      showTask('run-b')
+      expect(tabRunIds()).toEqual(['run-b'])
     })
   })
 })

@@ -1620,6 +1620,41 @@ describe('AiTaskManager carried fixes: stopped-run buffers + releaseRun', () => 
     expect(harness.manager.getRuns()).toEqual([])
   })
 
+  // LEV-382: closing a task's tab must not take the terminals beside it, so
+  // the task's record stays as their row, saved even though it stopped.
+  test('releaseRun keeps a run while terminals opened beside it remain, and lets it go with the last of them', async () => {
+    const saveNow = jest.fn()
+    const harness = createTerminalHarness({ sessionStateSaveNow: saveNow })
+    const terminalDeps = harness.deps.terminal
+    if (!terminalDeps) throw new Error('harness has no terminal deps')
+    terminalDeps.getShellPath = () => '/bin/zsh'
+    const task = await harness.manager.startRun(makeTaskFile(), { mode: 'terminal' })
+    const taskTerminal = harness.terminal.last
+    const shell = harness.manager.startShellSession({ parentRunId: task.id })
+    const shellTerminal = harness.terminal.last
+    taskTerminal.emitData('task screen')
+    taskTerminal.exit({ status: 'stopped', exitCode: null, signal: 'SIGTERM' })
+    await flushPromises()
+
+    harness.manager.releaseRun(task.id)
+
+    expect(harness.manager.getRun(task.id)).toMatchObject({ status: 'stopped', viewClosed: true })
+    const saved = saveNow.mock.calls.at(-1)?.[0] as Array<{
+      record: { id: string }
+      terminalReplay?: string
+    }>
+    expect(saved.map((snapshot) => snapshot.record.id)).toEqual([task.id, shell.id])
+    // Kept as a row only: its screen is not saved.
+    expect(saved[0]?.terminalReplay).toBeUndefined()
+
+    shellTerminal.exit({ status: 'succeeded', exitCode: 0, signal: null })
+    await flushPromises()
+    harness.manager.releaseRun(shell.id)
+
+    expect(harness.manager.getRuns()).toEqual([])
+    expect(saveNow).toHaveBeenLastCalledWith([])
+  })
+
   test('broker give-up on a LIVE run marks it interrupted instead of leaving it running forever', async () => {
     const harness = createTerminalHarness()
     const record = await harness.manager.startRun(makeTaskFile())

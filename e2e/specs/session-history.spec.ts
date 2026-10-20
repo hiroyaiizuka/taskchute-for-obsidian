@@ -228,3 +228,92 @@ test("a resumed session opens as a new tab beside the task's, and stays when swi
   await expect.poll(() => tabRunIds(page)).toEqual([journalRunId, resumed])
   await expect(page.locator(`.ai-run-pane__tab[data-run-id="${resumed}"]`)).toHaveAttribute("aria-selected", "true")
 })
+
+/** The status of each run, null once the manager has let it go. */
+async function runStatuses(page: Page, runIds: string[]): Promise<Array<string | null>> {
+  return page.evaluate(
+    ([id, ids]) => {
+      const plugin = window.app.plugins.plugins[id] as {
+        aiTaskManager: { getRun(runId: string): { status: string } | undefined }
+      }
+      return ids.map((runId) => plugin.aiTaskManager.getRun(runId)?.status ?? null)
+    },
+    [PLUGIN_ID, runIds] as const,
+  )
+}
+
+/** The terminals opened beside a run (+, split, or resumed), oldest first. */
+async function childRunIds(page: Page, parentRunId: string): Promise<string[]> {
+  return page.evaluate(
+    ([id, parent]) => {
+      const plugin = window.app.plugins.plugins[id] as {
+        aiTaskManager: { getRuns(): Array<{ id: string; parentRunId?: string; startedAt: number }> }
+      }
+      return plugin.aiTaskManager
+        .getRuns()
+        .filter((run) => run.parentRunId === parent)
+        .sort((a, b) => a.startedAt - b.startedAt)
+        .map((run) => run.id)
+    },
+    [PLUGIN_ID, parentRunId] as const,
+  )
+}
+
+// LEV-382: the × on a task's own tab closes that tab only. A resumed session
+// and a + terminal opened beside it keep running, and the task's row stays so
+// they can be shown again; the row goes with the last of them.
+test("closing a task's own tab keeps the tabs opened beside it, and its row", async ({ obsidian, home }, testInfo) => {
+  const { page } = obsidian
+  const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
+  writeSessions(home!, vault)
+  await enableAiTasks(page, writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed"), "terminal")
+  const journal = await createAiTask(page, "AI Weekly Journal")
+  const review = await createAiTask(page, "AI Weekly Review")
+  await openTaskChute(page)
+
+  const sidebarRow = (name: string) => page.locator(".ai-run-pane__run", { hasText: name })
+  // The × shows on hover, as for a person moving the pointer over the tab.
+  const closeTab = async (runId: string) => {
+    const tab = page.locator(`.ai-run-pane__tab[data-run-id="${runId}"]`)
+    await tab.hover()
+    await tab.locator(".ai-run-pane__tab-close").click()
+  }
+  await taskRow(page, journal).locator(".play-stop-button").click()
+  await expect(sidebarRow("AI Weekly Journal")).toHaveCount(1)
+  await taskRow(page, review).locator(".play-stop-button").click()
+  await expect(sidebarRow("AI Weekly Review")).toHaveCount(1)
+  const journalRunId = (await sidebarRow("AI Weekly Journal").getAttribute("data-run-id"))!
+
+  // AI Weekly Journal, a session resumed beside it, and a + terminal.
+  await sidebarRow("AI Weekly Journal").click()
+  await expect.poll(() => tabRunIds(page)).toEqual([journalRunId])
+  await openHistory(page)
+  await page.locator(".ai-session-history__row", { hasText: "引っ越しの準備" }).locator(".ai-session-history__resume").click()
+  await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(1)
+  const [resumed] = await childRunIds(page, journalRunId)
+  await page.locator(".ai-run-pane__sidebar-history").click()
+  await page.locator(".ai-run-pane__panel:not([hidden]) .ai-run-pane__add").click()
+  await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(2)
+  const terminal = (await childRunIds(page, journalRunId))[1]
+  await expect.poll(() => tabRunIds(page)).toEqual([journalRunId, resumed, terminal])
+
+  // × on the task's own tab: that tab goes; the other two and the row stay.
+  await closeTab(journalRunId)
+  await expect.soft.poll(() => tabRunIds(page), { timeout: 20_000 }).toEqual([resumed, terminal])
+  await expect.soft(sidebarRow("AI Weekly Journal")).toHaveCount(1)
+  await expect.soft.poll(() => runStatuses(page, [resumed, terminal])).toEqual(["running", "running"])
+
+  // Over to AI Weekly Review and back: still there.
+  await sidebarRow("AI Weekly Review").click()
+  await expect.poll(() => tabRunIds(page)).not.toContain(resumed)
+  await sidebarRow("AI Weekly Journal").click()
+  await expect.poll(() => tabRunIds(page)).toEqual([resumed, terminal])
+
+  // The row goes with the last tab.
+  await closeTab(terminal)
+  await expect.poll(() => tabRunIds(page), { timeout: 20_000 }).toEqual([resumed])
+  await expect(sidebarRow("AI Weekly Journal")).toHaveCount(1)
+  await closeTab(resumed)
+  await expect(sidebarRow("AI Weekly Journal")).toHaveCount(0, { timeout: 20_000 })
+  await expect(sidebarRow("AI Weekly Review")).toHaveCount(1)
+})

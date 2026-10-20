@@ -253,6 +253,7 @@ function normalizeRecord(value: unknown): AiRunRecord | null {
   assignString('recipePath')
   assignString('recipeContentHash', 512)
   assignString('parentRunId', 512)
+  if (source.viewClosed === true) record.viewClosed = true
   assignString('instanceId', 512)
   assignString('sessionId', 2 * 1024)
   const terminalSessionId = boundedString(source.terminalSessionId, 256)
@@ -287,7 +288,9 @@ function normalizeSnapshot(value: unknown): AiRunSessionSnapshot | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const source = value as Record<string, unknown>
   const record = normalizeRecord(source.record)
-  if (!record || record.status === 'stopped') return null
+  // A stopped run is gone once its view closes, unless terminals opened
+  // beside it keep it (viewClosed).
+  if (!record || (record.status === 'stopped' && !record.viewClosed)) return null
   const terminalReplay = boundedString(
     source.terminalReplay,
     AI_RUN_SESSION_REPLAY_LIMIT,
