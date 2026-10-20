@@ -150,12 +150,15 @@ let cachedBrokerSource: string | undefined
  * Note T: When the guard exits, the broker closes its end of fd 3, so the
  * watchdog of Note K tears down the terminal's process group. A guard can be
  * gone before it stopped its terminal: the broker kills one that has not
- * answered a force stop within 250ms, and a guard still starting up has not.
- * If the broker had not seen the terminal's processes yet either, the
- * watchdog used to wait on fd 3 for the broker's lifetime and, holding fd 3,
- * kept the guard's streams from closing, so the session never finished
- * (LEV-380). Its own process group is all it kills, and a guard that exits on
- * its own has already stopped that group.
+ * finished a force stop within 250ms, such as one still starting up or still
+ * in its synchronous ps. If the broker had not seen the terminal's processes
+ * yet either, the watchdog used to wait on fd 3 for the broker's lifetime
+ * and, holding fd 3, kept the guard's streams from closing, so the session
+ * never finished (LEV-380). Its own live process group is all it kills, and
+ * anything still in that group belongs to the terminal. The control pipe
+ * (fd 4) is closed too: on Linux the terminal can inherit it as well. So a
+ * detached process holding either no longer keeps the session open; like any
+ * process the broker never recorded (Note C), it is not waited for.
  *
  * LEV-379: ps and lsof answer in seconds on a busy Mac, longer right after
  * wake, and the broker serves every terminal from one event loop. So when a
@@ -1636,11 +1639,12 @@ function spawnSession(message, socket) {
   if (guardControl) guardControl.on('error', () => {});
   const watchPipe =
     process.platform !== 'win32' && child.stdio ? child.stdio[3] : null;
-  if (watchPipe) {
-    watchPipe.on('error', () => {});
-    // Note T (buildTerminalBrokerSource).
-    child.once('exit', () => watchPipe.destroy());
-  }
+  if (watchPipe) watchPipe.on('error', () => {});
+  // Note T (buildTerminalBrokerSource).
+  child.once('exit', () => {
+    if (watchPipe) watchPipe.destroy();
+    if (guardControl) guardControl.destroy();
+  });
   const rootRecordDelayMs = Number(
     process.env.TASKCHUTE_BROKER_TEST_ROOT_RECORD_DELAY_MS,
   );

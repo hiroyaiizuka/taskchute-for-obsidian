@@ -17,9 +17,9 @@ import { deferred, isAlive, ownerPidFiles, waitUntil, withTimeout } from './brok
  * Every terminal's shell starts a background subshell that waits on fd 3, a
  * pipe the broker holds per session, and kills the shell's process group when
  * the pipe closes. A terminal force-stopped right after it was created could
- * lose its guard first: the broker kills a guard that has not answered a force
- * stop within 250ms, and a guard still starting up has not. If the broker had
- * not yet seen the shell's processes either, nothing stopped them. The
+ * lose its guard first: the broker kills a guard that has not finished a force
+ * stop within 250ms, such as one still starting up. If the broker had not yet
+ * seen the shell's processes either, nothing stopped them. The
  * subshell waited on a pipe the broker never closed, and since it held that
  * pipe, the broker never saw the guard's streams close — the terminal never
  * ended.
@@ -57,6 +57,7 @@ describePosix('TerminalSessionBroker when a guard is gone before its terminal (L
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
     const marker = `LEV380_${Math.random().toString(36).slice(2)}`
     const dir = mkdtempSync(join(tmpdir(), 'taskchute-test-ps-'))
+    const transcriptPath = join(tmpdir(), `taskchute-session-guard-lost-${unique}.log`)
     const ps = join(dir, 'ps')
     writeFileSync(ps, `#!/bin/sh\n/bin/ps "$@" | grep -v -- '${marker}'\n`, { mode: 0o755 })
     const client = new TerminalSessionBrokerClient({
@@ -68,11 +69,12 @@ describePosix('TerminalSessionBroker when a guard is gone before its terminal (L
       const attached = deferred<number>()
       const ready = deferred<void>()
       const exited = deferred<void>()
+      let unavailable = false
       let output = ''
       client.start(
         'session-guard-lost',
         watchedShell(marker),
-        join(tmpdir(), `taskchute-session-guard-lost-${unique}.log`),
+        transcriptPath,
         undefined,
         {
           onAttached: (pid) => {
@@ -83,7 +85,9 @@ describePosix('TerminalSessionBroker when a guard is gone before its terminal (L
             if (output.includes(marker)) ready.resolve()
           },
           onExit: () => exited.resolve(),
-          onUnavailable: () => exited.resolve(),
+          onUnavailable: () => {
+            unavailable = true
+          },
         },
       )
       const guardPid = await withTimeout(attached.promise, 60_000)
@@ -100,13 +104,20 @@ describePosix('TerminalSessionBroker when a guard is gone before its terminal (L
         30_000,
       )
       await withTimeout(exited.promise, 30_000, 'the broker reporting the terminal ended')
+      expect(unavailable).toBe(false)
+      // The broker removes a session's owner record only when it finishes it.
+      await waitUntil(
+        () => ownerPidFiles(descriptorPath).length === 0,
+        'the broker finished the session',
+        30_000,
+      )
       expect(isAlive(brokerPid)).toBe(true)
     } finally {
       await client.shutdown().catch(() => undefined)
       try {
         execFileSync('/usr/bin/pkill', ['-9', '-f', marker])
       } catch {
-        // None left, as the test asserts.
+        // Best effort: normally none are left, as the test asserts.
       }
       if (brokerPid !== undefined) {
         try {
@@ -122,6 +133,7 @@ describePosix('TerminalSessionBroker when a guard is gone before its terminal (L
       }
       for (const path of ownerPidFiles(descriptorPath)) rmSync(path, { force: true })
       rmSync(dir, { recursive: true, force: true })
+      rmSync(transcriptPath, { force: true })
     }
   })
 })

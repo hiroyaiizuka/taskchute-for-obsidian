@@ -35,7 +35,7 @@ const MAX_ARG_STRLEN = 32 * 4096
  * into testable fragments, which cost ~6KB across the three programs — the
  * shared code is spliced into each of them, so deduplicating it saves less than
  * it reads like. LEV-379 and LEV-378 had to move comments out of the broker
- * template into the "Note A…S" block beside buildTerminalBrokerSource to fit.
+ * template into the "Note A…T" block beside buildTerminalBrokerSource to fit.
  * Anything approaching this budget again should move text out of the templates
  * rather than raise it: comments inside them ship inside argv.
  */
