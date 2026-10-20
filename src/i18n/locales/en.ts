@@ -379,6 +379,10 @@ export const en = {
           '"{name}" did not start automatically: its working folder {folder} is not allowed on this device yet. Start it with ▶ to allow it.',
         folderNotAllowed:
           '"{name}" did not start: its working folder {folder} is not allowed on this device. Start the task with ▶ to be asked.',
+        folderTrustNotApproved:
+          '"{name}" did not start automatically: trusting its working folder {folder} is not allowed on this device yet. Start it with ▶ to allow it.',
+        folderTrustNotAllowed:
+          '"{name}" did not start: trusting its working folder {folder} is not allowed on this device. Start the task with ▶ to be asked.',
         skipPermissionsDowngraded:
           '"{name}" asks for skip permissions, which this device has not allowed, so it runs in auto mode. You can allow it in the AI task settings.',
         shellStartFailed: "Failed to start terminal session: {message}",

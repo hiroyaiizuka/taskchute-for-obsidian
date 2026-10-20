@@ -87,6 +87,7 @@ import {
 import {
   approveFolderOnThisDevice,
   displayFolder,
+  displayName,
   folderConsentNeeded,
   folderKey,
   type FolderConsentRequest,
@@ -2130,7 +2131,7 @@ export class TaskChuteView
       title: this.tv(
         "aiTask.folderConsent.title",
         'Allow the working folder of "{name}" on this device?',
-        { name: prepared.taskName },
+        { name: displayName(prepared.taskName) },
       ),
       message: lines.join("\n"),
       description: this.tv(
@@ -2152,12 +2153,19 @@ export class TaskChuteView
     const key = [prepared.taskPath, folderKey(folder.folder), String(folder.trust)].join("\u0000")
     if (folderNotApprovedNotified.has(key)) return
     folderNotApprovedNotified.add(key)
+    const vars = { name: displayName(prepared.taskName), folder: displayFolder(folder.folder) }
     new Notice(
-      this.tv(
-        "aiTask.notices.folderNotApproved",
-        '"{name}" did not start automatically: its working folder {folder} is not allowed on this device yet. Start it with ▶ to allow it.',
-        { name: prepared.taskName, folder: displayFolder(folder.folder) },
-      ),
+      folder.trust
+        ? this.tv(
+            "aiTask.notices.folderTrustNotApproved",
+            '"{name}" did not start automatically: trusting its working folder {folder} is not allowed on this device yet. Start it with ▶ to allow it.',
+            vars,
+          )
+        : this.tv(
+            "aiTask.notices.folderNotApproved",
+            '"{name}" did not start automatically: its working folder {folder} is not allowed on this device yet. Start it with ▶ to allow it.',
+            vars,
+          ),
     )
   }
 
@@ -2230,12 +2238,19 @@ export class TaskChuteView
       return
     }
     if (error instanceof AiWorkingFolderNotAllowedError) {
+      const vars = { name: displayName(error.taskName), folder: displayFolder(error.folder) }
       new Notice(
-        this.tv(
-          "aiTask.notices.folderNotAllowed",
-          '"{name}" did not start: its working folder {folder} is not allowed on this device. Start the task with ▶ to be asked.',
-          { name: error.taskName, folder: displayFolder(error.folder) },
-        ),
+        error.trust
+          ? this.tv(
+              "aiTask.notices.folderTrustNotAllowed",
+              '"{name}" did not start: trusting its working folder {folder} is not allowed on this device. Start the task with ▶ to be asked.',
+              vars,
+            )
+          : this.tv(
+              "aiTask.notices.folderNotAllowed",
+              '"{name}" did not start: its working folder {folder} is not allowed on this device. Start the task with ▶ to be asked.',
+              vars,
+            ),
       )
       return
     }

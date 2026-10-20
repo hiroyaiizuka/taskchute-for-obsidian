@@ -3,6 +3,7 @@ import {
   AI_TRUSTED_FOLDERS_STORAGE_KEY,
   approveFolderOnThisDevice,
   displayFolder,
+  displayName,
   folderConsentNeeded,
   folderKey,
   isFolderApprovedOnThisDevice,
@@ -74,6 +75,8 @@ describe('AiFolderConsent', () => {
     expect(isFolderApprovedOnThisDevice(storage, 'c:/users/me/repo/', false)).toBe(true)
     expect(folderKey('\\\\Server\\Share\\Dir')).toBe('//server/share/dir')
     expect(folderKey('C:\\')).toBe('c:/')
+    // A share is not the folder of the same name on the current drive.
+    expect(folderKey('//host/share')).not.toBe(folderKey('/host/share'))
   })
 
   test('a note folder resolves against the vault, as the run does', () => {
@@ -85,9 +88,18 @@ describe('AiFolderConsent', () => {
     expect(resolveTaskFolder('sub', undefined)).toBeUndefined()
   })
 
-  test('a folder is shown without control or direction characters', () => {
+  test('a folder is shown without control, format, or line-separator characters', () => {
     expect(displayFolder('/srv/a\u202Etxt.exe/')).toBe('/srv/a\uFFFDtxt.exe')
     expect(displayFolder('/srv/a\nb')).toBe('/srv/a\uFFFDb')
+    expect(displayFolder('/srv/a\u200Bb\u061Cc\u2028d\uFEFFe')).toBe(
+      '/srv/a\uFFFDb\uFFFDc\uFFFDd\uFFFDe',
+    )
+  })
+
+  test('a task name loses direction characters but keeps emoji whole', () => {
+    expect(displayName('Report\u202Efdp.exe')).toBe('Report\uFFFDfdp.exe')
+    const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467} plan'
+    expect(displayName(family)).toBe(family)
   })
 
   test('broken storage approves nothing and never throws', () => {

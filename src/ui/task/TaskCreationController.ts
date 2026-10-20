@@ -1181,14 +1181,20 @@ export default class TaskCreationController {
         this.resolveVaultWorkingDirectory(),
     )
     const electronDirectoryPicker = new ElectronDirectoryPicker()
+    // Folders other AI task notes name, listed beside this device's own.
+    const candidateDirectories = this.host.getAiTaskWorkingDirectoryCandidates?.() ?? []
+    // Typed, browsed, picked from the list, or reset by the user (LEV-390).
+    let folderTouched = false
     const workingDirectorySelect = new WorkingDirectorySelectController(
       cwdField,
       {
         value: initialValue?.cwd,
         defaultDirectory: defaultWorkingDirectory,
-        candidateDirectories:
-          this.host.getAiTaskWorkingDirectoryCandidates?.() ?? [],
+        candidateDirectories,
         history: workingDirectoryHistory,
+        onChange: () => {
+          folderTouched = true
+        },
         picker: {
           selectDirectory: (defaultPath) =>
             this.host.selectAiTaskDirectory
@@ -1495,14 +1501,26 @@ export default class TaskCreationController {
         // approval: a folder they changed to, and trust they turned on. What
         // the note already had is asked about on ▶ like any other note's.
         const vault = this.resolveVaultWorkingDirectory() || undefined
+        const keyOf = (cwd: string | undefined): string | undefined => {
+          const normalized = cwd === undefined ? "" : normalizeDirectoryPath(cwd)
+          const folder = resolveTaskFolder(normalized.length > 0 ? normalized : undefined, vault)
+          return folder === undefined ? undefined : folderKey(folder)
+        }
         const folder = resolveTaskFolder(savedCwd(), vault)
-        const initialFolder = resolveTaskFolder(initialValue?.cwd, vault)
         const changed =
-          folder !== undefined &&
-          (initialFolder === undefined || folderKey(folder) !== folderKey(initialFolder))
-        const trust = trustsFolder() && (decodedInitialArgs?.trustFolder !== true || changed)
+          folderTouched && folder !== undefined && folderKey(folder) !== keyOf(initialValue?.cwd)
+        // A folder only other notes name is theirs, not a choice made here.
+        const own = new Set(workingDirectoryHistory.getStoredDirectories().map(keyOf))
+        const key = folder === undefined ? undefined : folderKey(folder)
+        const namedByNotesOnly =
+          key !== undefined &&
+          !own.has(key) &&
+          candidateDirectories.some((entry) => typeof entry === "string" && keyOf(entry) === key)
+        const folderChosen = changed && !namedByNotesOnly
+        const trust =
+          trustsFolder() && (changed ? folderChosen : decodedInitialArgs?.trustFolder !== true)
         if (changed) workingDirectorySelect.commitHistory()
-        if (folder !== undefined && (changed || trust)) {
+        if (folder !== undefined && (folderChosen || trust)) {
           approveFolderOnThisDevice(storageApp, folder, trust)
         }
       },

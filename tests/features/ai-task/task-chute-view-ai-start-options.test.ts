@@ -584,6 +584,32 @@ describe('TaskChuteView working-folder consent', () => {
     ])
   })
 
+  test('an automatic start held for its folder is told once across views', async () => {
+    const first = setUp()
+    const second = setUp()
+    const held = prepared({ cwd: '/Users/me/two-views' })
+    first.manager.prepareRun.mockResolvedValue(held)
+    second.manager.prepareRun.mockResolvedValue(held)
+
+    await first.internals.prepareAiRunForInstance(makeInstance(), first.manager, 'automatic')
+    await second.internals.prepareAiRunForInstance(makeInstance(), second.manager, 'automatic')
+
+    expect(folderNotices()).toHaveLength(1)
+  })
+
+  test('a start held only for trusting the folder says so', async () => {
+    const storage = new Map<string, unknown>([[AI_APPROVED_FOLDERS_STORAGE_KEY, ['/Users/me/trust-only']]])
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared({ cwd: '/Users/me/trust-only', trustFolder: true }))
+
+    const result = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+
+    expect(result.kind).toBe('failed')
+    expect(folderNotices()).toEqual([
+      '"ai-task" did not start automatically: trusting its working folder /Users/me/trust-only is not allowed on this device yet. Start it with ▶ to allow it.',
+    ])
+  })
+
   test('trusting the vault still needs this device to allow it', async () => {
     const { manager, internals } = setUp()
     manager.prepareRun.mockResolvedValue(prepared({ cwd: '/vault', cwdIsVault: true, trustFolder: true }))

@@ -1980,6 +1980,65 @@ describe('approving the working folder on this device', () => {
     expect(saved(saveLocalStorage, TRUSTED)).toEqual([['/vault']])
   })
 
+  // The folder field tidies what the note had (spaces, \\, //) when it is
+  // shown; saving that back is not the user choosing a folder.
+  test.each([
+    ['trailing space', '/Users/me/site '],
+    ['leading space', ' /Users/me/site'],
+    ['backslash', 'evil\\dir'],
+    ['doubled slashes', '/Users//me/site'],
+  ])('a note folder tidied on display is not approved by saving (%s)', async (_label, cwd) => {
+    const { host, aiTaskEditService, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue({
+      ...existingCodexEditValue(file),
+      host: 'cursor' as const,
+      args: ['--sandbox', 'disabled', '--trust'],
+      cwd,
+    })
+
+    await submit(await openEditModal(host, inst))
+
+    expect(aiTaskEditService.save).toHaveBeenCalled()
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([])
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([])
+    expect(saved(saveLocalStorage, HISTORY)).toEqual([])
+  })
+
+  test('a folder only other notes name is not approved by picking it', async () => {
+    const { host, saveLocalStorage } = createHost(
+      {},
+      { defaultWorkingDirectory: '/vault', workingDirectoryCandidates: ['/Users/other/listed'] },
+    )
+    const modal = openModal(host)
+    ;(modal.querySelector('input.form-input') as HTMLInputElement).value = 'Listed Task'
+    typeButton(modal, 'ai').click()
+
+    setCwd(modal, '/Users/other/listed')
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([])
+  })
+
+  test("a folder from this device's own recent list is approved by picking it", async () => {
+    const { host, saveLocalStorage } = createHost(
+      {},
+      {
+        defaultWorkingDirectory: '/vault',
+        storedWorkingDirectories: ['/Users/me/mine'],
+        workingDirectoryCandidates: ['/Users/me/mine'],
+      },
+    )
+    const modal = openModal(host)
+    ;(modal.querySelector('input.form-input') as HTMLInputElement).value = 'Mine Task'
+    typeButton(modal, 'ai').click()
+
+    setCwd(modal, '/Users/me/mine')
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([['/Users/me/mine']])
+  })
+
   test('trust the note already had is not approved by saving it', async () => {
     const { host, aiTaskEditService, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
     const { file, inst } = editedTask()

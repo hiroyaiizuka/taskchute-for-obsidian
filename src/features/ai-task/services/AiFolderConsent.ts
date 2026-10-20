@@ -62,7 +62,8 @@ export function resolveTaskFolder(
 function tidyFolder(path: string): string {
   const windows = isWindowsPath(path)
   const text = windows ? path.replace(/\\/g, '/') : path
-  const lead = windows && text.startsWith('//') ? '//' : text.startsWith('/') ? '/' : ''
+  // A leading // stays: on Windows //host/share is a share, /host/share is not.
+  const lead = text.startsWith('//') ? '//' : text.startsWith('/') ? '/' : ''
   const tidy = lead + text.split('/').filter((s) => s !== '' && s !== '.').join('/')
   // A drive root keeps its separator: `C:` alone is drive-relative.
   return windows && /^[A-Za-z]:$/.test(tidy) ? `${tidy}/` : tidy
@@ -78,11 +79,19 @@ export function folderKey(path: string): string {
   return isWindowsPath(path) ? tidy.toLowerCase() : tidy
 }
 
-/** The folder as a dialog or notice shows it: no control or bidi characters. */
+/**
+ * The folder as a dialog or notice shows it: control, format (bidi, zero
+ * width) and line-separator characters, which could hide what it names,
+ * shown as U+FFFD.
+ */
 export function displayFolder(path: string): string {
-  return tidyFolder(path).replace(
-    // eslint-disable-next-line no-control-regex -- control characters are exactly what is being replaced
-    /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+  return tidyFolder(path).replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '\ufffd')
+}
+
+/** A task name in the same texts: control and direction characters only, so emoji stay whole. */
+export function displayName(name: string): string {
+  return name.replace(
+    /[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029]/gu,
     '\ufffd',
   )
 }
