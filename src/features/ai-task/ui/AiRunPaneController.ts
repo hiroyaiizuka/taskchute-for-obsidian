@@ -483,6 +483,8 @@ export class AiRunPaneController {
    * which terminal status the run ends with.
    */
   private readonly pendingCloseRunIds = new Set<string>()
+  /** While set, terminals that come up do not take the keyboard (moveOnToTask). */
+  private holdTerminalFocus = false
   private containerEl: HTMLElement | null = null
   private root: HTMLElement | null = null
   private sidebarEl: HTMLElement | null = null
@@ -1970,6 +1972,8 @@ export class AiRunPaneController {
   private closeRun(runId: string): void {
     const parentRunId = this.host.manager.getRun(runId)?.parentRunId
     this.closeRunView(runId)
+    // A closed task has no workspace to come back to.
+    if (!this.runViews.has(runId)) this.taskWorkspaceStates.delete(runId)
     // The last terminal beside a closed tab takes its row with it.
     if (
       parentRunId !== undefined &&
@@ -1977,6 +1981,38 @@ export class AiRunPaneController {
       !this.hasChildRunViews(parentRunId)
     ) {
       this.closeRun(parentRunId)
+    }
+  }
+
+  /**
+   * The task on screen closed and another task comes up: the switch a click
+   * on its row makes — its workspace, remembered tab, split panels and
+   * terminals, even ones never shown since the pane was built (LEV-384).
+   * The keyboard stays where it is when it is somewhere outside this pane:
+   * a close that came on its own (the run stopped, its log was written)
+   * must not pull typing out of a note into a terminal.
+   */
+  private moveOnToTask(
+    panel: PanelView,
+    fallbackRunId: string,
+    taskScopeRunId: string,
+  ): void {
+    const doc = this.root?.ownerDocument
+    const activeElement = doc?.activeElement ?? null
+    this.holdTerminalFocus =
+      activeElement !== null &&
+      activeElement !== doc?.body &&
+      !this.root?.contains(activeElement)
+    try {
+      if (this.runViews.get(taskScopeRunId)?.row) {
+        this.showRunInFocusedPanel(taskScopeRunId)
+      } else {
+        // A shell without a task has no row to click.
+        this.selectRunInPanel(panel, fallbackRunId)
+        if (!this.isCollapsed()) this.ensureVisibleTerminalViews()
+      }
+    } finally {
+      this.holdTerminalFocus = false
     }
   }
 
@@ -2016,7 +2052,9 @@ export class AiRunPaneController {
     if (panel) this.refreshContentTab(panel)
     if (panel && panel.selectedRunId === runId) {
       panel.selectedRunId = null
-      // The task slot, when it is a tab of the strip the closed one was in.
+      // The task slot, when the strip lists it: the closed run's task, or
+      // the next task once a closed task handed the slot on
+      // (ensurePanelTaskSlot).
       const remaining = this.panelTabRunIds(panel)
       let fallbackRunId =
         panel.taskRunId !== null &&
@@ -2047,17 +2085,20 @@ export class AiRunPaneController {
         const fallbackTaskScopeRunId = fallbackRecord
           ? this.getTaskScopeRunId(fallbackRecord)
           : null
-        // Moving on from the task on screen is the switch a row click
-        // makes: that task's workspace and terminals come up with it, even
-        // when they were never shown since the pane was built (LEV-384).
+        if (
+          this.isPanelVisible(panel) &&
+          fallbackTaskScopeRunId !== null &&
+          fallbackTaskScopeRunId !== this.activeTaskScopeRunId &&
+          closedScopeRunId !== null &&
+          closedScopeRunId === this.activeTaskScopeRunId
+        ) {
+          this.moveOnToTask(panel, fallbackRunId, fallbackTaskScopeRunId)
+          return
+        }
         const mayActivateWorkspace =
           this.isPanelVisible(panel) &&
-          (fallbackTaskScopeRunId === this.activeTaskScopeRunId ||
-            closedScopeRunId === this.activeTaskScopeRunId)
+          fallbackTaskScopeRunId === this.activeTaskScopeRunId
         this.selectRunInPanel(panel, fallbackRunId, mayActivateWorkspace)
-        if (mayActivateWorkspace && !this.isCollapsed()) {
-          this.ensureVisibleTerminalViews()
-        }
         return
       }
       if (panel === this.getPrimaryPanel()) {
@@ -2914,7 +2955,7 @@ export class AiRunPaneController {
         disposeFilePath,
       }
     }
-    if (this.focusedPanelId === panel.id) {
+    if (this.focusedPanelId === panel.id && !this.holdTerminalFocus) {
       view.terminal.adapter.focus()
     }
     view.terminal.adapter.fit?.()

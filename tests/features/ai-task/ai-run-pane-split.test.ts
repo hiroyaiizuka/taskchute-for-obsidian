@@ -615,6 +615,13 @@ describe('AiRunPaneController split panels', () => {
     }
     const bodyOf = (runId: string): HTMLElement | null =>
       container.querySelector<HTMLElement>(`.ai-run-pane__body[data-run-id="${runId}"]`)
+    /** Whether a live terminal view is open in the run's body. */
+    const hasTerminal = (runId: string): boolean =>
+      adapters.some(
+        (adapter) =>
+          !adapter.disposed &&
+          bodyOf(runId)?.contains(adapter.opened?.container ?? null) === true,
+      )
 
     test("brings the next task's terminal up, though it was never shown since the pane was built", () => {
       // Runs that were already there when the pane mounted: only the one it
@@ -627,8 +634,83 @@ describe('AiRunPaneController split panels', () => {
       finish('run-a')
 
       expect(tabRunIds()).toEqual(['run-b'])
+      expect(rows()[0]?.getAttribute('aria-selected')).toBe('true')
       expect(adapters).toHaveLength(2)
       expect(bodyOf('run-b')?.contains(adapters[1].opened?.container ?? null)).toBe(true)
+    })
+
+    test('leaves the keyboard where it is unless it was in the pane', () => {
+      manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+      manager.emit(createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }))
+      manager.emit(createRun({ id: 'run-c', taskName: 'AI Daily', taskPath: 'TASKS/c.md' }))
+      controller.mount(container)
+      const note = document.body.createEl('input')
+
+      // Typing in a note: the task stops on its own and the next one (the
+      // latest, run-c) comes up, but its terminal does not take the keyboard.
+      note.focus()
+      finish('run-a')
+      expect(tabRunIds()).toEqual(['run-c'])
+      expect(adapters[1].focus).not.toHaveBeenCalled()
+      expect(document.activeElement).toBe(note)
+
+      // With the keyboard nowhere in particular (the closed tab took it
+      // along), the next terminal takes it.
+      note.blur()
+      finish('run-c')
+      expect(tabRunIds()).toEqual(['run-b'])
+      expect(adapters[2].focus).toHaveBeenCalled()
+      note.remove()
+    })
+
+    test("brings back the tab the next task had selected", () => {
+      controller.mount(container)
+      manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+      manager.emit(createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }))
+      showTask('run-b')
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('shell-1')
+      showTask('run-a')
+
+      finish('run-a')
+
+      expect(tabRunIds()).toEqual(['run-b', 'shell-1'])
+      expect(panelTab(panels()[0])?.getAttribute('data-run-id')).toBe('shell-1')
+    })
+
+    test('ends on the next task after the last tab beside a closed task tab goes', () => {
+      manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+      manager.emit(createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }))
+      controller.mount(container)
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+      // The task's own tab closes (its row stays), then the terminal beside it.
+      finish('run-a')
+      expect(tabRunIds()).toEqual(['shell-1'])
+
+      finish('shell-1')
+
+      expect(rows().map((row) => row.getAttribute('data-run-id'))).toEqual(['run-b'])
+      expect(tabRunIds()).toEqual(['run-b'])
+      expect(hasTerminal('run-b')).toBe(true)
+    })
+
+    test("ends on the next task after the row's × closes every tab of the task", async () => {
+      Object.assign(host, { confirm: jest.fn(() => Promise.resolve(true)) })
+      manager.emit(createRun({ id: 'run-a', taskName: 'AI Weekly Journal' }))
+      manager.emit(createRun({ id: 'run-b', taskName: 'AI Weekly Review', taskPath: 'TASKS/b.md' }))
+      controller.mount(container)
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__add')?.click()
+
+      container
+        .querySelector<HTMLButtonElement>('.ai-run-pane__run[data-run-id="run-a"] .ai-run-pane__run-close')
+        ?.click()
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+      finish('run-a')
+      finish('shell-1')
+
+      expect(rows().map((row) => row.getAttribute('data-run-id'))).toEqual(['run-b'])
+      expect(tabRunIds()).toEqual(['run-b'])
+      expect(hasTerminal('run-b')).toBe(true)
     })
 
     test("brings the next task's split panel up with it", () => {
