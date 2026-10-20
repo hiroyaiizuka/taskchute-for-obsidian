@@ -1,21 +1,16 @@
-import {
-  normalizeDirectoryPath,
-  normalizeDirectoryPathForComparison,
-  WORKING_DIRECTORY_HISTORY_STORAGE_KEY,
-} from './WorkingDirectoryHistory'
-
 /**
  * The working folders this device lets AI tasks run in (LEV-390).
  *
  * A task note can come from anyone who can write to a synced or shared vault,
  * so its working folder and its "trust this folder" are requests. A folder
- * runs without asking when this device approved it: picked in the task
- * settings here (the device-local working-directory history), or allowed
- * once when asked. The vault itself needs no approval, unless the task also
- * trusts it. Kept in Obsidian's per-vault local storage, which is never
- * synced.
+ * runs without asking only when this device approved it: chosen by the user
+ * in the task settings here, or allowed when asked on ▶. Trusting a folder
+ * (its own settings and scripts run too) is approved separately. The vault
+ * needs no approval unless the task trusts it. Approvals are kept in
+ * Obsidian's per-vault local storage, which is never synced.
  */
 export const AI_APPROVED_FOLDERS_STORAGE_KEY = 'taskchute-plus-ai-approved-folders'
+export const AI_TRUSTED_FOLDERS_STORAGE_KEY = 'taskchute-plus-ai-trusted-folders'
 
 const MAX_APPROVED_FOLDERS = 200
 
@@ -23,6 +18,73 @@ const MAX_APPROVED_FOLDERS = 200
 export interface FolderConsentStorage {
   loadLocalStorage?(key: string): unknown
   saveLocalStorage?(key: string, value: unknown): void
+}
+
+/** A drive (C:\, C:/) or backslash UNC (\\server\share) path. */
+function isWindowsPath(path: string): boolean {
+  return /^(?:[A-Za-z]:[\\/]|\\\\)/.test(path)
+}
+
+export function isAbsolutePathLike(path: string): boolean {
+  if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) return true
+
+  // A Windows UNC path is absolute only after both the server and share
+  // components are present. Keeping incomplete UNC, device namespaces, dot
+  // segments, and drive-relative forms out of this branch prevents them from
+  // bypassing vault-relative handling.
+  const unc = path.match(/^\\\\([^\\/:*?"<>|]+)[\\/]([^\\/:*?"<>|]+)(?:[\\/]|$)/)
+  if (unc === null) return false
+  return unc[1] !== '.' && unc[1] !== '..' && unc[2] !== '.' && unc[2] !== '..'
+}
+
+function joinCwd(basePath: string, relative: string): string {
+  const base = basePath.replace(/[\\/]+$/, '')
+  const rest = relative.replace(/^\.\//, '')
+  return `${base}/${rest}`
+}
+
+/** The folder a task note's `ai_task_cwd` runs in: absolute, or under the vault. */
+export function resolveTaskFolder(
+  folder: string | undefined,
+  vaultPath: string | undefined,
+): string | undefined {
+  if (folder === undefined) return vaultPath
+  if (isAbsolutePathLike(folder)) return folder
+  if (vaultPath === undefined) return undefined
+  return joinCwd(vaultPath, folder)
+}
+
+/**
+ * The path without `.` segments, repeated separators, or a trailing one.
+ * `..` stays: the OS resolves it after following symlinks, so `/a/link/..`
+ * need not be `/a`, and only the exact path a user approved matches.
+ */
+function tidyFolder(path: string): string {
+  const windows = isWindowsPath(path)
+  const text = windows ? path.replace(/\\/g, '/') : path
+  const lead = windows && text.startsWith('//') ? '//' : text.startsWith('/') ? '/' : ''
+  const tidy = lead + text.split('/').filter((s) => s !== '' && s !== '.').join('/')
+  // A drive root keeps its separator: `C:` alone is drive-relative.
+  return windows && /^[A-Za-z]:$/.test(tidy) ? `${tidy}/` : tidy
+}
+
+/**
+ * The folder a path names, for comparison. Exact on POSIX, where `site` and
+ * `site ` or `a\b` are different folders; Windows paths compare with `\` as
+ * `/` and case folded.
+ */
+export function folderKey(path: string): string {
+  const tidy = tidyFolder(path)
+  return isWindowsPath(path) ? tidy.toLowerCase() : tidy
+}
+
+/** The folder as a dialog or notice shows it: no control or bidi characters. */
+export function displayFolder(path: string): string {
+  return tidyFolder(path).replace(
+    // eslint-disable-next-line no-control-regex -- control characters are exactly what is being replaced
+    /[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+    '\ufffd',
+  )
 }
 
 function storedFolders(storage: FolderConsentStorage, key: string): string[] {
@@ -36,36 +98,47 @@ function storedFolders(storage: FolderConsentStorage, key: string): string[] {
   }
 }
 
-export function isFolderApprovedOnThisDevice(
-  storage: FolderConsentStorage,
-  folder: string,
-): boolean {
-  const key = normalizeDirectoryPathForComparison(folder)
-  if (!key) return false
-  return [
-    ...storedFolders(storage, AI_APPROVED_FOLDERS_STORAGE_KEY),
-    ...storedFolders(storage, WORKING_DIRECTORY_HISTORY_STORAGE_KEY),
-  ].some((entry) => normalizeDirectoryPathForComparison(entry) === key)
-}
-
-export function approveFolderOnThisDevice(
-  storage: FolderConsentStorage,
-  folder: string,
-): void {
-  const normalized = normalizeDirectoryPath(folder)
-  const key = normalizeDirectoryPathForComparison(normalized)
-  if (!key) return
-  const others = storedFolders(storage, AI_APPROVED_FOLDERS_STORAGE_KEY).filter(
-    (entry) => normalizeDirectoryPathForComparison(entry) !== key,
-  )
+function addFolder(storage: FolderConsentStorage, key: string, folder: string): void {
+  const own = folderKey(folder)
+  if (!own) return
+  const others = storedFolders(storage, key).filter((entry) => folderKey(entry) !== own)
   try {
-    storage.saveLocalStorage?.(
-      AI_APPROVED_FOLDERS_STORAGE_KEY,
-      [normalized, ...others].slice(0, MAX_APPROVED_FOLDERS),
-    )
+    storage.saveLocalStorage?.(key, [folder, ...others].slice(0, MAX_APPROVED_FOLDERS))
   } catch {
     // Best effort: without storage the next run asks again.
   }
+}
+
+/** A trusted folder is approved too; a plain approval does not trust. */
+export function isFolderApprovedOnThisDevice(
+  storage: FolderConsentStorage,
+  folder: string,
+  trust: boolean,
+): boolean {
+  const own = folderKey(folder)
+  if (!own) return false
+  const trusted = storedFolders(storage, AI_TRUSTED_FOLDERS_STORAGE_KEY)
+  const pool = trust
+    ? trusted
+    : [...storedFolders(storage, AI_APPROVED_FOLDERS_STORAGE_KEY), ...trusted]
+  return pool.some((entry) => folderKey(entry) === own)
+}
+
+/** Approve running in the folder, and trusting it when `trust`. */
+export function approveFolderOnThisDevice(
+  storage: FolderConsentStorage,
+  folder: string,
+  trust: boolean,
+): void {
+  addFolder(storage, AI_APPROVED_FOLDERS_STORAGE_KEY, folder)
+  if (trust) addFolder(storage, AI_TRUSTED_FOLDERS_STORAGE_KEY, folder)
+}
+
+/** Where a run works, and whether it trusts that folder. */
+export interface RunFolder {
+  cwd: string | undefined
+  cwdIsVault: boolean
+  trust: boolean
 }
 
 /** A working folder the run needs this device to approve first. */
@@ -76,14 +149,12 @@ export interface FolderConsentRequest {
 }
 
 /** What a run needs this device to approve, or null when nothing. */
-export function folderConsentNeeded(input: {
-  storage: FolderConsentStorage
-  cwd: string | undefined
-  cwdIsVault: boolean
-  trust: boolean
-}): FolderConsentRequest | null {
-  if (input.cwd === undefined) return null
-  if (input.cwdIsVault && !input.trust) return null
-  if (isFolderApprovedOnThisDevice(input.storage, input.cwd)) return null
-  return { folder: input.cwd, trust: input.trust }
+export function folderConsentNeeded(
+  storage: FolderConsentStorage,
+  run: RunFolder,
+): FolderConsentRequest | null {
+  if (run.cwd === undefined) return null
+  if (run.cwdIsVault && !run.trust) return null
+  if (isFolderApprovedOnThisDevice(storage, run.cwd, run.trust)) return null
+  return { folder: run.cwd, trust: run.trust }
 }

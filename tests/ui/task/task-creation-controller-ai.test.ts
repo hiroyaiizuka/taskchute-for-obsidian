@@ -1903,3 +1903,103 @@ describe('trusting the folder in auto mode', () => {
   })
 })
 
+
+// LEV-390: saving the task settings approves, on this device, only what the
+// user chose there: a folder they changed to, and trust they turned on. What
+// the note already had is asked about on ▶ like any other note's.
+describe('approving the working folder on this device', () => {
+  const APPROVED = 'taskchute-plus-ai-approved-folders'
+  const TRUSTED = 'taskchute-plus-ai-trusted-folders'
+  const HISTORY = 'taskchute-plus.ai-task-working-directory-history'
+  const saved = (saveLocalStorage: jest.Mock, key: string): unknown[] =>
+    saveLocalStorage.mock.calls
+      .filter(([k]) => k === key)
+      .map(([, value]: [string, unknown]) => value)
+
+  function setCwd(modal: HTMLElement, value: string): void {
+    const cwd = modal.querySelector<HTMLInputElement>('.ai-task-cwd-input')!
+    cwd.value = value
+    cwd.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  function editedTask() {
+    const file = new TFile()
+    file.path = 'TASKS/Existing AI task.md'
+    return { file, inst: createAiTaskInstance(file) }
+  }
+
+  test('saving a task with its folder untouched approves nothing', async () => {
+    const { host, aiTaskEditService, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue(existingCodexEditValue(file))
+
+    await submit(await openEditModal(host, inst))
+
+    expect(aiTaskEditService.save).toHaveBeenCalled()
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([])
+    expect(saved(saveLocalStorage, HISTORY)).toEqual([])
+  })
+
+  test('a folder changed to in the settings is approved, and remembered as recent', async () => {
+    const { host, aiTaskEditService, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue(existingCodexEditValue(file))
+    const modal = await openEditModal(host, inst)
+
+    setCwd(modal, '/Users/me/other-project')
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([['/Users/me/other-project']])
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([])
+    expect(saved(saveLocalStorage, HISTORY)).toEqual([['/Users/me/other-project']])
+  })
+
+  test('a folder typed relative to the vault is approved where it runs', async () => {
+    const { host, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const modal = openModal(host)
+    ;(modal.querySelector('input.form-input') as HTMLInputElement).value = 'Relative Task'
+    typeButton(modal, 'ai').click()
+
+    setCwd(modal, 'sub/dir')
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([['/vault/sub/dir']])
+  })
+
+  test('trust turned on here is approved, for the vault too', async () => {
+    const { host, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const modal = openModal(host)
+    ;(modal.querySelector('input.form-input') as HTMLInputElement).value = 'Cursor Task'
+    typeButton(modal, 'ai').click()
+    agentCard(modal, 'cursor').click()
+    setPrompt(modal, 'Go')
+    modal.querySelector<HTMLInputElement>('.ai-task-trust__checkbox')!.click()
+
+    await submit(modal)
+
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([['/vault']])
+  })
+
+  test('trust the note already had is not approved by saving it', async () => {
+    const { host, aiTaskEditService, saveLocalStorage } = createHost({}, { defaultWorkingDirectory: '/vault' })
+    const { file, inst } = editedTask()
+    aiTaskEditService.load.mockResolvedValue({
+      ...existingCodexEditValue(file),
+      host: 'cursor' as const,
+      args: ['--sandbox', 'disabled', '--trust'],
+      cwd: '/srv/repo',
+    })
+    const modal = await openEditModal(host, inst)
+    expect(modal.querySelector<HTMLInputElement>('.ai-task-trust__checkbox')!.checked).toBe(true)
+
+    await submit(modal)
+
+    expect(aiTaskEditService.save).toHaveBeenCalledWith(
+      file,
+      '08:45',
+      expect.objectContaining({ cwd: '/srv/repo', args: ['--sandbox', 'disabled', '--trust'] }),
+    )
+    expect(saved(saveLocalStorage, APPROVED)).toEqual([])
+    expect(saved(saveLocalStorage, TRUSTED)).toEqual([])
+  })
+})

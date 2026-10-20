@@ -57,7 +57,11 @@ import { WorkingDirectorySelectController } from "@/features/ai-task/ui/WorkingD
 import { AiModelCatalog } from "@/features/ai-task/models/AiModelCatalog"
 import { AiModelSelectController } from "@/features/ai-task/ui/AiModelSelectController"
 import { AiTrustFolderControl } from "@/features/ai-task/ui/AiTrustFolderControl"
-import { approveFolderOnThisDevice } from "@/features/ai-task/services/AiFolderConsent"
+import {
+  approveFolderOnThisDevice,
+  folderKey,
+  resolveTaskFolder,
+} from "@/features/ai-task/services/AiFolderConsent"
 import type { Recipe, RecipeService } from "@/features/recipe/services/RecipeService"
 import { normalizeRecipeReference } from "@/features/recipe/services/RecipeService"
 
@@ -1227,6 +1231,16 @@ export default class TaskCreationController {
       trustControl.isChecked() &&
       (execModeSelect.value === "auto" || keptExecMode !== null)
 
+    /** The working folder written to the note; none for the default. */
+    const savedCwd = (): string | undefined => {
+      const cwd = normalizeDirectoryPath(workingDirectorySelect.getValue())
+      if (cwd.length === 0) return undefined
+      return normalizeDirectoryPathForComparison(cwd) ===
+        normalizeDirectoryPathForComparison(defaultWorkingDirectory)
+        ? undefined
+        : cwd
+    }
+
     const buildArgs = (): string[] => {
       const args = [...currentVariantTokens()]
       if (trustsFolder()) {
@@ -1459,11 +1473,6 @@ export default class TaskCreationController {
       },
       getScheduledTime: () => normalizeReminderTime(scheduledInput.value) ?? undefined,
       getAiTaskOptions: () => {
-        const cwd = normalizeDirectoryPath(workingDirectorySelect.getValue())
-        const usesDefault =
-          cwd.length > 0 &&
-          normalizeDirectoryPathForComparison(cwd) ===
-            normalizeDirectoryPathForComparison(defaultWorkingDirectory)
         const prompt = promptInput.value
         const selectedRecipePath = recipeSelect?.value ?? ""
         const recipePath = !recipeSelect
@@ -1476,24 +1485,25 @@ export default class TaskCreationController {
         return {
           host: selectedHost,
           args: buildArgs(),
-          cwd: cwd.length > 0 && !usesDefault ? cwd : undefined,
+          cwd: savedCwd(),
           prompt: prompt.trim().length > 0 ? prompt : "",
           ...(recipePath !== undefined ? { recipePath } : {}),
         }
       },
       commit: () => {
-        workingDirectorySelect.commitHistory()
-        // Chosen here, on this device: its runs need no further approval
-        // (LEV-390). The vault needs none unless the task trusts it.
-        const cwd = normalizeDirectoryPath(workingDirectorySelect.getValue())
-        const usesDefault =
-          cwd.length === 0 ||
-          normalizeDirectoryPathForComparison(cwd) ===
-            normalizeDirectoryPathForComparison(defaultWorkingDirectory)
-        if (!usesDefault) {
-          approveFolderOnThisDevice(storageApp, cwd)
-        } else if (trustsFolder()) {
-          approveFolderOnThisDevice(storageApp, this.resolveVaultWorkingDirectory())
+        // LEV-390: what the user chose here, on this device, needs no further
+        // approval: a folder they changed to, and trust they turned on. What
+        // the note already had is asked about on ▶ like any other note's.
+        const vault = this.resolveVaultWorkingDirectory() || undefined
+        const folder = resolveTaskFolder(savedCwd(), vault)
+        const initialFolder = resolveTaskFolder(initialValue?.cwd, vault)
+        const changed =
+          folder !== undefined &&
+          (initialFolder === undefined || folderKey(folder) !== folderKey(initialFolder))
+        const trust = trustsFolder() && (decodedInitialArgs?.trustFolder !== true || changed)
+        if (changed) workingDirectorySelect.commitHistory()
+        if (folder !== undefined && (changed || trust)) {
+          approveFolderOnThisDevice(storageApp, folder, trust)
         }
       },
       destroy: () => {

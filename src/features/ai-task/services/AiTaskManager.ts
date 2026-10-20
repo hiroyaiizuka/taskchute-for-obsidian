@@ -56,7 +56,7 @@ import type { RecipeContextSnapshot } from '@/features/recipe/services/RecipeDel
 import { buildRecipeDelegationPrompt } from '@/features/recipe/services/RecipeDelegationContextBuilder'
 import { assertAiRunLaunchSize } from './AiRunLaunchSizeGuard'
 import { resolveAiTaskRunArgs } from '../config/AiTaskArgsCodec'
-import { normalizeDirectoryPathForComparison } from './WorkingDirectoryHistory'
+import { folderKey, resolveTaskFolder, type RunFolder } from './AiFolderConsent'
 import {
   terminalConnectionLostNotice,
   terminalFailureNotice,
@@ -167,6 +167,23 @@ export class AiPromptNotFoundError extends Error {
     super(`${taskPath} has no "## Prompt" section`)
     this.name = 'AiPromptNotFoundError'
     this.taskPath = taskPath
+  }
+}
+
+/** The run's working folder (or its trust) is not approved on this device. */
+export class AiWorkingFolderNotAllowedError extends Error {
+  readonly taskPath: string
+  readonly taskName: string
+  readonly folder: string
+  readonly trust: boolean
+
+  constructor(prepared: Pick<PreparedAiRun, 'taskPath' | 'taskName'>, folder: string, trust: boolean) {
+    super(`${prepared.taskPath}: the working folder is not allowed on this device`)
+    this.name = 'AiWorkingFolderNotAllowedError'
+    this.taskPath = prepared.taskPath
+    this.taskName = prepared.taskName
+    this.folder = folder
+    this.trust = trust
   }
 }
 
@@ -297,6 +314,11 @@ export interface AiTaskManagerDeps {
   workspaceFiles?: Pick<WorkspaceFileService, 'listDirectory' | 'readFile' | 'writeFile'>
   /** Effective run mode from settings; consulted when startRun gets none */
   getRunMode?(): AiRunMode
+  /**
+   * Whether this device approved the run's working folder (and its trust),
+   * asked right before every task run spawns (LEV-390). Absent = allowed.
+   */
+  isWorkingFolderAllowed?(run: RunFolder): boolean
   /** Device-local run workspace metadata + bounded terminal replay. */
   sessionState?: Pick<
     AiRunSessionStateStore,
@@ -542,24 +564,6 @@ function clearShellTerminalName(record: AiRunRecord, titles: ShellTitleTracker):
   titles.forget(record.id)
   delete record.terminalTitle
   delete record.terminalLabel
-}
-
-function isAbsolutePathLike(path: string): boolean {
-  if (path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path)) return true
-
-  // A Windows UNC path is absolute only after both the server and share
-  // components are present. Keeping incomplete UNC, device namespaces, dot
-  // segments, and drive-relative forms out of this branch prevents them from
-  // bypassing vault-relative handling.
-  const unc = /^\\\\([^\\/:*?"<>|]+)[\\/]([^\\/:*?"<>|]+)(?:[\\/]|$)/.exec(path)
-  if (unc === null) return false
-  return unc[1] !== '.' && unc[1] !== '..' && unc[2] !== '.' && unc[2] !== '..'
-}
-
-function joinCwd(basePath: string, relative: string): string {
-  const base = basePath.replace(/[\\/]+$/, '')
-  const rest = relative.replace(/^\.\//, '')
-  return `${base}/${rest}`
 }
 
 export function normalizeBinaryResolution(resolution: AiBinaryResolution): {
@@ -927,8 +931,7 @@ export class AiTaskManager {
       cwdIsVault:
         cwd !== undefined &&
         vaultPath !== undefined &&
-        normalizeDirectoryPathForComparison(cwd) ===
-          normalizeDirectoryPathForComparison(vaultPath),
+        folderKey(cwd) === folderKey(vaultPath),
       binaryPath,
       binaryArgsPrefix: binaryArgsPrefix
         ? Object.freeze([...binaryArgsPrefix])
@@ -947,6 +950,7 @@ export class AiTaskManager {
     options?: AiPreparedRunStartOptions,
   ): AiRunRecord {
     this.throwIfDisposed()
+    this.assertWorkingFolderAllowed(prepared)
     const {
       taskPath,
       taskName,
@@ -3346,12 +3350,24 @@ export class AiTaskManager {
     return 'terminal'
   }
 
+  /**
+   * Every start path, a dialog or not, ends here: a folder this device has
+   * not approved never spawns, even if the note changed after the caller
+   * asked (LEV-390).
+   */
+  private assertWorkingFolderAllowed(prepared: PreparedAiRun): void {
+    if (this.deps.isWorkingFolderAllowed === undefined) return
+    const run: RunFolder = {
+      cwd: prepared.cwd,
+      cwdIsVault: prepared.cwdIsVault === true,
+      trust: prepared.trustFolder === true,
+    }
+    if (this.deps.isWorkingFolderAllowed(run)) return
+    throw new AiWorkingFolderNotAllowedError(prepared, prepared.cwd ?? '', run.trust)
+  }
+
   private resolveCwd(configCwd: string | undefined): string | undefined {
-    const basePath = this.getVaultBasePath()
-    if (configCwd === undefined) return basePath
-    if (isAbsolutePathLike(configCwd)) return configCwd
-    if (basePath === undefined) return undefined
-    return joinCwd(basePath, configCwd)
+    return resolveTaskFolder(configCwd, this.getVaultBasePath())
   }
 
   /** Duck-typed FileSystemAdapter.getBasePath (desktop only) */

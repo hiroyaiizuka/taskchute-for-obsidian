@@ -348,7 +348,7 @@ export const en = {
         title: 'Allow the working folder of "{name}" on this device?',
         trust: "The task also trusts this folder: its settings and scripts run too.",
         description:
-          "This device has not run AI tasks in this folder before. Allowing it is kept on this device only (not synced). If you do not know this folder, cancel.",
+          "This device has not allowed AI tasks in this folder yet. Allowing it is kept on this device only (not synced). If you do not know this folder, cancel.",
         allow: "Allow this folder",
         cancel: "Cancel",
       },
@@ -377,6 +377,8 @@ export const en = {
         argsIgnored: '"{name}": arguments the task settings cannot set were not used: {args}',
         folderNotApproved:
           '"{name}" did not start automatically: its working folder {folder} is not allowed on this device yet. Start it with ▶ to allow it.',
+        folderNotAllowed:
+          '"{name}" did not start: its working folder {folder} is not allowed on this device. Start the task with ▶ to be asked.',
         skipPermissionsDowngraded:
           '"{name}" asks for skip permissions, which this device has not allowed, so it runs in auto mode. You can allow it in the AI task settings.',
         shellStartFailed: "Failed to start terminal session: {message}",

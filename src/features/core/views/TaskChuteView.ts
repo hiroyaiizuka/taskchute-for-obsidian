@@ -75,6 +75,7 @@ import { createTerminalViewAdapter } from "@/features/ai-task/ui/TerminalViewAda
 import {
   AiPromptNotFoundError,
   AiRunAlreadyActiveError,
+  AiWorkingFolderNotAllowedError,
 } from "@/features/ai-task/services/AiTaskManager"
 import { AiBinaryNotFoundError } from "@/features/ai-task/services/BinaryLocator"
 import { readAiTaskConfig } from "@/features/ai-task/services/AiTaskFrontmatterReader"
@@ -85,7 +86,9 @@ import {
 } from "@/features/ai-task/services/AiSkipPermissionsConsent"
 import {
   approveFolderOnThisDevice,
+  displayFolder,
   folderConsentNeeded,
+  folderKey,
   type FolderConsentRequest,
 } from "@/features/ai-task/services/AiFolderConsent"
 import { AiTaskEditService } from "@/features/ai-task/services/AiTaskEditService"
@@ -122,6 +125,8 @@ export const AI_TASK_BOARD_VIEW_STORAGE_KEY = 'taskchute-plus.ai-task-board-view
 
 const AI_TASK_BOARD_VIEWS: readonly AiTaskBoardView[] = ['human', 'ai', 'mixed']
 const terminalFallbackNotified = new WeakSet<object>()
+/** Automatic starts held for their folder, told once per app session (LEV-390). */
+const folderNotApprovedNotified = new Set<string>()
 
 export interface AmbientAiTaskRunResult {
   satisfiedPaths: string[]
@@ -159,7 +164,6 @@ export class TaskChuteView
   public taskInstances: TaskInstance[] = []
   /** Non-due linked AI routines available only for event materialization. */
   public linkedAiTaskCandidates: TaskInstance[] = []
-  private readonly folderNotApprovedNotified = new Set<string>()
   public currentInstance: TaskInstance | null = null
   public globalTimerInterval: ReturnType<Window['setInterval']> | null = null
   public timerService: TimerService | null = null
@@ -1016,25 +1020,18 @@ export class TaskChuteView
     // Production managers always expose prepareRun; keep the legacy fallback
     // so unrelated host tests do not gain a new mock requirement.
     if (typeof manager.prepareRun !== 'function') return { kind: 'not-needed' }
+    const file = inst.task.file
     try {
       const mode: AiRunMode =
         this.plugin.settings.aiTaskRunMode === 'headless' ? 'headless' : 'terminal'
       // LEV-386: the note only asks for skip-permissions; this device decides.
-      const allowSkipPermissions = await resolveSkipPermissionsForRun({
-        storage: this.app,
-        frontmatter: inst.task.frontmatter,
-        trigger,
-        confirm: () =>
-          showConfirmModal(this.app, this.skipPermissionsConfirmOptions(inst)),
-      })
-      const prepared = await manager.prepareRun(inst.task.file, {
+      let prepared = await manager.prepareRun(file, {
         mode,
-        allowSkipPermissions,
+        allowSkipPermissions: isSkipPermissionsAllowedOnThisDevice(this.app),
       })
-      this.notifyAiRunArgs(prepared, trigger)
-      // LEV-390: a working folder (or trust) this device has not approved.
-      const folder = folderConsentNeeded({
-        storage: this.app,
+      // LEV-390: first where it runs. A working folder (or its trust) this
+      // device has not approved is asked about on ▶, and held otherwise.
+      const folder = folderConsentNeeded(this.app, {
         cwd: prepared.cwd,
         cwdIsVault: prepared.cwdIsVault === true,
         trust: prepared.trustFolder === true,
@@ -1049,8 +1046,25 @@ export class TaskChuteView
           this.folderConsentConfirmOptions(prepared, folder),
         )
         if (!allowed) return { kind: 'failed' }
-        approveFolderOnThisDevice(this.app, folder.folder)
+        approveFolderOnThisDevice(this.app, folder.folder, folder.trust)
       }
+      // Then how it runs: skip-permissions is asked about only for a run
+      // that would otherwise fall back to auto mode.
+      if (prepared.skipPermissionsDowngraded === true && trigger === 'manual') {
+        const allowSkipPermissions = await resolveSkipPermissionsForRun({
+          storage: this.app,
+          frontmatter: inst.task.frontmatter,
+          trigger,
+          confirm: () =>
+            showConfirmModal(this.app, this.skipPermissionsConfirmOptions(inst)),
+        })
+        if (allowSkipPermissions) {
+          // The note may have changed meanwhile: the manager checks the
+          // folder of this one again before it spawns.
+          prepared = await manager.prepareRun(file, { mode, allowSkipPermissions })
+        }
+      }
+      this.notifyAiRunArgs(prepared, trigger)
       return { kind: 'ready', prepared }
     } catch (error) {
       this.notifyAiRunError(error)
@@ -2103,7 +2117,7 @@ export class TaskChuteView
     prepared: PreparedAiRun,
     folder: FolderConsentRequest,
   ): ConfirmModalOptions {
-    const lines = [folder.folder]
+    const lines = [displayFolder(folder.folder)]
     if (folder.trust) {
       lines.push(
         this.tv(
@@ -2121,7 +2135,7 @@ export class TaskChuteView
       message: lines.join("\n"),
       description: this.tv(
         "aiTask.folderConsent.description",
-        "This device has not run AI tasks in this folder before. Allowing it is kept on this device only (not synced). If you do not know this folder, cancel.",
+        "This device has not allowed AI tasks in this folder yet. Allowing it is kept on this device only (not synced). If you do not know this folder, cancel.",
       ),
       confirmText: this.tv("aiTask.folderConsent.allow", "Allow this folder"),
       cancelText: this.tv("aiTask.folderConsent.cancel", "Cancel"),
@@ -2134,14 +2148,15 @@ export class TaskChuteView
     prepared: PreparedAiRun,
     folder: FolderConsentRequest,
   ): void {
-    const key = `${prepared.taskPath}\u0000${folder.folder}`
-    if (this.folderNotApprovedNotified.has(key)) return
-    this.folderNotApprovedNotified.add(key)
+    // Scheduled starts retry every minute, from every open view.
+    const key = [prepared.taskPath, folderKey(folder.folder), String(folder.trust)].join("\u0000")
+    if (folderNotApprovedNotified.has(key)) return
+    folderNotApprovedNotified.add(key)
     new Notice(
       this.tv(
         "aiTask.notices.folderNotApproved",
         '"{name}" did not start automatically: its working folder {folder} is not allowed on this device yet. Start it with ▶ to allow it.',
-        { name: prepared.taskName, folder: folder.folder },
+        { name: prepared.taskName, folder: displayFolder(folder.folder) },
       ),
     )
   }
@@ -2210,6 +2225,16 @@ export class TaskChuteView
         this.tv(
           "aiTask.notices.alreadyRunning",
           "An AI run is already in progress for this task.",
+        ),
+      )
+      return
+    }
+    if (error instanceof AiWorkingFolderNotAllowedError) {
+      new Notice(
+        this.tv(
+          "aiTask.notices.folderNotAllowed",
+          '"{name}" did not start: its working folder {folder} is not allowed on this device. Start the task with ▶ to be asked.',
+          { name: error.taskName, folder: displayFolder(error.folder) },
         ),
       )
       return

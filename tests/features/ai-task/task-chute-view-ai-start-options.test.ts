@@ -9,12 +9,16 @@
 import { Notice, TFile, WorkspaceLeaf } from 'obsidian'
 import { TaskChuteView } from '@/features/core/views/TaskChuteView'
 import type { AiRunRecord } from '@/features/ai-task/types'
-import type {
-  AiRunStartOptions,
-  PreparedAiRun,
+import {
+  AiWorkingFolderNotAllowedError,
+  type AiRunStartOptions,
+  type PreparedAiRun,
 } from '@/features/ai-task/services/AiTaskManager'
 import { AI_SKIP_PERMISSIONS_STORAGE_KEY } from '@/features/ai-task/services/AiSkipPermissionsConsent'
-import { AI_APPROVED_FOLDERS_STORAGE_KEY } from '@/features/ai-task/services/AiFolderConsent'
+import {
+  AI_APPROVED_FOLDERS_STORAGE_KEY,
+  AI_TRUSTED_FOLDERS_STORAGE_KEY,
+} from '@/features/ai-task/services/AiFolderConsent'
 import { showConfirmModal } from '@/ui/modals/ConfirmModal'
 import type { TaskChutePluginLike, TaskInstance } from '@/types'
 
@@ -291,15 +295,22 @@ describe('TaskChuteView skip-permissions consent', () => {
   test('a manual start asks once, and this device keeps the yes', async () => {
     const storage = new Map<string, unknown>()
     const { manager, internals } = setUp({}, storage)
-    manager.prepareRun.mockResolvedValue(prepared())
+    manager.prepareRun.mockImplementation((_file, options) =>
+      Promise.resolve(prepared({ skipPermissionsDowngraded: options?.allowSkipPermissions !== true })),
+    )
     confirm.mockResolvedValue(true)
 
-    await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
+    const first = await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
     await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
 
+    expect(first).toEqual({
+      kind: 'ready',
+      prepared: expect.objectContaining({ skipPermissionsDowngraded: false }),
+    })
     expect(confirm).toHaveBeenCalledTimes(1)
+    // Prepared as this device allowed, asked, prepared again; then allowed.
     expect(manager.prepareRun.mock.calls.map(([, options]) => options?.allowSkipPermissions))
-      .toEqual([true, true])
+      .toEqual([false, true, true])
     expect(storage.get(AI_SKIP_PERMISSIONS_STORAGE_KEY)).toBe(true)
   })
 
@@ -343,6 +354,56 @@ describe('TaskChuteView skip-permissions consent', () => {
     expect(confirm).not.toHaveBeenCalled()
     expect(manager.prepareRun.mock.calls.map(([, options]) => options?.allowSkipPermissions))
       .toEqual([true, true])
+  })
+
+  test('the working folder is asked about first; Cancel there asks nothing more', async () => {
+    const storage = new Map<string, unknown>()
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(
+      prepared({
+        cwd: '/Users/me',
+        cwdIsVault: false,
+        skipPermissionsDowngraded: true,
+        ignoredArgs: ['--mcp-config', 'evil.json'],
+      }),
+    )
+    confirm.mockResolvedValue(false)
+
+    const result = await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
+
+    expect(result.kind).toBe('failed')
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(confirm.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ confirmText: 'Allow this folder' }),
+    )
+    // Nothing allowed for the device, and nothing said about a run that did not start.
+    expect(storage.has(AI_SKIP_PERMISSIONS_STORAGE_KEY)).toBe(false)
+    expect(noticeTexts()).toEqual([])
+  })
+
+  test('folder allowed, then skip-permissions asked, then the run is prepared with it', async () => {
+    const storage = new Map<string, unknown>()
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockImplementation((_file, options) =>
+      Promise.resolve(
+        prepared({
+          cwd: '/Users/me',
+          cwdIsVault: false,
+          skipPermissionsDowngraded: options?.allowSkipPermissions !== true,
+        }),
+      ),
+    )
+    confirm.mockResolvedValue(true)
+
+    const result = await internals.prepareAiRunForInstance(skipInstance(), manager, 'manual')
+
+    expect(result.kind).toBe('ready')
+    expect(confirm.mock.calls.map(([, options]) => (options as { confirmText: string }).confirmText))
+      .toEqual(['Allow this folder', 'Allow on this device'])
+    expect(manager.prepareRun.mock.calls.map(([, options]) => options?.allowSkipPermissions))
+      .toEqual([false, true])
+    expect(storage.get(AI_APPROVED_FOLDERS_STORAGE_KEY)).toEqual(['/Users/me'])
+    expect(storage.get(AI_SKIP_PERMISSIONS_STORAGE_KEY)).toBe(true)
   })
 
   test('a task that does not ask for skip-permissions is never asked about', async () => {
@@ -458,19 +519,69 @@ describe('TaskChuteView working-folder consent', () => {
     expect(folderNotices()[0]).toContain('did not start automatically')
   })
 
-  test('the vault, and folders picked on this device, need nothing', async () => {
-    const storage = new Map<string, unknown>([
-      ['taskchute-plus.ai-task-working-directory-history', ['/Users/me']],
-    ])
+  test('the vault, and folders allowed on this device, need nothing', async () => {
+    const storage = new Map<string, unknown>([[AI_APPROVED_FOLDERS_STORAGE_KEY, ['/Users/me']]])
     const { manager, internals } = setUp({}, storage)
     manager.prepareRun.mockResolvedValueOnce(prepared({ cwd: '/vault', cwdIsVault: true }))
     manager.prepareRun.mockResolvedValueOnce(prepared())
 
     const vault = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
-    const picked = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
+    const allowed = await internals.prepareAiRunForInstance(makeInstance(), manager, 'automatic')
 
-    expect([vault.kind, picked.kind]).toEqual(['ready', 'ready'])
+    expect([vault.kind, allowed.kind]).toEqual(['ready', 'ready'])
     expect(confirm).not.toHaveBeenCalled()
+  })
+
+  test('a folder only in the recent-folders history is still asked about', async () => {
+    const storage = new Map<string, unknown>([
+      ['taskchute-plus.ai-task-working-directory-history', ['/Users/me/listed']],
+    ])
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared({ cwd: '/Users/me/listed' }))
+    confirm.mockResolvedValue(false)
+
+    const result = await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+
+    expect(result.kind).toBe('failed')
+    expect(confirm).toHaveBeenCalledTimes(1)
+  })
+
+  test('trusting a folder allowed only to run in is asked about, and kept as trusted', async () => {
+    const storage = new Map<string, unknown>([[AI_APPROVED_FOLDERS_STORAGE_KEY, ['/srv/repo']]])
+    const { manager, internals } = setUp({}, storage)
+    manager.prepareRun.mockResolvedValue(prepared({ cwd: '/srv/repo', trustFolder: true }))
+    confirm.mockResolvedValue(true)
+
+    const result = await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+
+    expect(result.kind).toBe('ready')
+    expect(String(confirm.mock.calls[0][1].message)).toContain('trusts this folder')
+    expect(storage.get(AI_TRUSTED_FOLDERS_STORAGE_KEY)).toEqual(['/srv/repo'])
+  })
+
+  test('the dialog shows the folder without control characters', async () => {
+    const { manager, internals } = setUp()
+    manager.prepareRun.mockResolvedValue(prepared({ cwd: '/srv/a\u202Etxt.exe' }))
+    confirm.mockResolvedValue(false)
+
+    await internals.prepareAiRunForInstance(makeInstance(), manager, 'manual')
+
+    expect(confirm.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ message: '/srv/a\uFFFDtxt.exe' }),
+    )
+  })
+
+  test('a run the manager refuses for its folder says why', async () => {
+    const { manager, internals } = setUp()
+    manager.startRun.mockRejectedValue(
+      new AiWorkingFolderNotAllowedError({ taskPath: TASK_PATH, taskName: 'ai-task' }, '/Users/me/x', false),
+    )
+
+    await internals.startAiRun(makeInstance())
+
+    expect(folderNotices()).toEqual([
+      '"ai-task" did not start: its working folder /Users/me/x is not allowed on this device. Start the task with ▶ to be asked.',
+    ])
   })
 
   test('trusting the vault still needs this device to allow it', async () => {
