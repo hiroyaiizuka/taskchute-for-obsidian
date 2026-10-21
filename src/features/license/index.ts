@@ -89,6 +89,38 @@ export function describeDeviceLabel(): string | undefined {
   return formatDeviceLabel(readHostname() ?? describePlatform())
 }
 
+/**
+ * Move an activation code an older version left in the synced settings onto
+ * this device, then drop it from data.json (LEV-389). A device that already
+ * keeps its own code keeps it.
+ *
+ * The settings copy goes only once this device holds a code. Where the store
+ * cannot write, the copy stays in data.json but is not used: the manager reads
+ * the code from the store alone, and acting on a copy it cannot keep would
+ * have it re-enter the code on every launch.
+ */
+export function moveLicenseCodeToDevice(
+  plugin: LicensePluginLike,
+  store: LicenseStore,
+  log?: (level: string, ...args: unknown[]) => void,
+): void {
+  const synced = plugin.settings.licenseCode
+  if (synced === undefined) return
+  const own = store.getCode()
+  if (own === undefined) {
+    store.setCode(synced)
+    if (store.getCode() === undefined) return
+  } else if (own !== synced.trim()) {
+    // Two licenses, or a code re-entered on an older version: this device's
+    // own code wins, and the synced one is dropped.
+    log?.('warn', '[License] The synced license code differs from the one on this device; keeping the device code')
+  }
+  delete plugin.settings.licenseCode
+  plugin.saveSettings().catch((error: unknown) => {
+    log?.('warn', '[License] Failed to remove the code from the synced settings', error)
+  })
+}
+
 export function createLicenseManager(plugin: LicensePluginLike): LicenseManager {
   const log = (level: string, ...args: unknown[]) => plugin._log?.(level, ...args)
 
@@ -107,13 +139,16 @@ export function createLicenseManager(plugin: LicensePluginLike): LicenseManager 
   const pluginVersion = plugin.manifest?.version
   const deviceLabel = describeDeviceLabel()
 
+  moveLicenseCodeToDevice(plugin, store, log)
+
   const manager = new LicenseManager({
     client,
     store,
-    getCode: () => plugin.settings.licenseCode,
-    setCode: async (code) => {
-      plugin.settings.licenseCode = code
-      await plugin.saveSettings()
+    // On this device, never in the synced settings (LEV-389).
+    getCode: () => store.getCode(),
+    setCode: (code) => {
+      store.setCode(code)
+      return Promise.resolve()
     },
     ...(platform !== undefined ? { platform } : {}),
     ...(pluginVersion !== undefined ? { pluginVersion } : {}),

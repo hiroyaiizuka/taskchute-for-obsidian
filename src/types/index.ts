@@ -80,8 +80,9 @@ export interface TaskChuteSettings {
   aiTaskCursorPath?: string // advanced fallback only (empty = cross-platform auto detect)
   aiTaskLogRetentionDays?: number // default 30; run log notes older than this are pruned
 
-  // License. The activation code lives here so a synced vault carries the
-  // entitlement; the device-bound token stays in device-local storage.
+  // License: only read, from settings an older version saved. The activation
+  // code now lives on the device beside the token, and is moved there on load
+  // (LEV-389): a synced vault must not carry it to everyone who opens it.
   licenseCode?: string
 }
 
