@@ -148,6 +148,10 @@ export class TaskItemActionController {
     if (inst.state !== 'done') {
       button.classList.add('disabled')
       button.setAttribute('disabled', 'true')
+    } else {
+      // Start as the empty 💬 -- what most done rows turn out to be -- so the
+      // lookup below does not fade every row's 💬 out on each render (LEV-394).
+      button.classList.add('no-comment')
     }
 
     this.registerTapEvent(button, (event) => {
@@ -160,12 +164,10 @@ export class TaskItemActionController {
 
     void this.host.hasCommentData(inst).then((hasComment) => {
       if (hasComment) {
+        button.classList.remove('no-comment')
         button.classList.add('active')
       } else {
         button.classList.remove('active')
-        if (inst.state === 'done') {
-          button.classList.add('no-comment')
-        }
       }
     })
   }
