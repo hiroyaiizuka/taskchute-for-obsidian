@@ -101,6 +101,31 @@ Notes:
   so release artifacts always land at the repo root.
 - If iCloud is slow to propagate, opening the folder in Finder nudges the transfer.
 
+### Beta releases for BRAT testers
+
+`.github/workflows/release-beta.yml` (Actions → "Beta Release (manual)") publishes a
+GitHub **prerelease** that only BRAT users receive. Obsidian's own updater reads
+`manifest.json` at `main`'s HEAD, and the workflow writes to no branch, so regular users
+are not offered it.
+
+- Run it from any branch ("Use workflow from") to try a change on a device before merging.
+  It runs the same gates as the stable release.
+- The version is the next stable version plus `-beta.N`: `main` at `2.2.16` with `patch`
+  gives `2.2.17-beta.1`, then `-beta.2`, … across all branches. The tag points at the
+  dispatched commit; the beta version exists only in the attached `manifest.json`.
+- The release notes name the branch, commit, build number, and open PR.
+
+Installing on a device (BRAT v1.1.0 or later):
+
+1. Install **BRAT** from Community plugins and enable it.
+2. BRAT → "Add beta plugin" → `hiroyaiizuka/taskchute-for-obsidian`, and pick the beta
+   version (or "Latest version", which includes prereleases).
+3. Settings → TaskChute Plus → Version shows e.g. `2.2.17-beta.1 (620)` — that is the
+   tag and build number in the release notes.
+
+Once the stable `2.2.17` ships it supersedes every `2.2.17-beta.N`; until then, betas
+update only through BRAT.
+
 ## Build & test
 
 ```bash
