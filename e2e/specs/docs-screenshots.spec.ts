@@ -61,6 +61,11 @@ function writeClaude(dir: string, lang: "ja" | "en"): string {
   return file
 }
 
+/**
+ * Claude Code's folder for this throwaway vault. The name is Claude's lossy
+ * encoding of the path (the session reader avoids relying on it); on macOS
+ * and Linux temp paths the two agree, and a miss only leaves the folder.
+ */
 function removeSessionsOf(vault: string): void {
   const project = path.join(os.homedir(), ".claude", "projects", vault.replace(/[^a-zA-Z0-9]/g, "-"))
   if (fs.existsSync(project)) fs.rmSync(project, { recursive: true, force: true })
@@ -142,8 +147,9 @@ async function shot(page: Page, lang: Lang, name: string, targets: Locator[], ma
 for (const lang of ["ja", "en"] as const) {
   test.describe(`docs screenshots (${lang})`, () => {
     test.use({ language: lang })
+    // Skipped before any fixture runs, so ordinary E2E runs never launch Obsidian for it.
+    test.skip(!OUT || !REAL_CLAUDE, "Set TASKCHUTE_DOCS_SHOTS_DIR and TASKCHUTE_DOCS_CLAUDE to take the documentation screenshots.")
     test(`docs-shots-${lang}`, async ({ obsidian }, testInfo) => {
-      test.skip(!OUT || !REAL_CLAUDE, "Set TASKCHUTE_DOCS_SHOTS_DIR and TASKCHUTE_DOCS_CLAUDE to take the documentation screenshots.")
       test.setTimeout(10 * 60_000)
       fs.mkdirSync(path.join(OUT, lang), { recursive: true })
       const t = TEXT[lang]
