@@ -163,8 +163,23 @@ describe('TaskItemActionController', () => {
     const button = container.querySelector('.comment-button') as HTMLButtonElement
     expect(button).toBeTruthy()
     expect(button.classList.contains('active')).toBe(true)
+    expect(button.classList.contains('no-comment')).toBe(false)
     button.click()
     expect(host.showTaskCompletionModal).toHaveBeenCalledWith(inst)
+  })
+
+  test("a done task's 💬 starts as an empty one, so the comment lookup does not fade it out (LEV-394)", async () => {
+    const container = document.createElement('div')
+    const { host } = createHost({ hasCommentData: jest.fn(async () => false) })
+    const controller = new TaskItemActionController(host)
+
+    controller.renderCommentButton(container, createInstance({ state: 'done' }))
+
+    const button = container.querySelector('.comment-button') as HTMLButtonElement
+    expect(button.classList.contains('no-comment')).toBe(true)
+    await flushAsync()
+    expect(button.classList.contains('no-comment')).toBe(true)
+    expect(button.classList.contains('active')).toBe(false)
   })
 
   test('renderCommentButton keeps running tasks disabled', () => {
