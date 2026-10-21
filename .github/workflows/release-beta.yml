@@ -1,0 +1,205 @@
+name: Beta Release (manual)
+
+# A prerelease for BRAT testers only. Obsidian's own updater reads manifest.json
+# at the default branch HEAD, so this workflow never writes to any branch: it
+# tags the commit it was dispatched on, builds it with the beta version written
+# into a manifest.json that is attached to the release and never committed, and
+# publishes the result as a GitHub prerelease. BRAT (v1.1.0+) installs from
+# release assets, prereleases included; everyone else keeps the stable version.
+#
+# Run it from any branch ("Use workflow from" in the Actions tab) to try a
+# change on a device before it is merged.
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: "Bump the next stable release will make (the beta is a prerelease of it)"
+        required: true
+        default: "patch"
+        type: choice
+        options: [patch, minor, major]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+# Two betas dispatched at once would compute the same -beta.N.
+concurrency:
+  group: release-beta
+  cancel-in-progress: false
+
+jobs:
+  beta-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify ref is a branch
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" != "branch" ]; then
+            echo "::error::beta release must run on a branch, got ${GITHUB_REF_TYPE} ${GITHUB_REF_NAME}"
+            exit 1
+          fi
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install deps
+        run: npm ci || npm install
+
+      # The same gates as release.yml -- a beta reaches real vaults, so it gets
+      # no shortcut. Keep the two lists in step.
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test (unit)
+        run: npm run test:unit
+
+      - name: Test (integration)
+        env:
+          TASKCHUTE_TEST_REQUIRE_BINARIES: "1"
+        run: npm run test:integration
+
+      - name: Build plugin for review
+        run: npm run build
+
+      - name: Obsidian plugin review
+        run: npm run review:obsidian
+
+      - name: Upload plugin review report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: obsidian-review-${{ github.run_id }}
+          path: obsidian-review.json
+          if-no-files-found: warn
+
+      # The beta is a prerelease of the next stable version: the default branch's
+      # manifest.json version bumped the way release.yml will bump it, plus
+      # -beta.N. Read from the default branch, not from HEAD, so a branch that is
+      # behind main still numbers after what users already have. N counts up
+      # across every existing tag for that version, whichever branch it came from.
+      - name: Compute beta version
+        id: version
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          VERSION_TYPE: ${{ inputs.version_type }}
+        run: |
+          set -euo pipefail
+          git fetch --tags origin "$DEFAULT_BRANCH"
+          STABLE=$(git show "origin/${DEFAULT_BRANCH}:manifest.json" | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')
+          NEXT=$(node -e '
+            const [major, minor, patch] = process.argv[1].split(".").map(Number)
+            const next = { major: [major + 1, 0, 0], minor: [major, minor + 1, 0], patch: [major, minor, patch + 1] }
+            console.log(next[process.argv[2]].join("."))
+          ' "$STABLE" "$VERSION_TYPE")
+
+          LAST=$(git ls-remote --tags --refs origin "refs/tags/${NEXT}-beta.*" |
+            sed -E 's|.*-beta\.||' |
+            grep -E '^[0-9]+$' | sort -n | tail -1 || true)
+          TAG="${NEXT}-beta.$(( ${LAST:-0} + 1 ))"
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::tag ${TAG} already exists"
+            exit 1
+          fi
+
+          echo "Stable ${STABLE} on ${DEFAULT_BRANCH} -> beta ${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      # Only the working tree changes; nothing here is committed. Obsidian and
+      # BRAT both expect the attached manifest's version to equal the tag.
+      - name: Write beta version into manifest.json
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          node -e '
+            const fs = require("fs")
+            const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"))
+            manifest.version = process.argv[1]
+            fs.writeFileSync("manifest.json", JSON.stringify(manifest, null, 2) + "\n")
+          ' "$TAG"
+
+      - name: Build plugin
+        env:
+          NODE_ENV: production
+        run: npm run build
+
+      - name: Prepare release assets
+        id: prep
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          PKG_DIR="release-${TAG}"
+          mkdir -p "$PKG_DIR"
+          cp main.js manifest.json styles.css "$PKG_DIR/"
+
+          ASSET_VERSION=$(node -pe 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version' "$PKG_DIR/manifest.json")
+          if [ "$ASSET_VERSION" != "$TAG" ]; then
+            echo "::error::release asset manifest.json is $ASSET_VERSION, expected $TAG"; exit 1
+          fi
+
+          echo "dir=${PKG_DIR}" >> "$GITHUB_OUTPUT"
+
+      # The tag points at the dispatched commit as it is on the branch; the beta
+      # manifest only exists in the release assets. The tag also keeps the commit
+      # reachable after the branch is squash-merged and deleted.
+      - name: Create & push tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/${TAG}"
+
+      - name: Generate artifact attestations
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            ${{ steps.prep.outputs.dir }}/main.js
+            ${{ steps.prep.outputs.dir }}/manifest.json
+            ${{ steps.prep.outputs.dir }}/styles.css
+
+      # Testers see "2.2.17-beta.1 (620)" in settings; the notes say which branch
+      # and commit that is.
+      - name: Write release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$GITHUB_REF_NAME" --state open --json url --jq '.[0].url // ""')
+          {
+            echo "Beta for BRAT testers. Not delivered through Obsidian's community plugin updates."
+            echo
+            echo "- Branch: \`${GITHUB_REF_NAME}\`"
+            echo "- Commit: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+            echo "- Build: $(git rev-list --count "$GITHUB_SHA")"
+            if [ -n "$PR" ]; then echo "- Pull request: ${PR}"; fi
+          } > beta-notes.md
+
+      # prerelease + make_latest: false keeps "Latest" on the stable release.
+      - name: Create GitHub Release (prerelease)
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          body_path: beta-notes.md
+          prerelease: true
+          make_latest: false
+          files: |
+            ${{ steps.prep.outputs.dir }}/main.js
+            ${{ steps.prep.outputs.dir }}/manifest.json
+            ${{ steps.prep.outputs.dir }}/styles.css
