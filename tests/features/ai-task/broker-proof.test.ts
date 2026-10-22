@@ -18,21 +18,21 @@ const crypto = {
 
 class FakeSocket {
   written: string[] = []
-  private readonly listeners = new Map<string, Array<(arg?: unknown) => void>>()
+  private readonly listeners = new Map<string, Array<(chunk: string) => void>>()
 
   write(data: string): boolean {
     this.written.push(data)
     return true
   }
 
-  on(event: string, listener: (arg?: never) => void): void {
+  on(event: string, listener: (chunk: string) => void): void {
     const list = this.listeners.get(event) ?? []
-    list.push(listener as (arg?: unknown) => void)
+    list.push(listener)
     this.listeners.set(event, list)
   }
 
-  emit(event: string, arg?: unknown): void {
-    for (const listener of this.listeners.get(event) ?? []) listener(arg)
+  emit(event: string, chunk = ''): void {
+    for (const listener of this.listeners.get(event) ?? []) listener(chunk)
   }
 }
 
