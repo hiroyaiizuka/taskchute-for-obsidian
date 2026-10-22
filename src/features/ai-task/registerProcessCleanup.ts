@@ -2,7 +2,9 @@ import type { Plugin } from 'obsidian'
 import type { AiTaskManager } from './services/AiTaskManager'
 import {
   AI_TASK_TERMINAL_SHUTDOWN_GRACE_MS,
+  fenceLegacyManager,
   forgetRetainedAiTaskManager,
+  speaksCurrentBrokerProtocol,
   getAiTaskRuntimeTerminalLeaseIdentity,
   prepareRetainedAiTaskManagerForRendererTransition,
 } from './services/AiTaskRuntimeLease'
@@ -67,7 +69,24 @@ export function getSharedAiTaskManagersPendingDisposal(
     pending = new Set<AiTaskManager>()
     registry.set(app, pending)
   }
+  retireLegacyPendingDisposals(pending)
   return pending
+}
+
+/**
+ * A release before LEV-391 can leave a manager here whose settings-OFF
+ * shutdown failed. Retrying it runs that release's code, which sends the
+ * broker token without asking the broker to prove itself. So it is dropped
+ * and fenced instead, without calling anything that talks to the broker. Its
+ * broker, left with no clients, stops itself and its sessions after its idle
+ * TTL.
+ */
+function retireLegacyPendingDisposals(pending: Set<AiTaskManager>): void {
+  for (const manager of Array.from(pending)) {
+    if (speaksCurrentBrokerProtocol(manager)) continue
+    pending.delete(manager)
+    fenceLegacyManager(manager)
+  }
 }
 
 /**

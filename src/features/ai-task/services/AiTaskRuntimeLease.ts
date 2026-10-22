@@ -266,7 +266,7 @@ function persistManagerForRendererTransition(manager: AiTaskManager): void {
  * checking that it is our broker. Adopting it would keep that code running in
  * this bundle, so it is let go instead (see acquireRetainedAiTaskManager).
  */
-function speaksCurrentBrokerProtocol(manager: AiTaskManager): boolean {
+export function speaksCurrentBrokerProtocol(manager: object): boolean {
   const version = (manager as { terminalBrokerProtocol?: unknown })
     .terminalBrokerProtocol
   return typeof version === 'number' && version >= BROKER_PROTOCOL_VERSION
@@ -294,7 +294,7 @@ interface LegacyManagerInternals {
  * - `shellForeground`: a renderer-local timer that would otherwise poll, and
  *   keep the old manager alive, forever.
  */
-function fenceLegacyManager(manager: AiTaskManager): void {
+export function fenceLegacyManager(manager: object): void {
   const legacy = manager as unknown as LegacyManagerInternals
   try {
     legacy.disposed = true

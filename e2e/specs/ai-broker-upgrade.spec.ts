@@ -221,6 +221,38 @@ async function runOldReleaseWithTerminal(
 }
 
 /**
+ * Turn the stubbed license on or off and tell the plugin, as enableAiTasks
+ * does, without waiting for the AI runtime to appear: the window may reload
+ * under it, or the runtime may not start at all.
+ */
+async function setLicense(page: Page, claude: string, active: boolean): Promise<void> {
+  await page.evaluate(
+    ([id, claudePath, on]) => {
+      const plugin = window.app.plugins.plugins[id] as {
+        settings: Record<string, unknown>
+        licenseManager: { isActive: () => boolean; state: unknown; listeners: Set<(state: unknown) => void> }
+      }
+      plugin.settings.aiTaskEnabled = true
+      plugin.settings.aiTaskRunMode = "terminal"
+      plugin.settings.aiTaskClaudePath = claudePath
+      const state = { status: on ? "active" : "inactive" }
+      plugin.licenseManager.state = state
+      plugin.licenseManager.isActive = () => on
+      for (const listener of plugin.licenseManager.listeners) listener(state)
+    },
+    [PLUGIN_ID, claude, active] as const,
+  )
+}
+
+/** The managers the plugin still has to shut down (settings OFF or license loss). */
+async function pendingDisposals(page: Page): Promise<number> {
+  return page.evaluate(
+    (id) => (window.app.plugins.plugins[id] as { aiTaskManagersPendingDisposal?: Set<unknown> }).aiTaskManagersPendingDisposal?.size ?? 0,
+    PLUGIN_ID,
+  )
+}
+
+/**
  * Update to this build and turn AI tasks on before the old runtime's grace
  * period ends. Finding the old release's runtime, this build lets it go and
  * reloads the window once. `reload: "stub"` records that request instead of
@@ -255,22 +287,7 @@ async function updateToThisBuild(
   await installAndReload(page, vaultDir, thisBuild)
   // Turning AI tasks on is what finds the old runtime; the window reloads
   // under it, so this call may never see its manager. Wait for the reload.
-  await page.evaluate(
-    ([id, claudePath]) => {
-      const plugin = window.app.plugins.plugins[id] as {
-        settings: Record<string, unknown>
-        licenseManager: { isActive: () => boolean; state: unknown; listeners: Set<(state: unknown) => void> }
-      }
-      plugin.settings.aiTaskEnabled = true
-      plugin.settings.aiTaskRunMode = "terminal"
-      plugin.settings.aiTaskClaudePath = claudePath
-      const active = { status: "active" }
-      plugin.licenseManager.state = active
-      plugin.licenseManager.isActive = () => true
-      for (const listener of plugin.licenseManager.listeners) listener(active)
-    },
-    [PLUGIN_ID, claude] as const,
-  )
+  await setLicense(page, claude, true)
   await expect
     .poll(() => page.evaluate(() => window.__lev391BeforeReload === true).catch(() => true), { timeout: 30_000 })
     .toBe(false)
@@ -502,5 +519,46 @@ test(`a lease activation ${OLD_RELEASE} was retrying when the update landed neve
     const left = readDescriptor(vault)
     if (left && left.pid === process.pid) fs.rmSync(descriptorPath(vault), { force: true })
     await shutDown(page, [old.pid, ...(fresh ? [fresh.pid] : []), ...(left && left.pid !== process.pid ? [left.pid] : [])])
+  }
+})
+
+test(`a ${OLD_RELEASE} runtime whose shutdown failed is not retried after the update`, async ({ obsidian, home }, testInfo) => {
+  const { page, vaultDir } = obsidian
+  const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
+  const { old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)
+  let impostor: Impostor | null = null
+  try {
+    // The old release turns AI tasks off while its broker is frozen. The
+    // shutdown cannot be confirmed, so the manager stays queued for a retry.
+    process.kill(old.pid, "SIGSTOP")
+    await setLicense(page, claude, false)
+    expect(await pendingDisposals(page)).toBe(1)
+    await page.waitForTimeout(10_000)
+    expect(await pendingDisposals(page)).toBe(1)
+
+    // The broker dies and another process takes its port.
+    process.kill(old.pid, "SIGCONT")
+    process.kill(old.pid, "SIGKILL")
+    await expect.poll(() => isAlive(old.pid)).toBe(false)
+    impostor = await startImpostor(old.port)
+
+    // The update. Turning AI tasks back on drains the retry queue first: the
+    // old release's shutdown would send the token here, unproved.
+    const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../.."), "main.js")
+    await installAndReload(page, vaultDir, thisBuild)
+    expect(await pendingDisposals(page)).toBe(0)
+    await setLicense(page, claude, true)
+    await page.waitForFunction(
+      (id) => !!(window.app.plugins.plugins[id] as { aiTaskManager?: unknown }).aiTaskManager,
+      PLUGIN_ID,
+      { timeout: 10_000 },
+    )
+    await page.waitForTimeout(3_000)
+
+    expect(impostor.received()).toBe("")
+    expect(impostor.connections()).toBe(0)
+  } finally {
+    await impostor?.close()
+    await shutDown(page, [old.pid])
   }
 })

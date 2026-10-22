@@ -60,6 +60,36 @@ describe('registerAiTaskAppShutdownCleanup', () => {
     expect(anotherVaultPending.size).toBe(0)
   })
 
+  test('drops a release-before-LEV-391 manager whose shutdown failed, without retrying it', () => {
+    const rendererRoot = {}
+    const app = {}
+    // What 3.0.1 left behind after a failed settings-OFF shutdown.
+    const broker = { closing: false }
+    const legacy = {
+      disposed: true,
+      deps: { terminal: { dispatcher: { broker } } },
+      dispose: jest.fn(),
+      disposeAndWait: jest.fn().mockResolvedValue(undefined),
+    }
+    const current = {
+      terminalBrokerProtocol: 2,
+      dispose: jest.fn(),
+      disposeAndWait: jest.fn().mockResolvedValue(undefined),
+    }
+    getSharedAiTaskManagersPendingDisposal(app, rendererRoot).add(legacy as never)
+    getSharedAiTaskManagersPendingDisposal(app, rendererRoot).add(current as never)
+
+    // The updated plugin picks the set up.
+    const pending = getSharedAiTaskManagersPendingDisposal(app, rendererRoot)
+
+    expect(pending.has(legacy as never)).toBe(false)
+    expect(pending.has(current as never)).toBe(true)
+    // Its shutdown would send the token unproved; it is never called.
+    expect(legacy.disposeAndWait).not.toHaveBeenCalled()
+    expect(legacy.dispose).not.toHaveBeenCalled()
+    expect(broker.closing).toBe(true)
+  })
+
   test('registers a workspace quit task that waits for force-kill completion', async () => {
     let onQuit: ((tasks: { addPromise(promise: Promise<unknown>): void }) => void) | null =
       null
