@@ -3,7 +3,9 @@ import {
   disposeAiTaskManagerTracked,
   getSharedAiTaskManagersPendingDisposal,
   registerAiTaskAppShutdownCleanup,
+  retirePreviousReleaseAiTaskRuntime,
 } from '@/features/ai-task/registerProcessCleanup'
+import { Platform } from 'obsidian'
 import type { AiTaskManager } from '@/features/ai-task/services/AiTaskManager'
 import {
   forgetRetainedAiTaskManager,
@@ -420,5 +422,89 @@ describe('disposeAiTaskManagerTracked', () => {
 
     expect(manager.disposeAndWait).toHaveBeenCalledTimes(2)
     expect(pending.has(manager)).toBe(false)
+  })
+})
+
+describe('retirePreviousReleaseAiTaskRuntime', () => {
+  const REGISTRY_KEY = '__taskchutePlusAiTaskPendingDisposalRegistryV1__'
+
+  function reloadCalls(start: (app: { commands: { executeCommandById: jest.Mock } }) => void): number {
+    const app = { commands: { executeCommandById: jest.fn() } }
+    jest.useFakeTimers()
+    try {
+      start(app)
+      jest.runOnlyPendingTimers()
+    } finally {
+      jest.useRealTimers()
+    }
+    return app.commands.executeCommandById.mock.calls.filter(([id]) => id === 'app:reload').length
+  }
+
+  test('does not reload a window where only this release has run, across its own hot reloads', () => {
+    const rendererRoot = {}
+    expect(
+      reloadCalls((app) => {
+        getSharedAiTaskManagersPendingDisposal(app, rendererRoot)
+        retirePreviousReleaseAiTaskRuntime(app, rendererRoot)
+        // A hot reload of this release.
+        getSharedAiTaskManagersPendingDisposal(app, rendererRoot)
+        retirePreviousReleaseAiTaskRuntime(app, rendererRoot)
+      }),
+    ).toBe(0)
+  })
+
+  test('reloads once when a release before LEV-391 built the registry, keeping what it queued', () => {
+    const rendererRoot: Record<string, unknown> = {}
+    const current = {
+      terminalBrokerProtocol: 2,
+      dispose: jest.fn(),
+      disposeAndWait: jest.fn().mockResolvedValue(undefined),
+    }
+    let pending: Set<unknown> | undefined
+    const calls = reloadCalls((app) => {
+      // What 3.0.1 builds as its plugin is constructed. Its runtime may since
+      // have left every registry and slot (an expired handoff), while clients
+      // its terminal handles keep are still alive.
+      const legacyRegistry = new WeakMap<object, Set<unknown>>()
+      legacyRegistry.set(app, new Set([current]))
+      rendererRoot[REGISTRY_KEY] = legacyRegistry
+
+      pending = getSharedAiTaskManagersPendingDisposal(app, rendererRoot)
+      retirePreviousReleaseAiTaskRuntime(app, rendererRoot)
+    })
+    expect(calls).toBe(1)
+    expect(pending?.has(current)).toBe(true)
+  })
+
+  test('reloads once when a release before LEV-391 ran after this one in the same window', () => {
+    const rendererRoot: Record<string, unknown> = {}
+    const calls = reloadCalls((app) => {
+      getSharedAiTaskManagersPendingDisposal(app, rendererRoot)
+      // A downgrade: the old release reads the registry this one built,
+      // through its own methods, as its plugin is constructed.
+      const registry = rendererRoot[REGISTRY_KEY] as WeakMap<object, Set<unknown>>
+      registry.get(app)
+      // And the update back.
+      getSharedAiTaskManagersPendingDisposal(app, rendererRoot)
+      retirePreviousReleaseAiTaskRuntime(app, rendererRoot)
+      retirePreviousReleaseAiTaskRuntime(app, rendererRoot)
+    })
+    expect(calls).toBe(1)
+  })
+
+  test('does not reload on mobile, which runs no broker', () => {
+    const rendererRoot: Record<string, unknown> = {}
+    const platform = Platform as { isDesktop: boolean }
+    platform.isDesktop = false
+    try {
+      const calls = reloadCalls((app) => {
+        rendererRoot[REGISTRY_KEY] = new WeakMap()
+        getSharedAiTaskManagersPendingDisposal(app, rendererRoot)
+        retirePreviousReleaseAiTaskRuntime(app, rendererRoot)
+      })
+      expect(calls).toBe(0)
+    } finally {
+      platform.isDesktop = true
+    }
   })
 })

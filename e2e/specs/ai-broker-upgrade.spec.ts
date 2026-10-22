@@ -625,3 +625,63 @@ test(`updating from ${OLD_RELEASE} into a vault where AI tasks do not start stil
     await shutDown(page, [old.pid])
   }
 })
+
+test(`a ${OLD_RELEASE} runtime whose handoff expired while the plugin was off still ends with the update`, async ({ obsidian, home }, testInfo) => {
+  const { page, vaultDir } = obsidian
+  const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
+  const { old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)
+  let impostor: Impostor | null = null
+  try {
+    // A hot reload within the old release first: the terminal's handle keeps
+    // the first broker client, out of reach of anything this build can fence.
+    await installAndReload(page, vaultDir, await releasedMainJs(OLD_RELEASE))
+    await enableAiTasks(page, claude, "terminal")
+    await openTaskChute(page)
+
+    // The plugin is turned off while the broker is frozen, for longer than
+    // the old release's ten-second handoff. The old runtime disposes itself
+    // and leaves both the runtime slot and the pending-disposal registry,
+    // so nothing names it any more.
+    process.kill(old.pid, "SIGSTOP")
+    await page.evaluate(async (id) => {
+      await (window.app.plugins as unknown as { disablePlugin(id: string): Promise<void> }).disablePlugin(id)
+    }, PLUGIN_ID)
+    await page.waitForTimeout(12_000)
+
+    // This build is enabled. It cannot find the old runtime, but sees that
+    // the old release ran in this window, and reloads it once.
+    const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../.."), "main.js")
+    fs.copyFileSync(thisBuild, path.join(vaultDir, ".obsidian", "plugins", PLUGIN_ID, "main.js"))
+    await page.evaluate(() => {
+      window.__lev391BeforeReload = true
+    })
+    await page
+      .evaluate(async (id) => {
+        await (window.app.plugins as unknown as { enablePlugin(id: string): Promise<void> }).enablePlugin(id)
+      }, PLUGIN_ID)
+      .catch(() => undefined)
+
+    // Meanwhile the old broker dies and another process takes its port.
+    // Had the client the handle kept survived, it would reconnect here.
+    process.kill(old.pid, "SIGCONT")
+    process.kill(old.pid, "SIGKILL")
+    await expect.poll(() => isAlive(old.pid)).toBe(false)
+    impostor = await startImpostor(old.port)
+
+    await expect
+      .poll(() => page.evaluate(() => window.__lev391BeforeReload === true).catch(() => true), { timeout: 30_000 })
+      .toBe(false)
+    await page.waitForFunction(
+      (id) => Boolean(window.app?.workspace?.layoutReady && window.app.plugins?.plugins?.[id]),
+      PLUGIN_ID,
+      { timeout: 30_000 },
+    )
+    await page.waitForTimeout(5_000)
+
+    expect(impostor.received()).toBe("")
+    expect(impostor.connections()).toBe(0)
+  } finally {
+    await impostor?.close()
+    await shutDown(page, [old.pid])
+  }
+})
