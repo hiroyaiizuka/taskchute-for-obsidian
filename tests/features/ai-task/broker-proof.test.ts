@@ -36,16 +36,38 @@ class FakeSocket {
   }
 }
 
+/** Timers the test fires by hand. */
+class FakeTimers {
+  private next = 0
+  readonly pending = new Map<number, () => void>()
+  setTimeout = (callback: () => void): number => {
+    this.next += 1
+    this.pending.set(this.next, callback)
+    return this.next
+  }
+  clearTimeout = (id: number): void => {
+    this.pending.delete(id)
+  }
+  fire(): void {
+    const callbacks = Array.from(this.pending.values())
+    this.pending.clear()
+    for (const callback of callbacks) callback()
+  }
+}
+
 function setup() {
   const socket = new FakeSocket()
+  const timers = new FakeTimers()
   const events: string[] = []
   const errors: Error[] = []
   challengeBroker(socket, TOKEN, crypto, {
+    deadlineMs: 700,
+    timers,
     verified: () => events.push('verified'),
     data: (chunk) => events.push(`data:${chunk}`),
     rejected: (error) => errors.push(error),
   })
-  return { socket, events, errors }
+  return { socket, timers, events, errors }
 }
 
 const proofLine = (token = TOKEN): string =>
@@ -94,6 +116,36 @@ describe('BrokerProof', () => {
     const { socket, errors } = setup()
     socket.emit('data', 'x'.repeat(2048))
     expect(errors).toHaveLength(1)
+  })
+
+  test('an oversized proof is rejected even when its newline arrives with it', () => {
+    const { socket, events, errors } = setup()
+    const padded = `{"type":"proof",${' '.repeat(2048)}"proof":"${computeBrokerProof(crypto, TOKEN, NONCE)}"}\n`
+    socket.emit('data', padded)
+    expect(events).toEqual([])
+    expect(errors[0]).toBeInstanceOf(UntrustedBrokerError)
+  })
+
+  test('a peer trickling bytes cannot outlast the deadline', () => {
+    const { socket, timers, events, errors } = setup()
+    socket.emit('connect')
+    socket.emit('data', '{')
+    socket.emit('data', '"')
+    timers.fire()
+    socket.emit('data', proofLine())
+    expect(events).toEqual([])
+    expect(errors).toHaveLength(1)
+    // Not answering in time is not proof of an impostor: our broker may only be stalled.
+    expect(errors[0]).not.toBeInstanceOf(UntrustedBrokerError)
+  })
+
+  test('the deadline is cleared once the proof checks out, or the socket closes', () => {
+    const verified = setup()
+    verified.socket.emit('data', proofLine())
+    expect(verified.timers.pending.size).toBe(0)
+    const closed = setup()
+    closed.socket.emit('close')
+    expect(closed.timers.pending.size).toBe(0)
   })
 
   test('the proof is bound to the nonce', () => {

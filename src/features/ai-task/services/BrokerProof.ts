@@ -12,6 +12,13 @@
 
 export const BROKER_PROOF_PREFIX = 'taskchute-broker-proof:'
 
+/**
+ * The broker protocol this bundle speaks. Version 2 is the first that proves
+ * the broker before sending the token. A runtime retained from an older bundle
+ * (plugin hot reload) does not carry it and must not be adopted.
+ */
+export const BROKER_PROTOCOL_VERSION = 2
+
 const HEX_64 = /^[a-f0-9]{64}$/u
 // The proof line is ~90 bytes. Anything longer before it is not our broker.
 const MAX_PROOF_LINE_BYTES = 1024
@@ -38,17 +45,33 @@ export interface BrokerProofCrypto {
 
 export interface BrokerProofSocket {
   write(data: string): boolean
-  on(event: 'connect', listener: () => void): void
+  on(event: 'connect' | 'close', listener: () => void): void
   on(event: 'data', listener: (chunk: string) => void): void
 }
 
-export interface BrokerProofHandlers {
+export interface BrokerProofTimers {
+  setTimeout(callback: () => void, timeoutMs: number): number
+  clearTimeout(timeoutId: number): void
+}
+
+export interface BrokerProofOptions {
+  /**
+   * Time allowed from the call until a valid proof. Unlike the socket's idle
+   * timeout, it does not restart when bytes arrive, so a peer that trickles
+   * one byte at a time cannot hold the connection open.
+   */
+  deadlineMs: number
+  timers: BrokerProofTimers
   /** The peer proved it holds the token. Safe to send authenticated frames. */
   verified(): void
   /** Frames that arrive after the proof. Never called before `verified`. */
   data(chunk: string): void
-  /** The peer could not prove it holds the token. Send nothing more. */
-  rejected(error: UntrustedBrokerError): void
+  /**
+   * The peer could not prove it holds the token. Send nothing more. An
+   * `UntrustedBrokerError` means it answered wrongly; any other error means it
+   * did not answer in time (it may be our broker, only stalled).
+   */
+  rejected(error: Error): void
 }
 
 export function computeBrokerProof(
@@ -104,40 +127,57 @@ export function challengeBroker(
   socket: BrokerProofSocket,
   token: string,
   crypto: BrokerProofCrypto,
-  handlers: BrokerProofHandlers,
+  options: BrokerProofOptions,
 ): void {
   const nonce = crypto.randomBytes(32).toString('hex')
   let state: 'waiting' | 'verified' | 'rejected' = 'waiting'
   let pending = ''
-  const reject = (reason: string): void => {
+  let deadline: number | null = null
+  const stopDeadline = (): void => {
+    if (deadline === null) return
+    options.timers.clearTimeout(deadline)
+    deadline = null
+  }
+  const reject = (error: Error): void => {
+    stopDeadline()
     state = 'rejected'
     pending = ''
-    handlers.rejected(new UntrustedBrokerError(reason))
+    options.rejected(error)
   }
+  deadline = options.timers.setTimeout(() => {
+    deadline = null
+    if (state !== 'waiting') return
+    reject(new Error('Terminal broker did not prove itself in time'))
+  }, options.deadlineMs)
+  socket.on('close', stopDeadline)
   socket.on('connect', () => {
     socket.write(`${JSON.stringify({ op: 'prove', nonce })}\n`)
   })
   socket.on('data', (chunk) => {
     if (state === 'verified') {
-      handlers.data(chunk)
+      options.data(chunk)
       return
     }
     if (state === 'rejected') return
     pending += chunk
     const newline = pending.indexOf('\n')
-    if (newline < 0) {
-      if (pending.length > MAX_PROOF_LINE_BYTES) reject('the proof is too long')
+    // Measure the proof line alone, whether or not its newline has arrived,
+    // so the limit holds however the peer splits its answer.
+    if ((newline < 0 ? pending.length : newline) > MAX_PROOF_LINE_BYTES) {
+      reject(new UntrustedBrokerError('the proof is too long'))
       return
     }
+    if (newline < 0) return
     const line = pending.slice(0, newline)
     const rest = pending.slice(newline + 1)
     pending = ''
     if (!isValidBrokerProof(crypto, token, nonce, line)) {
-      reject('it could not prove it holds the token')
+      reject(new UntrustedBrokerError('it could not prove it holds the token'))
       return
     }
+    stopDeadline()
     state = 'verified'
-    handlers.verified()
-    if (rest.length > 0) handlers.data(rest)
+    options.verified()
+    if (rest.length > 0) options.data(rest)
   })
 }

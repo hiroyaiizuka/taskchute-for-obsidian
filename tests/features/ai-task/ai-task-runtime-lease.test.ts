@@ -21,6 +21,7 @@ type FakeManager = Pick<
   | 'persistSessionStateForRendererReload'
   | 'prepareForRendererReload'
 > & {
+  terminalBrokerProtocol?: number
   rebindRuntimeDependencies: jest.Mock<void, [AiTaskManagerDeps]>
   cancelTerminalShutdownAfterGrace?: jest.Mock
   scheduleTerminalShutdownAfterGrace?: jest.Mock
@@ -30,6 +31,7 @@ type FakeManager = Pick<
 
 function makeManager(): FakeManager {
   return {
+    terminalBrokerProtocol: 2,
     dispose: jest.fn(),
     isDisposed: jest.fn(() => false),
     persistSessionStateForRendererReload: jest.fn(),
@@ -696,6 +698,35 @@ describe('AiTaskRuntimeLease', () => {
 
     expect(adopted).toBeUndefined()
     expect(current.dispose).toHaveBeenCalledTimes(1)
+  })
+
+  test('a manager from a bundle without the broker proof is not adopted, and nothing on it talks to the broker', () => {
+    const win = new FakeRuntimeWindow()
+    const app = {}
+    const old = makeManager()
+    delete old.terminalBrokerProtocol
+
+    retainAiTaskManager(app, manager(old), runtimeWindow(win))
+    scheduleAiTaskManagerHotReloadHandoff(manager(old), runtimeWindow(win), 50)
+    // Only what the new bundle does from here on counts.
+    old.setTerminalRendererLeaseToken?.mockClear()
+    old.cancelTerminalShutdownAfterGrace?.mockClear()
+    old.scheduleTerminalShutdownAfterGrace?.mockClear()
+    const adopted = acquireRetainedAiTaskManager(app, deps(), runtimeWindow(win))
+    win.runTimers()
+
+    expect(adopted).toBeUndefined()
+    // Sessions are saved and the socket closed, so the new manager restores them.
+    expect(old.prepareForRendererReload).toHaveBeenCalledTimes(1)
+    // Every one of these would send the token through the old, unproved client.
+    expect(old.setTerminalRendererLeaseToken).not.toHaveBeenCalled()
+    expect(old.cancelTerminalShutdownAfterGrace).not.toHaveBeenCalled()
+    expect(old.scheduleTerminalShutdownAfterGrace).not.toHaveBeenCalled()
+    expect(old.rebindRuntimeDependencies).not.toHaveBeenCalled()
+    expect(old.dispose).not.toHaveBeenCalled()
+    expect(win.pageHideListeners.size).toBe(0)
+    // The slot is gone: a later instance cannot adopt it either.
+    expect(acquireRetainedAiTaskManager(app, deps(), runtimeWindow(win))).toBeUndefined()
   })
 
   test('explicit feature disable forgets the lease before tracked disposal', () => {

@@ -16,7 +16,11 @@ import type {
 } from './dispatchers/Dispatcher'
 import { Platform } from 'obsidian'
 
-import { challengeBroker, UntrustedBrokerError } from './BrokerProof'
+import {
+  BROKER_PROTOCOL_VERSION,
+  challengeBroker,
+  UntrustedBrokerError,
+} from './BrokerProof'
 import type { SpawnProcessRequest } from './NodeProcessGateway'
 import { listNodeExecutableCandidates } from './NodeExecutableLocator'
 import { buildTerminalBrokerSource } from './TerminalSessionBrokerSource'
@@ -294,7 +298,7 @@ export interface TerminalBrokerClientOptions {
 // (LEV-391). Version 1 brokers cannot, so they are never trusted: their
 // descriptor is retired and a fresh broker started. A version 1 broker left
 // without clients stops itself, and its sessions, after its idle TTL.
-const BROKER_VERSION = 2
+const BROKER_VERSION = BROKER_PROTOCOL_VERSION
 const LEGACY_BROKER_VERSION = 1
 const BROKER_CONNECT_TIMEOUT_MS = 700
 const BROKER_STARTUP_TIMEOUT_MS = 5_000
@@ -1248,6 +1252,9 @@ export class TerminalSessionBrokerClient {
         reject(error instanceof Error ? error : new Error(describeError(error)))
       }
       challengeBroker(socket, descriptor.token, loadCrypto(), {
+        deadlineMs:
+          this.options.connectTimeoutMs ?? BROKER_CONNECT_TIMEOUT_MS,
+        timers: stableTimeoutSource,
         verified: () => {
           if (settled) return
           if (generation !== this.transportGeneration) {
@@ -2194,6 +2201,10 @@ export class TerminalSessionBrokerClient {
         () => fail(new Error('Terminal broker termination timed out')),
       )
       challengeBroker(socket, descriptor.token, loadCrypto(), {
+        deadlineMs:
+          this.options.unavailableTerminationTimeoutMs ??
+            BROKER_UNAVAILABLE_TERMINATION_TIMEOUT_MS,
+        timers: stableTimeoutSource,
         verified: () => {
           for (const sessionId of sessionIds) {
             const frame: BrokerClientMessage = {
@@ -2298,6 +2309,8 @@ export class TerminalSessionBrokerClient {
         () => fail(new Error('Terminal broker shutdown timed out')),
       )
       challengeBroker(socket, descriptor.token, loadCrypto(), {
+        deadlineMs: timeoutMs,
+        timers: stableTimeoutSource,
         verified: () => {
           const frame: BrokerClientMessage = {
             token: descriptor.token,
@@ -2386,6 +2399,8 @@ export class TerminalSessionBrokerClient {
         () => fail(new Error('Terminal broker deferred shutdown timed out')),
       )
       challengeBroker(socket, descriptor.token, loadCrypto(), {
+        deadlineMs: timeoutMs,
+        timers: stableTimeoutSource,
         verified: () => {
           const frame: BrokerClientMessage = {
             token: descriptor.token,

@@ -13,6 +13,7 @@
  */
 
 import type { AiTaskManager, AiTaskManagerDeps } from './AiTaskManager'
+import { BROKER_PROTOCOL_VERSION } from './BrokerProof'
 
 export const AI_TASK_RUNTIME_HANDOFF_GRACE_MS = 10_000
 export const AI_TASK_TERMINAL_SHUTDOWN_GRACE_MS = 60_000
@@ -258,6 +259,17 @@ function persistManagerForRendererTransition(manager: AiTaskManager): void {
   // save-only API. Full preparation is still safer than disposing its broker
   // session during the one-time hot-upgrade boundary.
   manager.prepareForRendererReload()
+}
+
+/**
+ * A manager from a bundle older than LEV-391 dials the broker without first
+ * checking that it is our broker. Adopting it would keep that code running in
+ * this bundle, so it is let go instead (see acquireRetainedAiTaskManager).
+ */
+function speaksCurrentBrokerProtocol(manager: AiTaskManager): boolean {
+  const version = (manager as { terminalBrokerProtocol?: unknown })
+    .terminalBrokerProtocol
+  return typeof version === 'number' && version >= BROKER_PROTOCOL_VERSION
 }
 
 function cancelManagerTerminalShutdownGrace(
@@ -570,6 +582,20 @@ export function acquireRetainedAiTaskManager(
   if (slot.app !== app || slot.manager.isDisposed()) {
     clearSlot(sourceWindow, slot)
     if (!slot.manager.isDisposed()) slot.manager.dispose()
+    return undefined
+  }
+  if (!speaksCurrentBrokerProtocol(slot.manager)) {
+    // Do not call anything on it that talks to the broker: no lease activation,
+    // no shutdown-grace IPC, no dispose (which stops sessions over the broker).
+    // Save its sessions and close its socket, as a renderer reload does. The
+    // new manager restores them from the saved state, and its own client
+    // retires the old broker's descriptor without dialling it.
+    clearSlot(sourceWindow, slot)
+    try {
+      slot.manager.prepareForRendererReload()
+    } catch {
+      // The old broker stops itself after its idle TTL.
+    }
     return undefined
   }
   let currentSlot: AiTaskRuntimeSlot
