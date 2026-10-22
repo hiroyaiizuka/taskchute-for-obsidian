@@ -600,6 +600,12 @@ export function acquireRetainedAiTaskManager(
     legacyFocusedRuntimeWindow(),
   rendererLeaseGenerationStore?:
     AiTaskTerminalRendererLeaseGenerationStore,
+  /**
+   * Called after a runtime from a bundle before LEV-391 was let go. Its broker
+   * clients are not all reachable from here (terminal handles from an earlier
+   * hot reload keep their own), so only a renderer reload ends them all.
+   */
+  onLegacyRuntimeRetired?: () => void,
 ): AiTaskManager | undefined {
   let sourceWindow = win
   let slot = win[AI_TASK_RUNTIME_SLOT_KEY]
@@ -635,6 +641,7 @@ export function acquireRetainedAiTaskManager(
       // The old broker stops itself after its idle TTL.
     }
     fenceLegacyManager(slot.manager)
+    onLegacyRuntimeRetired?.()
     return undefined
   }
   let currentSlot: AiTaskRuntimeSlot

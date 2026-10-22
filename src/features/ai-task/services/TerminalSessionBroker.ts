@@ -21,6 +21,11 @@ import {
   challengeBroker,
   UntrustedBrokerError,
 } from './BrokerProof'
+import {
+  orphanStorePath,
+  readOrphans,
+  writeOrphans,
+} from './BrokerOrphanStore'
 import type { SpawnProcessRequest } from './NodeProcessGateway'
 import { listNodeExecutableCandidates } from './NodeExecutableLocator'
 import { buildTerminalBrokerSource } from './TerminalSessionBrokerSource'
@@ -81,6 +86,8 @@ interface NodeFsModuleLike {
     isSymbolicLink(): boolean
   }
   unlinkSync(path: string): void
+  writeFileSync(path: string, data: string, options: { mode: number }): void
+  renameSync(from: string, to: string): void
 }
 
 interface NodeOsModuleLike {
@@ -237,11 +244,6 @@ interface UnavailableSession {
   attempts: number
   /** Its termination was also queued on the verified data transport. */
   queuedOnTransport?: boolean
-  /**
-   * Its termination reached a broker that proved itself (on the data
-   * transport or a control connection). A broker that resumes reads it.
-   */
-  delivered?: boolean
 }
 
 interface UnavailableTerminationResult {
@@ -549,8 +551,9 @@ export class TerminalSessionBrokerClient {
   private readonly explicitlyStoppedSessionIds = new Set<string>()
   private readonly unavailableSessions = new Map<string, UnavailableSession>()
   /**
-   * Sessions reported unavailable whose termination never reached their
-   * broker, by the broker that owns them. See giveUpUnavailableSessions.
+   * Sessions reported unavailable whose termination no broker has confirmed,
+   * by the broker that owns them. Saved to disk; see BrokerOrphanStore and
+   * cleanUpOrphanedSessions.
    */
   private readonly orphanedSessions = new Map<string, BrokerDescriptor>()
   private orphanCleanupTimer: StableTimeoutId | null = null
@@ -618,6 +621,7 @@ export class TerminalSessionBrokerClient {
       (options.rendererLeaseGeneration ?? 0) >= 1
         ? (options.rendererLeaseGeneration as number)
         : 1
+    this.restoreOrphanedSessions()
   }
 
   async setRendererLeaseToken(
@@ -1931,9 +1935,6 @@ export class TerminalSessionBrokerClient {
           group.descriptor,
           group.sessions.map(([sessionId]) => sessionId),
           results,
-          () => {
-            for (const [, pending] of group.sessions) pending.delivered = true
-          },
         )
       } catch (error) {
         this.options.log?.(
@@ -2038,7 +2039,6 @@ export class TerminalSessionBrokerClient {
     for (const [sessionId, pending] of sessions) {
       if (pending.queuedOnTransport) continue
       pending.queuedOnTransport = true
-      pending.delivered = true
       const frame: BrokerClientMessage = {
         token: descriptor.token,
         rendererLeaseToken: this.rendererLeaseToken,
@@ -2101,12 +2101,11 @@ export class TerminalSessionBrokerClient {
    * window; the alternative was a terminal that looked alive but swallowed
    * every keystroke, and no new terminal until a reload.
    *
-   * A termination delivered to a broker that proved itself sits in that
-   * broker's socket, so a broker that resumes reads it and stops the session
-   * — and, remembering the id, refuses a stale spawn of it too. One never
-   * delivered (a frozen broker answers no proof, and nothing is sent before
-   * the proof) is retried in the background until it is, or until that
-   * broker is gone; see cleanUpOrphanedSessions.
+   * Its termination is still unconfirmed: a frozen broker answers no proof,
+   * and nothing is sent before the proof; a frame that did reach it may be
+   * refused under a lease that is no longer current. So it is retried in the
+   * background, across renderer reloads, until the broker confirms it or is
+   * gone; see cleanUpOrphanedSessions.
    */
   private giveUpUnavailableSessions(
     sessions: Array<[string, UnavailableSession]>,
@@ -2117,12 +2116,53 @@ export class TerminalSessionBrokerClient {
       sessions.map(([sessionId]) => sessionId),
     )
     for (const [sessionId, pending] of sessions) {
-      if (pending.descriptor && !pending.delivered) {
+      if (pending.descriptor) {
         this.orphanedSessions.set(sessionId, pending.descriptor)
       }
       this.settleUnavailableSession(sessionId, pending)
     }
+    this.persistOrphanedSessions()
     this.scheduleOrphanCleanup()
+  }
+
+  /** Pick up the retries a previous renderer left (see BrokerOrphanStore). */
+  private restoreOrphanedSessions(): void {
+    try {
+      const fs = loadFs()
+      const records = readOrphans(
+        fs,
+        orphanStorePath(this.descriptorPath),
+        isTrustedDescriptorFile,
+      )
+      if (records.length === 0) return
+      // Only the broker in the descriptor can be authenticated.
+      const current = this.readDescriptor()
+      for (const record of records) {
+        if (current && current.pid === record.pid && current.port === record.port) {
+          this.orphanedSessions.set(record.sessionId, current)
+        }
+      }
+      this.persistOrphanedSessions()
+      this.scheduleOrphanCleanup()
+    } catch (error) {
+      this.options.log?.('warn', '[TerminalBroker] Could not restore pending terminations', error)
+    }
+  }
+
+  private persistOrphanedSessions(): void {
+    try {
+      writeOrphans(
+        loadFs(),
+        orphanStorePath(this.descriptorPath),
+        Array.from(this.orphanedSessions, ([sessionId, descriptor]) => ({
+          sessionId,
+          pid: descriptor.pid,
+          port: descriptor.port,
+        })),
+      )
+    } catch (error) {
+      this.options.log?.('warn', '[TerminalBroker] Could not save pending terminations', error)
+    }
   }
 
   private scheduleOrphanCleanup(): void {
@@ -2146,6 +2186,8 @@ export class TerminalSessionBrokerClient {
   /**
    * Only shutdown stops it. detach() runs whenever the last session settles,
    * which is exactly when orphans are left, and a hot reload keeps this client.
+   * The saved list stays: a broker that outlived a failed shutdown may still
+   * hold the sessions, and the next client drops records of a gone broker.
    */
   private stopOrphanCleanup(): void {
     if (this.orphanCleanupTimer !== null) {
@@ -2156,12 +2198,17 @@ export class TerminalSessionBrokerClient {
   }
 
   /**
-   * Retry the termination of sessions given up undelivered. A session leaves
-   * the list once its termination reaches its broker after the proof, or
-   * once that broker is gone: dead with its descriptor gone, refusing its
-   * port, or replaced on it by someone who cannot prove itself (a broker
-   * holds its port until it exits). A dead broker's guards and owner
-   * watchdog reap its sessions. Its UI was settled when it was given up.
+   * Retry the termination of sessions given up on. A session leaves the list
+   * once its broker answers for it (terminated, or missing), or once that
+   * broker is gone: dead with its descriptor gone, refusing its port, or
+   * replaced on it by someone who cannot prove itself (a broker holds its
+   * port until it exits). A dead broker's guards and owner watchdog reap its
+   * sessions. Its UI was settled when it was given up.
+   *
+   * Each round first activates this renderer's lease. A broker frozen through
+   * a reload still holds the previous renderer's lease and refuses this one's
+   * termination until it is activated; activation is the ordinary adoption
+   * barrier, so a stale renderer still cannot take over.
    */
   private async cleanUpOrphanedSessions(): Promise<void> {
     if (this.closing || this.orphanedSessions.size === 0) return
@@ -2176,8 +2223,8 @@ export class TerminalSessionBrokerClient {
       }
       for (const { descriptor, ids } of groups.values()) {
         if (this.closing) return
-        const forget = (): void => {
-          for (const sessionId of ids) {
+        const forget = (sessionIds: string[]): void => {
+          for (const sessionId of sessionIds) {
             if (this.orphanedSessions.get(sessionId) === descriptor) {
               this.orphanedSessions.delete(sessionId)
             }
@@ -2187,19 +2234,31 @@ export class TerminalSessionBrokerClient {
           this.isProcessAlive(descriptor.pid) === false &&
           !descriptorsEqual(this.readDescriptor(), descriptor)
         ) {
-          forget()
+          forget(ids)
           continue
         }
+        const results = new Map<string, UnavailableTerminationResult>()
         try {
-          await this.requestUnavailableTermination(descriptor, ids, new Map(), forget)
+          await this.requestAuthenticatedDeferredShutdown(
+            descriptor,
+            { op: 'activate-renderer-lease' },
+            'renderer-lease-activated',
+            this.captureRendererLeaseIdentity(),
+            this.options.deferredShutdownTimeoutMs ??
+              BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS,
+          )
+          await this.requestUnavailableTermination(descriptor, ids, results)
         } catch (error) {
           if (error instanceof UntrustedBrokerError || isConnectionRefusedError(error)) {
-            forget()
+            forget(ids)
           }
         }
+        // Answers that came in before a timeout still count.
+        forget(Array.from(results.keys()))
       }
     } finally {
       this.orphanCleanupRunning = false
+      this.persistOrphanedSessions()
       this.scheduleOrphanCleanup()
     }
   }
@@ -2277,8 +2336,6 @@ export class TerminalSessionBrokerClient {
     descriptor: BrokerDescriptor,
     sessionIds: string[],
     results: Map<string, UnavailableTerminationResult>,
-    /** Called once the frames are written to a broker that proved itself. */
-    onDelivered?: () => void,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const pending = new Set(sessionIds)
@@ -2324,7 +2381,6 @@ export class TerminalSessionBrokerClient {
             }
             socket.write(`${JSON.stringify(frame)}\n`)
           }
-          onDelivered?.()
         },
         data: (chunk) => {
           receiveBuffer += chunk

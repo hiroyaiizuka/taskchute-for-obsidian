@@ -17,6 +17,7 @@ import {
   type TerminalBrokerSessionCallbacks,
 } from '@/features/ai-task/services/TerminalSessionBroker'
 import type { SpawnProcessRequest } from '@/features/ai-task/services/NodeProcessGateway'
+import { orphanStorePath } from '@/features/ai-task/services/BrokerOrphanStore'
 import { describePosix } from '@tests/support/platform'
 import {
   answerBrokerProof,
@@ -1010,6 +1011,102 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       }
       await after?.shutdown().catch(() => undefined)
       await before.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a termination given up in one renderer is finished by the next, under its own lease, once the broker resumes (LEV-391)', async () => {
+    const unique = `lev391-orphan-reload-${process.pid}-${Date.now()}-${Math.random()}`
+    const identity = `broker-${unique}`
+    const descriptorPath = getTerminalBrokerDescriptorPath(identity)
+    const owner = 'lev391-orphan-owner'
+    const lease = (generation: number) => ({
+      rendererLeaseToken: `lev391-orphan-lease-${String(generation)}`,
+      rendererLeaseOwnerId: owner,
+      rendererLeaseGeneration: generation,
+    })
+    const frozenWindow = {
+      connectTimeoutMs: 300,
+      sessionAckTimeoutMs: 1_000,
+      unavailableTerminationTimeoutMs: 200,
+      deferredShutdownTimeoutMs: 300,
+      unavailableRecoveryBaseMs: 50,
+      unavailableRecoveryMaxMs: 100,
+      unavailableConfirmationGiveUpMs: 1_500,
+      unavailableConfirmationMinAttempts: 3,
+      rendererLeaseActivationRetryWindowMs: 500,
+    }
+    // Renderer 1 spawns the session, then the window reloads.
+    const first = new TerminalSessionBrokerClient({ identity, ...lease(1) })
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    let second: TerminalSessionBrokerClient | null = null
+    let third: TerminalSessionBrokerClient | null = null
+    try {
+      const session = startSession(first, 'session-orphaned', 'ORPHANED_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+      first.detach()
+      process.kill(brokerPid, 'SIGSTOP')
+
+      // Renderer 2 restores it from the frozen broker and gives up; its
+      // retries never get to run before it is replaced in turn.
+      second = new TerminalSessionBrokerClient({
+        identity,
+        ...lease(2),
+        ...frozenWindow,
+        orphanCleanupIntervalMs: 60 * 60 * 1_000,
+      })
+      const unavailable = deferred<void>()
+      second.attach('session-orphaned', {
+        onData: () => undefined,
+        onExit: () => unavailable.resolve(),
+        onUnavailable: () => unavailable.resolve(),
+      })
+      await withTimeout(unavailable.promise, 30_000)
+      expect(existsSync(orphanStorePath(descriptorPath))).toBe(true)
+      second.detach()
+
+      // Renderer 3 picks the pending termination up from disk. Its own lease
+      // activation runs out while the broker is still frozen.
+      third = new TerminalSessionBrokerClient({
+        identity,
+        ...lease(3),
+        ...frozenWindow,
+        orphanCleanupIntervalMs: 200,
+      })
+      await expect(
+        third.setRendererLeaseToken(lease(3).rendererLeaseToken, owner, 3),
+      ).rejects.toThrow()
+
+      // The broker resumes still holding renderer 1's lease.
+      process.kill(brokerPid, 'SIGCONT')
+
+      await waitUntil(
+        () => !isAlive(sessionPid),
+        'the orphaned session is stopped after the broker resumes',
+        60_000,
+      )
+      await waitUntil(
+        () => !existsSync(orphanStorePath(descriptorPath)),
+        'the pending termination is forgotten once the broker answers',
+        30_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await third?.shutdown().catch(() => undefined)
+      await second?.shutdown().catch(() => undefined)
+      await first.shutdown().catch(() => undefined)
+      rmSync(orphanStorePath(descriptorPath), { force: true })
       cleanup(descriptorPath, pids)
     }
   })

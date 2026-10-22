@@ -716,10 +716,20 @@ describe('AiTaskRuntimeLease', () => {
     old.setTerminalRendererLeaseToken?.mockClear()
     old.cancelTerminalShutdownAfterGrace?.mockClear()
     old.scheduleTerminalShutdownAfterGrace?.mockClear()
-    const adopted = acquireRetainedAiTaskManager(app, deps(), runtimeWindow(win))
+    const retired = jest.fn()
+    const adopted = acquireRetainedAiTaskManager(
+      app,
+      deps(),
+      runtimeWindow(win),
+      undefined,
+      undefined,
+      retired,
+    )
     win.runTimers()
 
     expect(adopted).toBeUndefined()
+    // Its handles may keep other clients, so the caller reloads the window.
+    expect(retired).toHaveBeenCalledTimes(1)
     // Sessions are saved and the socket closed, so the new manager restores them.
     expect(old.prepareForRendererReload).toHaveBeenCalledTimes(1)
     // Every one of these would send the token through the old, unproved client.

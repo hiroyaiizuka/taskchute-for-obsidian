@@ -285,6 +285,16 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     undefined,
     undefined,
     rendererLeaseGenerationStore,
+    () => {
+      // Updating from a release that sent the broker token without proof
+      // (LEV-391). Its terminal handles keep broker clients this bundle cannot
+      // reach, so reload the window once: that ends them all, and the broker
+      // sessions are restored by the next renderer as on any reload.
+      log('warn', '[AiTask] Reloading once to retire the previous release\'s terminal clients')
+      window.setTimeout(() => {
+        plugin.app.commands.executeCommandById?.('app:reload')
+      }, 0)
+    },
   )
   if (retained) {
     plugin.aiTaskRuntimeLeaseGeneration =

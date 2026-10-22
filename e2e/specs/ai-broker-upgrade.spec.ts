@@ -46,6 +46,8 @@ declare global {
     __lev391Release?: () => void
     __lev391Start?: Promise<string>
     __lev391Outcome?: string
+    __lev391BeforeReload?: boolean
+    __lev391ReloadRequested?: boolean
   }
 }
 
@@ -131,10 +133,19 @@ async function startImpostor(port = 0): Promise<Impostor> {
   }
 }
 
+/**
+ * Whether the process runs. A zombie counts as gone: a broker killed after a
+ * window reload stays one, because the reload dropped the handle that would
+ * have reaped it.
+ */
 function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
-    return true
+  } catch {
+    return false
+  }
+  try {
+    return !execFileSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" }).trim().startsWith("Z")
   } catch {
     return false
   }
@@ -209,9 +220,66 @@ async function runOldReleaseWithTerminal(
   return { vault, old: old! }
 }
 
-/** Update to this build and turn AI tasks on before the old runtime's grace period ends. */
-async function updateToThisBuild(page: Page, vaultDir: string, claude: string): Promise<void> {
-  await installAndReload(page, vaultDir, path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../.."), "main.js"))
+/**
+ * Update to this build and turn AI tasks on before the old runtime's grace
+ * period ends. Finding the old release's runtime, this build lets it go and
+ * reloads the window once. `reload: "stub"` records that request instead of
+ * reloading, so a test can watch what the old release's code does meanwhile.
+ */
+async function updateToThisBuild(
+  page: Page,
+  vaultDir: string,
+  claude: string,
+  reload: "real" | "stub" = "real",
+): Promise<void> {
+  const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../.."), "main.js")
+  if (reload === "stub") {
+    await page.evaluate(() => {
+      const commands = window.app.commands as unknown as { executeCommandById(id: string): unknown }
+      const original = commands.executeCommandById.bind(commands)
+      commands.executeCommandById = (id) => {
+        if (id !== "app:reload") return original(id)
+        window.__lev391ReloadRequested = true
+        return true
+      }
+    })
+    await installAndReload(page, vaultDir, thisBuild)
+    await enableAiTasks(page, claude, "terminal")
+    await openTaskChute(page)
+    await expect.poll(() => page.evaluate(() => window.__lev391ReloadRequested === true)).toBe(true)
+    return
+  }
+  await page.evaluate(() => {
+    window.__lev391BeforeReload = true
+  })
+  await installAndReload(page, vaultDir, thisBuild)
+  // Turning AI tasks on is what finds the old runtime; the window reloads
+  // under it, so this call may never see its manager. Wait for the reload.
+  await page.evaluate(
+    ([id, claudePath]) => {
+      const plugin = window.app.plugins.plugins[id] as {
+        settings: Record<string, unknown>
+        licenseManager: { isActive: () => boolean; state: unknown; listeners: Set<(state: unknown) => void> }
+      }
+      plugin.settings.aiTaskEnabled = true
+      plugin.settings.aiTaskRunMode = "terminal"
+      plugin.settings.aiTaskClaudePath = claudePath
+      const active = { status: "active" }
+      plugin.licenseManager.state = active
+      plugin.licenseManager.isActive = () => true
+      for (const listener of plugin.licenseManager.listeners) listener(active)
+    },
+    [PLUGIN_ID, claude] as const,
+  )
+  await expect
+    .poll(() => page.evaluate(() => window.__lev391BeforeReload === true).catch(() => true), { timeout: 30_000 })
+    .toBe(false)
+  await page.waitForFunction(
+    (id) => Boolean(window.app?.workspace?.layoutReady && window.app.plugins?.plugins?.[id]),
+    PLUGIN_ID,
+    { timeout: 30_000 },
+  )
+  // A new window: the license stub and settings are set again.
   await enableAiTasks(page, claude, "terminal")
   await openTaskChute(page)
 }
@@ -241,12 +309,13 @@ test(`updating from ${OLD_RELEASE} with a live terminal moves to a new broker wi
   try {
     await updateToThisBuild(page, vaultDir, claude)
 
-    // The old runtime was not taken over: this build runs its own manager.
-    const adoption = await page.evaluate((id) => {
+    // The window was reloaded, so none of the old release's code runs, and
+    // this build runs its own manager.
+    const protocol = await page.evaluate((id) => {
       const manager = (window.app.plugins.plugins[id] as { aiTaskManager: ManagerHandle }).aiTaskManager
-      return { protocol: manager.terminalBrokerProtocol, same: manager === window.__lev391OldManager }
+      return manager.terminalBrokerProtocol
     }, PLUGIN_ID)
-    expect(adoption).toEqual({ protocol: 2, same: false })
+    expect(protocol).toBe(2)
 
     // A terminal opened after the update runs on a fresh broker that proves itself.
     await startShell(page, "NEW")
@@ -270,10 +339,23 @@ test(`after updating from ${OLD_RELEASE}, a process that takes the old broker's 
   let impostor: Impostor | null = null
   let fresh: Descriptor | null = null
   try {
+    // A hot reload within the old release first. Its manager is adopted with
+    // a new broker client, while the terminal's handle keeps the first one,
+    // out of this build's reach.
+    await installAndReload(page, vaultDir, await releasedMainJs(OLD_RELEASE))
+    await enableAiTasks(page, claude, "terminal")
+    await openTaskChute(page)
+    expect(
+      await page.evaluate(
+        (id) => (window.app.plugins.plugins[id] as { aiTaskManager: unknown }).aiTaskManager === window.__lev391OldManager,
+        PLUGIN_ID,
+      ),
+    ).toBe(true)
+
     await updateToThisBuild(page, vaultDir, claude)
 
-    // The old broker dies and another process takes its port. Had the old
-    // runtime been kept, its client would reconnect here and send the token.
+    // The old broker dies and another process takes its port. Had any old
+    // client survived the update, it would reconnect here and send the token.
     process.kill(old.pid, "SIGKILL")
     await expect.poll(() => isAlive(old.pid)).toBe(false)
     impostor = await startImpostor(old.port)
@@ -337,7 +419,7 @@ test(`an AI task ${OLD_RELEASE} was starting when the update landed never dispat
 
   let impostor: Impostor | null = null
   try {
-    await updateToThisBuild(page, vaultDir, claude)
+    await updateToThisBuild(page, vaultDir, claude, "stub")
 
     // A descriptor from before the proof, left behind by a dead broker, now
     // points at another process's port.
@@ -399,7 +481,7 @@ test(`a lease activation ${OLD_RELEASE} was retrying when the update landed neve
     await page.waitForTimeout(500)
     expect(await page.evaluate(() => window.__lev391Outcome ?? null)).toBeNull()
 
-    await updateToThisBuild(page, vaultDir, claude)
+    await updateToThisBuild(page, vaultDir, claude, "stub")
     fresh = readDescriptor(vault)
 
     // While the old retry loop is still within its window, a descriptor from
