@@ -237,6 +237,11 @@ interface UnavailableSession {
   attempts: number
   /** Its termination was also queued on the verified data transport. */
   queuedOnTransport?: boolean
+  /**
+   * Its termination reached a broker that proved itself (on the data
+   * transport or a control connection). A broker that resumes reads it.
+   */
+  delivered?: boolean
 }
 
 interface UnavailableTerminationResult {
@@ -270,6 +275,8 @@ export interface TerminalBrokerClientOptions {
   unavailableConfirmationGiveUpMs?: number
   /** Attempts an unconfirmed termination gets before the window can end it. */
   unavailableConfirmationMinAttempts?: number
+  /** Interval of the background retry for terminations given up undelivered. */
+  orphanCleanupIntervalMs?: number
   /**
    * Clock for the confirmation window; defaults to performance.now, which
    * does not advance while the machine sleeps.
@@ -319,6 +326,7 @@ const BROKER_UNAVAILABLE_RECOVERY_MAX_MS = 30_000
  * answers later.
  */
 const BROKER_UNAVAILABLE_CONFIRMATION_GIVE_UP_MS = 60_000
+const BROKER_ORPHAN_CLEANUP_INTERVAL_MS = 30_000
 const BROKER_UNAVAILABLE_CONFIRMATION_MIN_ATTEMPTS = 5
 /** A login shell normally answers in a few seconds; a hung one must not hold a terminal. */
 const BROKER_PREPARE_ENV_TIMEOUT_MS = 12_000
@@ -540,6 +548,13 @@ export class TerminalSessionBrokerClient {
   private readonly sessionRecords = new Map<string, SessionRecord>()
   private readonly explicitlyStoppedSessionIds = new Set<string>()
   private readonly unavailableSessions = new Map<string, UnavailableSession>()
+  /**
+   * Sessions reported unavailable whose termination never reached their
+   * broker, by the broker that owns them. See giveUpUnavailableSessions.
+   */
+  private readonly orphanedSessions = new Map<string, BrokerDescriptor>()
+  private orphanCleanupTimer: StableTimeoutId | null = null
+  private orphanCleanupRunning = false
   private readonly pendingSessionAcks = new Map<
     string,
     {
@@ -983,6 +998,7 @@ export class TerminalSessionBrokerClient {
       this.readDescriptor()
     if (!target) {
       this.detach()
+      this.stopOrphanCleanup()
       return
     }
     const childPids = Array.from(this.sessionRecords.values())
@@ -1013,6 +1029,7 @@ export class TerminalSessionBrokerClient {
     } finally {
       this.detach()
       this.unavailableSessions.clear()
+      this.stopOrphanCleanup()
     }
   }
 
@@ -1914,6 +1931,9 @@ export class TerminalSessionBrokerClient {
           group.descriptor,
           group.sessions.map(([sessionId]) => sessionId),
           results,
+          () => {
+            for (const [, pending] of group.sessions) pending.delivered = true
+          },
         )
       } catch (error) {
         this.options.log?.(
@@ -2018,6 +2038,7 @@ export class TerminalSessionBrokerClient {
     for (const [sessionId, pending] of sessions) {
       if (pending.queuedOnTransport) continue
       pending.queuedOnTransport = true
+      pending.delivered = true
       const frame: BrokerClientMessage = {
         token: descriptor.token,
         rendererLeaseToken: this.rendererLeaseToken,
@@ -2078,13 +2099,14 @@ export class TerminalSessionBrokerClient {
    * Stop confirming and report the sessions unavailable. Whatever kept the
    * broker from answering (a frozen process, a lost socket) has outlasted the
    * window; the alternative was a terminal that looked alive but swallowed
-   * every keystroke, and no new terminal until a reload. Every attempt that
-   * reached a broker wrote its session-scoped terminate-unavailable request
-   * into that broker's socket before timing out, so a broker that resumes
-   * reads them and stops the session — and, remembering the id, refuses a
-   * stale spawn of it too. A session whose broker could never be reached at
-   * all had nothing to stop it with; only that broker's own owner watchdog
-   * and guards can, which they do when it dies.
+   * every keystroke, and no new terminal until a reload.
+   *
+   * A termination delivered to a broker that proved itself sits in that
+   * broker's socket, so a broker that resumes reads it and stops the session
+   * — and, remembering the id, refuses a stale spawn of it too. One never
+   * delivered (a frozen broker answers no proof, and nothing is sent before
+   * the proof) is retried in the background until it is, or until that
+   * broker is gone; see cleanUpOrphanedSessions.
    */
   private giveUpUnavailableSessions(
     sessions: Array<[string, UnavailableSession]>,
@@ -2095,7 +2117,90 @@ export class TerminalSessionBrokerClient {
       sessions.map(([sessionId]) => sessionId),
     )
     for (const [sessionId, pending] of sessions) {
+      if (pending.descriptor && !pending.delivered) {
+        this.orphanedSessions.set(sessionId, pending.descriptor)
+      }
       this.settleUnavailableSession(sessionId, pending)
+    }
+    this.scheduleOrphanCleanup()
+  }
+
+  private scheduleOrphanCleanup(): void {
+    if (
+      this.closing ||
+      this.orphanedSessions.size === 0 ||
+      this.orphanCleanupTimer !== null ||
+      this.orphanCleanupRunning
+    ) {
+      return
+    }
+    this.orphanCleanupTimer = stableTimeoutSource.setTimeout(
+      () => {
+        this.orphanCleanupTimer = null
+        void this.cleanUpOrphanedSessions()
+      },
+      this.options.orphanCleanupIntervalMs ?? BROKER_ORPHAN_CLEANUP_INTERVAL_MS,
+    )
+  }
+
+  /**
+   * Only shutdown stops it. detach() runs whenever the last session settles,
+   * which is exactly when orphans are left, and a hot reload keeps this client.
+   */
+  private stopOrphanCleanup(): void {
+    if (this.orphanCleanupTimer !== null) {
+      stableTimeoutSource.clearTimeout(this.orphanCleanupTimer)
+      this.orphanCleanupTimer = null
+    }
+    this.orphanedSessions.clear()
+  }
+
+  /**
+   * Retry the termination of sessions given up undelivered. A session leaves
+   * the list once its termination reaches its broker after the proof, or
+   * once that broker is gone: dead with its descriptor gone, refusing its
+   * port, or replaced on it by someone who cannot prove itself (a broker
+   * holds its port until it exits). A dead broker's guards and owner
+   * watchdog reap its sessions. Its UI was settled when it was given up.
+   */
+  private async cleanUpOrphanedSessions(): Promise<void> {
+    if (this.closing || this.orphanedSessions.size === 0) return
+    this.orphanCleanupRunning = true
+    try {
+      const groups = new Map<string, { descriptor: BrokerDescriptor; ids: string[] }>()
+      for (const [sessionId, descriptor] of this.orphanedSessions) {
+        const key = `${String(descriptor.pid)}:${String(descriptor.port)}:${descriptor.token}`
+        const group = groups.get(key) ?? { descriptor, ids: [] }
+        group.ids.push(sessionId)
+        groups.set(key, group)
+      }
+      for (const { descriptor, ids } of groups.values()) {
+        if (this.closing) return
+        const forget = (): void => {
+          for (const sessionId of ids) {
+            if (this.orphanedSessions.get(sessionId) === descriptor) {
+              this.orphanedSessions.delete(sessionId)
+            }
+          }
+        }
+        if (
+          this.isProcessAlive(descriptor.pid) === false &&
+          !descriptorsEqual(this.readDescriptor(), descriptor)
+        ) {
+          forget()
+          continue
+        }
+        try {
+          await this.requestUnavailableTermination(descriptor, ids, new Map(), forget)
+        } catch (error) {
+          if (error instanceof UntrustedBrokerError || isConnectionRefusedError(error)) {
+            forget()
+          }
+        }
+      }
+    } finally {
+      this.orphanCleanupRunning = false
+      this.scheduleOrphanCleanup()
     }
   }
 
@@ -2172,6 +2277,8 @@ export class TerminalSessionBrokerClient {
     descriptor: BrokerDescriptor,
     sessionIds: string[],
     results: Map<string, UnavailableTerminationResult>,
+    /** Called once the frames are written to a broker that proved itself. */
+    onDelivered?: () => void,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const pending = new Set(sessionIds)
@@ -2217,6 +2324,7 @@ export class TerminalSessionBrokerClient {
             }
             socket.write(`${JSON.stringify(frame)}\n`)
           }
+          onDelivered?.()
         },
         data: (chunk) => {
           receiveBuffer += chunk

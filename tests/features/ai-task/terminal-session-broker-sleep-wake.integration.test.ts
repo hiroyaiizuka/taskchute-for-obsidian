@@ -943,4 +943,74 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       cleanup(descriptorPath, pids)
     }
   })
+
+  test('a client restoring a session from a frozen broker stops it once the broker resumes (LEV-391)', async () => {
+    const unique = `lev391-restore-frozen-${process.pid}-${Date.now()}-${Math.random()}`
+    const identity = `broker-${unique}`
+    const descriptorPath = getTerminalBrokerDescriptorPath(identity)
+    const lease = {
+      rendererLeaseToken: 'lev391-restore-lease',
+      rendererLeaseOwnerId: 'lev391-restore-owner',
+      rendererLeaseGeneration: 1,
+    }
+    const before = new TerminalSessionBrokerClient({ identity, ...lease })
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    let after: TerminalSessionBrokerClient | null = null
+    try {
+      const session = startSession(before, 'session-restored', 'RESTORED_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // The renderer reloads; the session keeps running in the broker. Then
+      // the broker freezes before the new renderer restores it.
+      before.detach()
+      process.kill(brokerPid, 'SIGSTOP')
+
+      after = new TerminalSessionBrokerClient({
+        identity,
+        ...lease,
+        connectTimeoutMs: 300,
+        sessionAckTimeoutMs: 1_000,
+        unavailableTerminationTimeoutMs: 200,
+        unavailableRecoveryBaseMs: 50,
+        unavailableRecoveryMaxMs: 100,
+        unavailableConfirmationGiveUpMs: 1_500,
+        unavailableConfirmationMinAttempts: 3,
+        orphanCleanupIntervalMs: 200,
+      })
+      const unavailable = deferred<void>()
+      after.attach('session-restored', {
+        onData: () => undefined,
+        onExit: () => unavailable.resolve(),
+        onUnavailable: () => unavailable.resolve(),
+      })
+      // The new client never verified this broker, so it could send nothing,
+      // and it gives up within the window.
+      await withTimeout(unavailable.promise, 30_000)
+
+      process.kill(brokerPid, 'SIGCONT')
+
+      // Its termination is still delivered once the broker can prove itself.
+      await waitUntil(
+        () => !isAlive(sessionPid),
+        'the restored session is stopped after the broker resumes',
+        60_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await after?.shutdown().catch(() => undefined)
+      await before.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
 })
