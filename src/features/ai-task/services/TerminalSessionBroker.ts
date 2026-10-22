@@ -167,7 +167,7 @@ type BrokerClientMessage =
   | { token: string; op: 'terminate-unavailable'; sessionId: string }
   | { token: string; op: 'schedule-shutdown'; graceMs: number }
   | { token: string; op: 'cancel-deferred-shutdown' }
-  | { token: string; op: 'activate-renderer-lease' }
+  | { token: string; op: 'activate-renderer-lease'; keepShutdown?: true }
   | { token: string; op: 'shutdown' }
   ) & {
     rendererLeaseToken?: string
@@ -334,6 +334,13 @@ const BROKER_UNAVAILABLE_RECOVERY_MAX_MS = 30_000
  */
 const BROKER_UNAVAILABLE_CONFIRMATION_GIVE_UP_MS = 60_000
 const BROKER_ORPHAN_CLEANUP_INTERVAL_MS = 30_000
+/**
+ * Announces, on the window, that a client saved pending terminations. Every
+ * client in the renderer shares that window, including those of earlier
+ * bundles a hot reload left behind, so the one holding the current lease
+ * learns about a session an older client gave up on.
+ */
+const ORPHANS_SAVED_EVENT = 'taskchute-plus:broker-orphans-saved'
 const BROKER_UNAVAILABLE_CONFIRMATION_MIN_ATTEMPTS = 5
 /** A login shell normally answers in a few seconds; a hung one must not hold a terminal. */
 const BROKER_PREPARE_ENV_TIMEOUT_MS = 12_000
@@ -563,6 +570,10 @@ export class TerminalSessionBrokerClient {
   private readonly orphanedSessions = new Map<string, BrokerDescriptor>()
   private orphanCleanupTimer: StableTimeoutId | null = null
   private orphanCleanupRunning = false
+  private readonly onOrphansSaved = (event: Event): void => {
+    if ((event as CustomEvent<unknown>).detail !== this.descriptorPath) return
+    this.adoptSavedOrphans(false)
+  }
   private readonly pendingSessionAcks = new Map<
     string,
     {
@@ -626,7 +637,12 @@ export class TerminalSessionBrokerClient {
       (options.rendererLeaseGeneration ?? 0) >= 1
         ? (options.rendererLeaseGeneration as number)
         : 1
-    this.restoreOrphanedSessions()
+    this.adoptSavedOrphans(true)
+    try {
+      window.addEventListener(ORPHANS_SAVED_EVENT, this.onOrphansSaved)
+    } catch {
+      // No window: only this client's own retries run.
+    }
   }
 
   async setRendererLeaseToken(
@@ -2132,8 +2148,13 @@ export class TerminalSessionBrokerClient {
     this.scheduleOrphanCleanup()
   }
 
-  /** Pick up the retries a previous renderer left (see BrokerOrphanStore). */
-  private restoreOrphanedSessions(): void {
+  /**
+   * Pick up saved retries: at construction, those a previous renderer left;
+   * later, those another client in this renderer just saved. Only on the
+   * first pass are records of an unreachable broker dropped from the file.
+   */
+  private adoptSavedOrphans(dropUnreachable: boolean): void {
+    if (this.closing) return
     try {
       const fs = loadFs()
       const records = readOrphans(
@@ -2146,13 +2167,16 @@ export class TerminalSessionBrokerClient {
       const current = this.readDescriptor()
       const unreachable: string[] = []
       for (const record of records) {
+        if (this.orphanedSessions.has(record.sessionId)) continue
         if (current && current.pid === record.pid && current.port === record.port) {
           this.orphanedSessions.set(record.sessionId, current)
         } else {
           unreachable.push(record.sessionId)
         }
       }
-      if (unreachable.length > 0) this.persistOrphanChange({ remove: unreachable })
+      if (dropUnreachable && unreachable.length > 0) {
+        this.persistOrphanChange({ remove: unreachable })
+      }
       this.scheduleOrphanCleanup()
     } catch (error) {
       this.options.log?.('warn', '[TerminalBroker] Could not restore pending terminations', error)
@@ -2168,6 +2192,11 @@ export class TerminalSessionBrokerClient {
         isTrustedDescriptorFile,
         change,
       )
+      if ((change.add?.length ?? 0) > 0) {
+        window.dispatchEvent(
+          new CustomEvent(ORPHANS_SAVED_EVENT, { detail: this.descriptorPath }),
+        )
+      }
     } catch (error) {
       this.options.log?.('warn', '[TerminalBroker] Could not save pending terminations', error)
     }
@@ -2198,6 +2227,11 @@ export class TerminalSessionBrokerClient {
    * hold the sessions, and the next client drops records of a gone broker.
    */
   private stopOrphanCleanup(): void {
+    try {
+      window.removeEventListener(ORPHANS_SAVED_EVENT, this.onOrphansSaved)
+    } catch {
+      // No window.
+    }
     if (this.orphanCleanupTimer !== null) {
       stableTimeoutSource.clearTimeout(this.orphanCleanupTimer)
       this.orphanCleanupTimer = null
@@ -2216,7 +2250,9 @@ export class TerminalSessionBrokerClient {
    * Each round first activates this renderer's lease. A broker frozen through
    * a reload still holds the previous renderer's lease and refuses this one's
    * termination until it is activated; activation is the ordinary adoption
-   * barrier, so a stale renderer still cannot take over.
+   * barrier, so a stale renderer still cannot take over. It keeps any exit
+   * grace already armed: the window may be closing, and a retry is not a
+   * renderer adopting the sessions.
    */
   private async cleanUpOrphanedSessions(): Promise<void> {
     if (this.closing || this.orphanedSessions.size === 0) return
@@ -2251,7 +2287,8 @@ export class TerminalSessionBrokerClient {
         try {
           await this.requestAuthenticatedDeferredShutdown(
             descriptor,
-            { op: 'activate-renderer-lease' },
+            // The window may be closing: its exit grace stands.
+            { op: 'activate-renderer-lease', keepShutdown: true },
             'renderer-lease-activated',
             this.captureRendererLeaseIdentity(),
             this.options.deferredShutdownTimeoutMs ??
@@ -2539,7 +2576,7 @@ export class TerminalSessionBrokerClient {
     command:
       | { op: 'schedule-shutdown'; graceMs: number }
       | { op: 'cancel-deferred-shutdown' }
-      | { op: 'activate-renderer-lease' },
+      | { op: 'activate-renderer-lease'; keepShutdown?: true },
     expectedResponse:
       | 'shutdown-scheduled'
       | 'shutdown-canceled'

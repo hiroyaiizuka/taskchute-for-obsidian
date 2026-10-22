@@ -161,6 +161,15 @@ let cachedBrokerSource: string | undefined
  * detached process holding either no longer keeps the session open; like any
  * process the broker never recorded (Note C), it is not waited for.
  *
+ * Note U: A renderer may ask to terminate an unavailable session twice, on
+ * its data and its control connection (LEV-391). The session keeps whether
+ * the first request interrupted it, so every answer, also one after
+ * completion, agrees: a transport failure never turns into a normal stop.
+ *
+ * Note V: Activating a renderer lease cancels the exit grace: a renderer is
+ * adopting the sessions. A pending-termination retry activates with
+ * keepShutdown, because the window that armed the grace may be closing.
+ *
  * LEV-379: ps and lsof answer in seconds on a busy Mac, longer right after
  * wake, and the broker serves every terminal from one event loop. So when a
  * session ends or is force-stopped, the evidence a decision about its
@@ -1868,9 +1877,7 @@ function terminateUnavailableSession(id, socket) {
   }
   // If a user stop was already in progress, preserve its normal stopped
   // outcome. Otherwise this transport failure owns the forced termination
-  // and the renderer must surface it as interrupted. The reason is kept on
-  // the session: the renderer may ask twice (data and control connections),
-  // and every answer, also after completion, must agree with the first.
+  // and the renderer must surface it as interrupted. Note U.
   if (!session.stopRequested) session.terminatedUnavailable = true;
   const interrupted = session.terminatedUnavailable;
   session.terminationClients.set(socket, interrupted);
@@ -1929,7 +1936,8 @@ function handle(socket, message) {
       socket.destroy();
       return;
     }
-    cancelDeferredShutdown();
+    // Note V (buildTerminalBrokerSource).
+    if (message.keepShutdown !== true) cancelDeferredShutdown();
     send(socket, { type: 'renderer-lease-activated' });
     return;
   }
