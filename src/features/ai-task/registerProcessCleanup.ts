@@ -69,24 +69,42 @@ export function getSharedAiTaskManagersPendingDisposal(
     pending = new Set<AiTaskManager>()
     registry.set(app, pending)
   }
-  retireLegacyPendingDisposals(pending)
+  if (retireLegacyPendingDisposals(pending) > 0) reloadRendererOnce(app)
   return pending
+}
+
+/**
+ * Reload the window to end a release before LEV-391 for good. Terminal
+ * handles from an earlier hot reload keep broker clients that cannot be
+ * reached and fenced from here; a reload ends them all, and broker sessions
+ * are restored by the next renderer as on any reload. Deferred so the plugin
+ * that asks finishes loading first.
+ */
+export function reloadRendererOnce(app: object): void {
+  const commands = (app as { commands?: { executeCommandById?(id: string): unknown } }).commands
+  window.setTimeout(() => {
+    commands?.executeCommandById?.('app:reload')
+  }, 0)
 }
 
 /**
  * A release before LEV-391 can leave a manager here whose settings-OFF
  * shutdown failed. Retrying it runs that release's code, which sends the
  * broker token without asking the broker to prove itself. So it is dropped
- * and fenced instead, without calling anything that talks to the broker. Its
- * broker, left with no clients, stops itself and its sessions after its idle
- * TTL.
+ * and fenced instead, without calling anything that talks to the broker, and
+ * the window is reloaded once (see reloadRendererOnce), even while AI tasks
+ * stay off. Its broker, left with no clients, stops itself and its sessions
+ * after its idle TTL.
  */
-function retireLegacyPendingDisposals(pending: Set<AiTaskManager>): void {
+function retireLegacyPendingDisposals(pending: Set<AiTaskManager>): number {
+  let retired = 0
   for (const manager of Array.from(pending)) {
     if (speaksCurrentBrokerProtocol(manager)) continue
     pending.delete(manager)
     fenceLegacyManager(manager)
+    retired += 1
   }
+  return retired
 }
 
 /**

@@ -38,6 +38,7 @@ import { RecipeService } from '../recipe/services/RecipeService'
 import { RecipeContextProvider } from '../recipe/services/RecipeContextProvider'
 import { AiRunSessionStateStore } from './services/AiRunSessionStateStore'
 import { folderConsentNeeded } from './services/AiFolderConsent'
+import { reloadRendererOnce } from './registerProcessCleanup'
 import {
   acquireRetainedAiTaskManager,
   AI_TASK_TERMINAL_RENDERER_LEASE_GENERATION_STORAGE_KEY,
@@ -291,9 +292,7 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
       // reach, so reload the window once: that ends them all, and the broker
       // sessions are restored by the next renderer as on any reload.
       log('warn', '[AiTask] Reloading once to retire the previous release\'s terminal clients')
-      window.setTimeout(() => {
-        plugin.app.commands.executeCommandById?.('app:reload')
-      }, 0)
+      reloadRendererOnce(plugin.app)
     },
   )
   if (retained) {

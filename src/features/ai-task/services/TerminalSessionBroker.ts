@@ -949,15 +949,32 @@ export class TerminalSessionBrokerClient {
       this.lastAuthenticatedDescriptor ??
       this.readDescriptor()
     if (!target) return
+    const identity = this.captureRendererLeaseIdentity(
+      rendererLeaseToken,
+      rendererLeaseOwnerId,
+      rendererLeaseGeneration,
+    )
+    // Also queue it on the verified data transport, which the window's
+    // detach flushes before closing. A frozen broker answers no proof, so the
+    // control connection below never gets to send it; the queued frame is
+    // what that broker reads on resume, after the window is gone. The broker
+    // checks the lease the same way on either connection.
+    if (this.socket && !this.socket.destroyed && descriptorsEqual(this.descriptor, target)) {
+      const frame: BrokerClientMessage = {
+        token: target.token,
+        rendererLeaseToken: identity.token,
+        rendererLeaseOwnerId: identity.ownerId,
+        rendererLeaseGeneration: identity.generation,
+        op: 'schedule-shutdown',
+        graceMs: normalizedGraceMs,
+      }
+      this.socket.write(`${JSON.stringify(frame)}\n`)
+    }
     await this.requestAuthenticatedDeferredShutdown(
       target,
       { op: 'schedule-shutdown', graceMs: normalizedGraceMs },
       'shutdown-scheduled',
-      this.captureRendererLeaseIdentity(
-        rendererLeaseToken,
-        rendererLeaseOwnerId,
-        rendererLeaseGeneration,
-      ),
+      identity,
       this.options.deferredShutdownTimeoutMs ??
         BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS,
     )

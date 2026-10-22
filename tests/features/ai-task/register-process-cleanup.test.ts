@@ -80,7 +80,13 @@ describe('registerAiTaskAppShutdownCleanup', () => {
     getSharedAiTaskManagersPendingDisposal(app, rendererRoot).add(current as never)
 
     // The updated plugin picks the set up.
+    jest.useFakeTimers()
+    const reloadApp = { commands: { executeCommandById: jest.fn() } }
+    getSharedAiTaskManagersPendingDisposal(reloadApp, rendererRoot).add(legacy as never)
     const pending = getSharedAiTaskManagersPendingDisposal(app, rendererRoot)
+    const reloadPending = getSharedAiTaskManagersPendingDisposal(reloadApp, rendererRoot)
+    jest.runOnlyPendingTimers()
+    jest.useRealTimers()
 
     expect(pending.has(legacy as never)).toBe(false)
     expect(pending.has(current as never)).toBe(true)
@@ -88,6 +94,10 @@ describe('registerAiTaskAppShutdownCleanup', () => {
     expect(legacy.disposeAndWait).not.toHaveBeenCalled()
     expect(legacy.dispose).not.toHaveBeenCalled()
     expect(broker.closing).toBe(true)
+    // Handles from an earlier hot reload may keep other clients: reload once.
+    expect(reloadPending.size).toBe(0)
+    expect(reloadApp.commands.executeCommandById).toHaveBeenCalledWith('app:reload')
+    expect(reloadApp.commands.executeCommandById).toHaveBeenCalledTimes(1)
   })
 
   test('registers a workspace quit task that waits for force-kill completion', async () => {

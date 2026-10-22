@@ -528,6 +528,18 @@ test(`a ${OLD_RELEASE} runtime whose shutdown failed is not retried after the up
   const { old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)
   let impostor: Impostor | null = null
   try {
+    // A hot reload within the old release first: the terminal's handle keeps
+    // the first broker client, out of reach of anything this build can fence.
+    await installAndReload(page, vaultDir, await releasedMainJs(OLD_RELEASE))
+    await enableAiTasks(page, claude, "terminal")
+    await openTaskChute(page)
+    expect(
+      await page.evaluate(
+        (id) => (window.app.plugins.plugins[id] as { aiTaskManager: unknown }).aiTaskManager === window.__lev391OldManager,
+        PLUGIN_ID,
+      ),
+    ).toBe(true)
+
     // The old release turns AI tasks off while its broker is frozen. The
     // shutdown cannot be confirmed, so the manager stays queued for a retry.
     process.kill(old.pid, "SIGSTOP")
@@ -542,10 +554,22 @@ test(`a ${OLD_RELEASE} runtime whose shutdown failed is not retried after the up
     await expect.poll(() => isAlive(old.pid)).toBe(false)
     impostor = await startImpostor(old.port)
 
-    // The update. Turning AI tasks back on drains the retry queue first: the
-    // old release's shutdown would send the token here, unproved.
+    // The update. This build drops the queued old runtime instead of
+    // retrying it (that would send the token here, unproved) and reloads the
+    // window once, even with AI tasks off, to end the client the handle kept.
     const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../.."), "main.js")
-    await installAndReload(page, vaultDir, thisBuild)
+    await page.evaluate(() => {
+      window.__lev391BeforeReload = true
+    })
+    await installAndReload(page, vaultDir, thisBuild).catch(() => undefined)
+    await expect
+      .poll(() => page.evaluate(() => window.__lev391BeforeReload === true).catch(() => true), { timeout: 30_000 })
+      .toBe(false)
+    await page.waitForFunction(
+      (id) => Boolean(window.app?.workspace?.layoutReady && window.app.plugins?.plugins?.[id]),
+      PLUGIN_ID,
+      { timeout: 30_000 },
+    )
     expect(await pendingDisposals(page)).toBe(0)
     await setLicense(page, claude, true)
     await page.waitForFunction(

@@ -1281,4 +1281,63 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       cleanup(descriptorPath, pids)
     }
   })
+
+  test('an exit grace asked of a frozen broker still stops it once it resumes after the window is gone (LEV-391)', async () => {
+    const unique = `lev391-frozen-exit-${process.pid}-${Date.now()}-${Math.random()}`
+    const identity = `broker-${unique}`
+    const descriptorPath = getTerminalBrokerDescriptorPath(identity)
+    const lease = {
+      rendererLeaseToken: 'lev391-frozen-exit-lease',
+      rendererLeaseOwnerId: 'lev391-frozen-exit-owner',
+      rendererLeaseGeneration: 1,
+    }
+    const client = new TerminalSessionBrokerClient({
+      identity,
+      ...lease,
+      deferredShutdownTimeoutMs: 300,
+    })
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const healthy = startSession(client, 'session-frozen-exit', 'FROZEN_EXIT_READY', unique)
+      const healthyPid = await withTimeout(healthy.attached)
+      pids.push(healthyPid)
+      await withTimeout(healthy.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // The broker is frozen through the window's exit: the control
+      // connection cannot get the exit grace past the proof, and the window
+      // detaches right after asking.
+      process.kill(brokerPid, 'SIGSTOP')
+      await expect(
+        client.scheduleShutdownAfterGrace(
+          2_000,
+          lease.rendererLeaseToken,
+          lease.rendererLeaseOwnerId,
+          lease.rendererLeaseGeneration,
+        ),
+      ).rejects.toThrow()
+      client.detach()
+
+      process.kill(brokerPid, 'SIGCONT')
+
+      // Not the 30-minute idle timeout: the exit grace, then shutdown.
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(healthyPid),
+        'the resumed broker shuts down at the end of the exit grace',
+        30_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
 })
