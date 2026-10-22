@@ -883,7 +883,7 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     writeFileSync(
       descriptorPath,
       JSON.stringify({
-        version: 1,
+        version: 2,
         port: stalePort,
         token: 'd'.repeat(64),
         // This PID is alive but is the Jest process, not the broker.

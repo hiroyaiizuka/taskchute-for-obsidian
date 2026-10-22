@@ -1,5 +1,9 @@
+import { createHmac } from 'crypto'
 import { readdirSync } from 'fs'
+import type { Socket } from 'net'
 import { basename, dirname, join } from 'path'
+
+import { BROKER_PROOF_PREFIX } from '@/features/ai-task/services/BrokerProof'
 
 /**
  * Helpers the two broker integration suites both need.
@@ -110,4 +114,40 @@ export function ownerPidFiles(descriptorPath: string): string[] {
   return readdirSync(directory)
     .filter((name) => name.startsWith(prefix) && name.endsWith('.jsonl'))
     .map((name) => join(directory, name))
+}
+
+/**
+ * Make a fake broker answer the client's proof challenge (LEV-391), the way the
+ * real broker does, and hide the challenge from the fake's own frame parser.
+ * Call it first thing in the fake's connection listener.
+ */
+export function answerBrokerProof(socket: Socket, token: string): void {
+  const emit = socket.emit.bind(socket) as (event: string, ...args: unknown[]) => boolean
+  let pending = ''
+  let answered = false
+  socket.emit = ((event: string, ...args: unknown[]): boolean => {
+    if (event !== 'data' || answered) return emit(event, ...args)
+    pending += String(args[0])
+    const newline = pending.indexOf('\n')
+    if (newline < 0) return true
+    answered = true
+    const line = pending.slice(0, newline)
+    const rest = pending.slice(newline + 1)
+    pending = ''
+    let challenge: { op?: unknown; nonce?: unknown } = {}
+    try {
+      challenge = JSON.parse(line) as { op?: unknown; nonce?: unknown }
+    } catch {
+      // Not a challenge: hand it to the fake untouched below.
+    }
+    if (challenge.op !== 'prove' || typeof challenge.nonce !== 'string') {
+      return emit('data', Buffer.from(`${line}\n${rest}`))
+    }
+    const proof = createHmac('sha256', token)
+      .update(`${BROKER_PROOF_PREFIX}${challenge.nonce}`)
+      .digest('hex')
+    socket.write(`${JSON.stringify({ type: 'proof', proof })}\n`)
+    if (rest.length > 0) emit('data', Buffer.from(rest))
+    return true
+  }) as typeof socket.emit
 }

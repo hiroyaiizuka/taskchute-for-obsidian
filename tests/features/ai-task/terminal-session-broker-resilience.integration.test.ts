@@ -26,7 +26,7 @@ import { buildTerminalBrokerSource } from '@/features/ai-task/services/TerminalS
 import { TERMINAL_SESSION_GUARD_SOURCE } from '@/features/ai-task/services/TerminalSessionGuardSource'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
 import { describePosix, testWithBinaries } from '@tests/support/platform'
-import { waitUntil, waitUntilAllGone } from './brokerTestUtils'
+import { answerBrokerProof, waitUntil, waitUntilAllGone } from './brokerTestUtils'
 
 function writeFileSync(
   path: Parameters<typeof fsWriteFileSync>[0],
@@ -2303,8 +2303,11 @@ describePosix('TerminalSessionBroker resilience', () => {
   test('an attach ACK timeout terminates through the authenticated control channel before notifying', async () => {
     let attachRequests = 0
     let terminationRequests = 0
+    let transportTerminations = 0
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       let buffer = ''
+      let isTransport = false
       socket.on('error', () => undefined)
       socket.on('data', (chunk) => {
         buffer += chunk.toString()
@@ -2318,6 +2321,11 @@ describePosix('TerminalSessionBroker resilience', () => {
           if (message.op === 'attach') {
             // Simulate a live but wedged ordinary data path.
             attachRequests += 1
+            isTransport = true
+          } else if (message.op === 'terminate-unavailable' && isTransport) {
+            // Queued on the verified data path for a frozen broker (LEV-391);
+            // never answered there, and never taken as the confirmation.
+            transportTerminations += 1
           } else if (message.op === 'terminate-unavailable') {
             terminationRequests += 1
             socket.write(`${JSON.stringify({
@@ -2337,7 +2345,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     writeFileSync(
       descriptorPath,
       JSON.stringify({
-        version: 1,
+        version: 2,
         port,
         token: 'a'.repeat(64),
         pid: process.pid,
@@ -2366,6 +2374,11 @@ describePosix('TerminalSessionBroker resilience', () => {
       await withTimeout(unavailable.promise)
       expect(attachRequests).toBe(1)
       expect(terminationRequests).toBe(1)
+      // A separate socket, so it may land after the control channel's answer.
+      await waitUntil(
+        () => transportTerminations === 1,
+        'the termination is also queued on the data transport',
+      )
       expect(unavailableCount).toBe(1)
       expect(exitCount).toBe(0)
       await sleep(100)
@@ -2386,6 +2399,7 @@ describePosix('TerminalSessionBroker resilience', () => {
 
     let terminationRequests = 0
     const recoveryServer = createServer((socket) => {
+      answerBrokerProof(socket, 'b'.repeat(64))
       let buffer = ''
       socket.on('error', () => undefined)
       socket.on('data', (chunk) => {
@@ -2415,7 +2429,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     writeFileSync(
       descriptorPath,
       JSON.stringify({
-        version: 1,
+        version: 2,
         port,
         token: 'b'.repeat(64),
         pid: process.pid,
@@ -2471,7 +2485,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     writeFileSync(
       descriptorPath,
       JSON.stringify({
-        version: 1,
+        version: 2,
         port,
         token: 'c'.repeat(64),
         // Deliberately alive and unrelated: the client must not signal it.
@@ -2581,6 +2595,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     let oversizedConnections = 0
     let terminationRequests = 0
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       connections += 1
       let responded = false
       let buffer = ''
@@ -2622,7 +2637,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
     writeFileSync(
       descriptorPath,
-      JSON.stringify({ version: 1, port, token: 'a'.repeat(64), pid: process.pid }),
+      JSON.stringify({ version: 2, port, token: 'a'.repeat(64), pid: process.pid }),
     )
     try {
       const unavailable = deferred<void>()
@@ -2665,6 +2680,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       { stdio: 'ignore' },
     )
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       let responded = false
       let buffer = ''
       socket.on('error', () => undefined)
@@ -2721,7 +2737,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     writeFileSync(
       descriptorPath,
       JSON.stringify({
-        version: 1,
+        version: 2,
         port,
         token: 'a'.repeat(64),
         pid: brokerSentinel.pid,
@@ -2798,6 +2814,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     let shutdownRequests = 0
     const fallbackFailed = deferred<void>()
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       let responded = false
       let buffer = ''
       socket.on('error', () => undefined)
@@ -2833,7 +2850,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     let client: TerminalSessionBrokerClient | undefined
     writeFileSync(
       descriptorPath,
-      JSON.stringify({ version: 1, port, token: 'a'.repeat(64), pid: process.pid }),
+      JSON.stringify({ version: 2, port, token: 'a'.repeat(64), pid: process.pid }),
     )
     try {
       let unavailableCount = 0
@@ -2885,6 +2902,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     let shutdownRequests = 0
     const firstUnconfirmed = deferred<void>()
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       let responded = false
       let buffer = ''
       socket.on('error', () => undefined)
@@ -2923,7 +2941,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
     writeFileSync(
       descriptorPath,
-      JSON.stringify({ version: 1, port, token: 'a'.repeat(64), pid: process.pid }),
+      JSON.stringify({ version: 2, port, token: 'a'.repeat(64), pid: process.pid }),
     )
     let client: TerminalSessionBrokerClient | undefined
     try {
@@ -2976,6 +2994,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     let shutdownRequests = 0
     const firstUnconfirmed = deferred<void>()
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       let responded = false
       let buffer = ''
       socket.on('error', () => undefined)
@@ -3005,7 +3024,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
     writeFileSync(
       descriptorPath,
-      JSON.stringify({ version: 1, port, token: 'a'.repeat(64), pid: process.pid }),
+      JSON.stringify({ version: 2, port, token: 'a'.repeat(64), pid: process.pid }),
     )
     let unavailableCount = 0
     const client = new TerminalSessionBrokerClient({
@@ -3050,6 +3069,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     let terminationRequests = 0
     const firstUnconfirmed = deferred<void>()
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       let responded = false
       let buffer = ''
       socket.on('error', () => undefined)
@@ -3085,7 +3105,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
     writeFileSync(
       descriptorPath,
-      JSON.stringify({ version: 1, port, token: 'a'.repeat(64), pid: process.pid }),
+      JSON.stringify({ version: 2, port, token: 'a'.repeat(64), pid: process.pid }),
     )
     const unavailable = deferred<void>()
     const client = new TerminalSessionBrokerClient({
@@ -3126,6 +3146,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const requestCounts = new Map<string, number>()
     let shutdownRequests = 0
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       let responded = false
       let buffer = ''
       socket.on('error', () => undefined)
@@ -3165,7 +3186,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
     writeFileSync(
       descriptorPath,
-      JSON.stringify({ version: 1, port, token: 'a'.repeat(64), pid: process.pid }),
+      JSON.stringify({ version: 2, port, token: 'a'.repeat(64), pid: process.pid }),
     )
     let client: TerminalSessionBrokerClient | undefined
     try {
@@ -3222,7 +3243,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
     writeFileSync(
       descriptorPath,
-      JSON.stringify({ version: 1, port, token: 'a'.repeat(64), pid: process.pid }),
+      JSON.stringify({ version: 2, port, token: 'a'.repeat(64), pid: process.pid }),
     )
     const client = new TerminalSessionBrokerClient({
       identity,
@@ -3242,6 +3263,7 @@ describePosix('TerminalSessionBroker resilience', () => {
 
   test('shutdown rejects when ACK arrives but broker PID and descriptor remain live', async () => {
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       let buffer = ''
       socket.on('error', () => undefined)
       socket.on('data', (chunk) => {
@@ -3260,7 +3282,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
     writeFileSync(
       descriptorPath,
-      JSON.stringify({ version: 1, port, token: 'a'.repeat(64), pid: process.pid }),
+      JSON.stringify({ version: 2, port, token: 'a'.repeat(64), pid: process.pid }),
     )
     const client = new TerminalSessionBrokerClient({
       identity,
@@ -3287,6 +3309,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       { stdio: 'ignore' },
     )
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       let buffer = ''
       socket.on('error', () => undefined)
       socket.on('data', (chunk) => {
@@ -3314,7 +3337,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     writeFileSync(
       descriptorPath,
       JSON.stringify({
-        version: 1,
+        version: 2,
         port,
         token: 'a'.repeat(64),
         pid: brokerSentinel.pid,
@@ -3349,6 +3372,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     let oversizedConnections = 0
     let terminationRequests = 0
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       connections += 1
       let responded = false
       let buffer = ''
@@ -3395,7 +3419,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
     writeFileSync(
       descriptorPath,
-      JSON.stringify({ version: 1, port, token: 'a'.repeat(64), pid: process.pid }),
+      JSON.stringify({ version: 2, port, token: 'a'.repeat(64), pid: process.pid }),
     )
     try {
       const unavailable = deferred<void>()
@@ -3437,6 +3461,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     let oversizedConnections = 0
     let terminationRequests = 0
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       connections += 1
       let responded = false
       let buffer = ''
@@ -3477,7 +3502,7 @@ describePosix('TerminalSessionBroker resilience', () => {
     const descriptorPath = getTerminalBrokerDescriptorPath(identity)
     writeFileSync(
       descriptorPath,
-      JSON.stringify({ version: 1, port, token: 'a'.repeat(64), pid: process.pid }),
+      JSON.stringify({ version: 2, port, token: 'a'.repeat(64), pid: process.pid }),
     )
     try {
       const unavailable = deferred<void>()
@@ -3510,6 +3535,7 @@ describePosix('TerminalSessionBroker resilience', () => {
   test('rejects permissive and symlinked broker descriptors before connecting', async () => {
     let connections = 0
     const server = createServer((socket) => {
+      answerBrokerProof(socket, 'a'.repeat(64))
       connections += 1
       socket.destroy()
     })
@@ -3539,7 +3565,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       writeFileSync(
         permissivePath,
         JSON.stringify({
-          version: 1,
+          version: 2,
           port,
           token: 'a'.repeat(64),
           pid: process.pid,
@@ -3556,7 +3582,7 @@ describePosix('TerminalSessionBroker resilience', () => {
       writeFileSync(
         targetPath,
         JSON.stringify({
-          version: 1,
+          version: 2,
           port,
           token: 'b'.repeat(64),
           pid: process.pid,

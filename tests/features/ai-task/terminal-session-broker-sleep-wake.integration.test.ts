@@ -19,6 +19,7 @@ import {
 import type { SpawnProcessRequest } from '@/features/ai-task/services/NodeProcessGateway'
 import { describePosix } from '@tests/support/platform'
 import {
+  answerBrokerProof,
   deferred,
   isAlive,
   ownerPidFiles,
@@ -61,6 +62,7 @@ async function startFakeBroker(
   const ops: string[] = []
   const sockets = new Set<Socket>()
   const server = createServer((socket) => {
+    answerBrokerProof(socket, TOKEN)
     sockets.add(socket)
     socket.on('close', () => sockets.delete(socket))
     socket.on('error', () => undefined)
@@ -111,7 +113,7 @@ function writeDescriptor(identity: string, port: number, pid: number): string {
   const descriptorPath = getTerminalBrokerDescriptorPath(identity)
   writeFileSync(
     descriptorPath,
-    JSON.stringify({ version: 1, port, token: TOKEN, pid }),
+    JSON.stringify({ version: 2, port, token: TOKEN, pid }),
     { mode: 0o600 },
   )
   return descriptorPath

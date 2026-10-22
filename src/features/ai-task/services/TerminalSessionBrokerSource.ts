@@ -1,3 +1,4 @@
+import { BROKER_PROOF_PREFIX } from './BrokerProof'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from './TerminalSessionOwnerWatchdogSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from './TerminalSessionGuardSource'
 import { TERMINAL_BROKER_PURE_SOURCE } from './broker-source/TerminalBrokerPureSource'
@@ -2100,6 +2101,11 @@ const server = net.createServer(socket => {
       if (line) {
         try {
           const message = JSON.parse(line);
+          if (!authenticated && message && message.op === 'prove' && /^[a-f0-9]{64}$/.test(message.nonce)) {
+            send(socket, { type: 'proof', proof: crypto.createHmac('sha256', token).update(${JSON.stringify(BROKER_PROOF_PREFIX)} + message.nonce).digest('hex') });
+            newline = buffer.indexOf('\n');
+            continue;
+          }
           if (!message || message.token !== token) { socket.destroy(); return; }
           if (
             message.rendererLeaseToken !== undefined &&
@@ -2146,7 +2152,7 @@ const server = net.createServer(socket => {
 startOwnerWatchdog(() => {
   server.listen(0, '127.0.0.1', () => {
     const address = server.address();
-    const descriptor = JSON.stringify({ version: 1, port: address.port, token, pid: process.pid });
+    const descriptor = JSON.stringify({ version: 2, port: address.port, token, pid: process.pid });
     try {
       fs.writeFileSync(descriptorPath, descriptor, { mode: 0o600, flag: 'wx' });
       try { fs.chmodSync(descriptorPath, 0o600); } catch (_) {}

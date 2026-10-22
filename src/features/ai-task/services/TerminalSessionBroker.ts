@@ -16,6 +16,7 @@ import type {
 } from './dispatchers/Dispatcher'
 import { Platform } from 'obsidian'
 
+import { challengeBroker, UntrustedBrokerError } from './BrokerProof'
 import type { SpawnProcessRequest } from './NodeProcessGateway'
 import { listNodeExecutableCandidates } from './NodeExecutableLocator'
 import { buildTerminalBrokerSource } from './TerminalSessionBrokerSource'
@@ -91,6 +92,10 @@ interface NodeCryptoModuleLike {
   createHash(algorithm: string): {
     update(value: string): { digest(encoding: 'hex'): string }
   }
+  createHmac(
+    algorithm: string,
+    key: string,
+  ): { update(value: string): { digest(encoding: 'hex'): string } }
   randomBytes(size: number): NodeBufferLike
 }
 
@@ -117,7 +122,7 @@ interface NodeChildProcessModuleLike {
 }
 
 interface BrokerDescriptor {
-  version: 1
+  version: 2
   port: number
   token: string
   pid: number
@@ -226,6 +231,8 @@ interface UnavailableSession {
   since: number
   /** Recovery rounds that have tried it. */
   attempts: number
+  /** Its termination was also queued on the verified data transport. */
+  queuedOnTransport?: boolean
 }
 
 interface UnavailableTerminationResult {
@@ -283,7 +290,12 @@ export interface TerminalBrokerClientOptions {
   rendererLeaseActivationRetryWindowMs?: number
 }
 
-const BROKER_VERSION = 1
+// Version 2 brokers prove they hold the token before the client sends it
+// (LEV-391). Version 1 brokers cannot, so they are never trusted: their
+// descriptor is retired and a fresh broker started. A version 1 broker left
+// without clients stops itself, and its sessions, after its idle TTL.
+const BROKER_VERSION = 2
+const LEGACY_BROKER_VERSION = 1
 const BROKER_CONNECT_TIMEOUT_MS = 700
 const BROKER_STARTUP_TIMEOUT_MS = 5_000
 const BROKER_RETRY_MS = 50
@@ -1092,7 +1104,13 @@ export class TerminalSessionBrokerClient {
         // channel. Fresh spawn/start uses connectOrStart below and may replace
         // a refused descriptor; restored attach must not discard its only
         // trusted owner merely because the first socket attempt lost a race.
-        this.removeDescriptorIfMatchesAndStopped(descriptor)
+        // A wrong proof is different: the port no longer belongs to our
+        // broker, so its descriptor is not a trusted owner any more.
+        if (error instanceof UntrustedBrokerError) {
+          this.removeDescriptorIfMatches(descriptor)
+        } else {
+          this.removeDescriptorIfMatchesAndStopped(descriptor)
+        }
         throw error
       })
     const tracked = attempt.finally(() => {
@@ -1106,12 +1124,16 @@ export class TerminalSessionBrokerClient {
     if (generation !== this.transportGeneration) {
       throw new Error('Terminal broker connection was superseded')
     }
+    this.retireLegacyDescriptor()
     const existing = this.readDescriptor()
     if (existing) {
       try {
         return await this.connect(existing, generation)
       } catch (error) {
-        if (isConnectionRefusedError(error)) {
+        if (
+          isConnectionRefusedError(error) ||
+          error instanceof UntrustedBrokerError
+        ) {
           this.removeDescriptorIfMatches(existing)
         } else {
           this.removeDescriptorIfMatchesAndStopped(existing)
@@ -1225,29 +1247,37 @@ export class TerminalSessionBrokerClient {
         socket.destroy()
         reject(error instanceof Error ? error : new Error(describeError(error)))
       }
-      socket.on('connect', () => {
-        if (settled) return
-        if (generation !== this.transportGeneration) {
-          fail(new Error('Terminal broker connection was superseded'))
-          return
-        }
-        settled = true
-        socket.setTimeout(0)
-        this.socket = socket
-        this.descriptor = descriptor
-        this.lastAuthenticatedDescriptor = descriptor
-        this.receiveBuffer = ''
-        this.reconnectAttempts = 0
-        this.bindSocket(socket)
-        resolve(socket)
+      challengeBroker(socket, descriptor.token, loadCrypto(), {
+        verified: () => {
+          if (settled) return
+          if (generation !== this.transportGeneration) {
+            fail(new Error('Terminal broker connection was superseded'))
+            return
+          }
+          settled = true
+          socket.setTimeout(0)
+          this.socket = socket
+          this.descriptor = descriptor
+          this.lastAuthenticatedDescriptor = descriptor
+          this.receiveBuffer = ''
+          this.reconnectAttempts = 0
+          this.bindSocket(socket)
+          resolve(socket)
+        },
+        data: (chunk) => {
+          if (this.socket === socket) this.handleData(chunk)
+        },
+        rejected: fail,
       })
       socket.on('timeout', () => fail(new Error('Terminal broker connection timed out')))
       socket.on('error', fail)
+      socket.on('close', () =>
+        fail(new Error('Terminal broker closed the connection before proving itself')),
+      )
     })
   }
 
   private bindSocket(socket: NodeSocketLike): void {
-    socket.on('data', (chunk) => this.handleData(chunk))
     socket.on('close', () => {
       if (this.socket === socket) {
         this.socket = null
@@ -1397,6 +1427,37 @@ export class TerminalSessionBrokerClient {
       return isDescriptor(parsed) ? parsed : null
     } catch {
       return null
+    }
+  }
+
+  /**
+   * A broker from before LEV-391 cannot prove it holds its token, so nothing is
+   * ever sent to it. Clear its descriptor so a fresh broker can claim the path.
+   * The old broker is not signalled: its pid may have been reused, and with no
+   * clients left it stops itself, and its sessions, after its idle TTL.
+   */
+  private retireLegacyDescriptor(): void {
+    try {
+      const fs = loadFs()
+      const before = fs.lstatSync(this.descriptorPath)
+      if (!isTrustedDescriptorFile(before)) return
+      const parsed = JSON.parse(fs.readFileSync(this.descriptorPath, 'utf8')) as unknown
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        (parsed as { version?: unknown }).version !== LEGACY_BROKER_VERSION
+      ) {
+        return
+      }
+      const after = fs.lstatSync(this.descriptorPath)
+      if (before.dev !== after.dev || before.ino !== after.ino) return
+      fs.unlinkSync(this.descriptorPath)
+      this.options.log?.(
+        'warn',
+        '[TerminalBroker] Retired a broker that cannot prove its token; starting a new one',
+      )
+    } catch {
+      // No descriptor, or it changed underneath us: nothing to retire.
     }
   }
 
@@ -1840,6 +1901,7 @@ export class TerminalSessionBrokerClient {
     const results = new Map<string, UnavailableTerminationResult>()
     for (const group of this.groupByOwningBroker(sessions)) {
       if (!group.descriptor) continue
+      this.queueTerminationOnTransport(group.descriptor, group.sessions)
       try {
         await this.requestUnavailableTermination(
           group.descriptor,
@@ -1926,6 +1988,38 @@ export class TerminalSessionBrokerClient {
       ) {
         this.detachIfNoSessions()
       }
+    }
+  }
+
+  /**
+   * Also queue the termination on the data transport, once, when that socket
+   * is open to the same broker. It already proved itself, so the token is safe
+   * on it. A frozen (SIGSTOPped) broker cannot answer the control channel's
+   * proof challenge, so the control channel never gets as far as sending the
+   * termination; the frame queued here is what the broker reads on resume,
+   * after the spawn it may still be holding. Its reply is not a confirmation:
+   * confirmation still comes from the control channel or a dead broker.
+   */
+  private queueTerminationOnTransport(
+    descriptor: BrokerDescriptor,
+    sessions: Array<[string, UnavailableSession]>,
+  ): void {
+    const socket = this.socket
+    if (!socket || socket.destroyed || !descriptorsEqual(this.descriptor, descriptor)) {
+      return
+    }
+    for (const [sessionId, pending] of sessions) {
+      if (pending.queuedOnTransport) continue
+      pending.queuedOnTransport = true
+      const frame: BrokerClientMessage = {
+        token: descriptor.token,
+        rendererLeaseToken: this.rendererLeaseToken,
+        rendererLeaseOwnerId: this.rendererLeaseOwnerId,
+        rendererLeaseGeneration: this.rendererLeaseGeneration,
+        op: 'terminate-unavailable',
+        sessionId,
+      }
+      socket.write(`${JSON.stringify(frame)}\n`)
     }
   }
 
@@ -2099,65 +2193,68 @@ export class TerminalSessionBrokerClient {
           BROKER_UNAVAILABLE_TERMINATION_TIMEOUT_MS,
         () => fail(new Error('Terminal broker termination timed out')),
       )
-      socket.on('connect', () => {
-        for (const sessionId of sessionIds) {
-          const frame: BrokerClientMessage = {
-            token: descriptor.token,
-            rendererLeaseToken: this.rendererLeaseToken,
-            rendererLeaseOwnerId: this.rendererLeaseOwnerId,
-            rendererLeaseGeneration: this.rendererLeaseGeneration,
-            op: 'terminate-unavailable',
-            sessionId,
-          }
-          socket.write(`${JSON.stringify(frame)}\n`)
-        }
-      })
-      socket.on('data', (chunk) => {
-        receiveBuffer += chunk
-        if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
-          fail(new Error('Terminal broker termination response exceeds the IPC limit'))
-          return
-        }
-        let newline = receiveBuffer.indexOf('\n')
-        while (newline >= 0 && !settled) {
-          const line = receiveBuffer.slice(0, newline)
-          receiveBuffer = receiveBuffer.slice(newline + 1)
-          if (line.length > 0) {
-            try {
-              const message = JSON.parse(line) as BrokerServerMessage
-              if (
-                'sessionId' in message &&
-                typeof message.sessionId === 'string' &&
-                pending.has(message.sessionId)
-              ) {
-                if (message.type === 'terminated-unavailable') {
-                  results.set(message.sessionId, {
-                    interrupted: message.interrupted,
-                    ...(typeof message.transcriptPath === 'string' &&
-                    message.transcriptPath.length > 0 &&
-                    message.transcriptPath.length <= 8 * 1024
-                      ? { transcriptPath: message.transcriptPath }
-                      : {}),
-                    ...(message.outcome ? { outcome: message.outcome } : {}),
-                  })
-                  pending.delete(message.sessionId)
-                } else if (message.type === 'missing') {
-                  // The authenticated broker confirmed it owns no such
-                  // process. Record that confirmation so a later failure for
-                  // another session does not suppress this session's
-                  // unavailable notification.
-                  results.set(message.sessionId, { interrupted: true })
-                  pending.delete(message.sessionId)
-                }
-              }
-            } catch (error) {
-              fail(error)
-              return
+      challengeBroker(socket, descriptor.token, loadCrypto(), {
+        verified: () => {
+          for (const sessionId of sessionIds) {
+            const frame: BrokerClientMessage = {
+              token: descriptor.token,
+              rendererLeaseToken: this.rendererLeaseToken,
+              rendererLeaseOwnerId: this.rendererLeaseOwnerId,
+              rendererLeaseGeneration: this.rendererLeaseGeneration,
+              op: 'terminate-unavailable',
+              sessionId,
             }
+            socket.write(`${JSON.stringify(frame)}\n`)
           }
-          newline = receiveBuffer.indexOf('\n')
-        }
-        if (pending.size === 0) finish()
+        },
+        data: (chunk) => {
+          receiveBuffer += chunk
+          if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
+            fail(new Error('Terminal broker termination response exceeds the IPC limit'))
+            return
+          }
+          let newline = receiveBuffer.indexOf('\n')
+          while (newline >= 0 && !settled) {
+            const line = receiveBuffer.slice(0, newline)
+            receiveBuffer = receiveBuffer.slice(newline + 1)
+            if (line.length > 0) {
+              try {
+                const message = JSON.parse(line) as BrokerServerMessage
+                if (
+                  'sessionId' in message &&
+                  typeof message.sessionId === 'string' &&
+                  pending.has(message.sessionId)
+                ) {
+                  if (message.type === 'terminated-unavailable') {
+                    results.set(message.sessionId, {
+                      interrupted: message.interrupted,
+                      ...(typeof message.transcriptPath === 'string' &&
+                      message.transcriptPath.length > 0 &&
+                      message.transcriptPath.length <= 8 * 1024
+                        ? { transcriptPath: message.transcriptPath }
+                        : {}),
+                      ...(message.outcome ? { outcome: message.outcome } : {}),
+                    })
+                    pending.delete(message.sessionId)
+                  } else if (message.type === 'missing') {
+                    // The authenticated broker confirmed it owns no such
+                    // process. Record that confirmation so a later failure for
+                    // another session does not suppress this session's
+                    // unavailable notification.
+                    results.set(message.sessionId, { interrupted: true })
+                    pending.delete(message.sessionId)
+                  }
+                }
+              } catch (error) {
+                fail(error)
+                return
+              }
+            }
+            newline = receiveBuffer.indexOf('\n')
+          }
+          if (pending.size === 0) finish()
+        },
+        rejected: fail,
       })
       socket.on('timeout', () =>
         fail(new Error('Terminal broker termination timed out')),
@@ -2200,40 +2297,43 @@ export class TerminalSessionBrokerClient {
         timeoutMs,
         () => fail(new Error('Terminal broker shutdown timed out')),
       )
-      socket.on('connect', () => {
-        const frame: BrokerClientMessage = {
-          token: descriptor.token,
-          rendererLeaseToken: this.rendererLeaseToken,
-          rendererLeaseOwnerId: this.rendererLeaseOwnerId,
-          rendererLeaseGeneration: this.rendererLeaseGeneration,
-          op: 'shutdown',
-        }
-        socket.write(`${JSON.stringify(frame)}\n`)
-      })
-      socket.on('data', (chunk) => {
-        receiveBuffer += chunk
-        if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
-          fail(new Error('Terminal broker shutdown response exceeds the IPC limit'))
-          return
-        }
-        let newline = receiveBuffer.indexOf('\n')
-        while (newline >= 0 && !settled) {
-          const line = receiveBuffer.slice(0, newline)
-          receiveBuffer = receiveBuffer.slice(newline + 1)
-          if (line.length > 0) {
-            try {
-              const message = JSON.parse(line) as BrokerServerMessage
-              if (message.type === 'shutdown-ack') {
-                finish()
+      challengeBroker(socket, descriptor.token, loadCrypto(), {
+        verified: () => {
+          const frame: BrokerClientMessage = {
+            token: descriptor.token,
+            rendererLeaseToken: this.rendererLeaseToken,
+            rendererLeaseOwnerId: this.rendererLeaseOwnerId,
+            rendererLeaseGeneration: this.rendererLeaseGeneration,
+            op: 'shutdown',
+          }
+          socket.write(`${JSON.stringify(frame)}\n`)
+        },
+        data: (chunk) => {
+          receiveBuffer += chunk
+          if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
+            fail(new Error('Terminal broker shutdown response exceeds the IPC limit'))
+            return
+          }
+          let newline = receiveBuffer.indexOf('\n')
+          while (newline >= 0 && !settled) {
+            const line = receiveBuffer.slice(0, newline)
+            receiveBuffer = receiveBuffer.slice(newline + 1)
+            if (line.length > 0) {
+              try {
+                const message = JSON.parse(line) as BrokerServerMessage
+                if (message.type === 'shutdown-ack') {
+                  finish()
+                  return
+                }
+              } catch (error) {
+                fail(error)
                 return
               }
-            } catch (error) {
-              fail(error)
-              return
             }
+            newline = receiveBuffer.indexOf('\n')
           }
-          newline = receiveBuffer.indexOf('\n')
-        }
+        },
+        rejected: fail,
       })
       socket.on('timeout', () =>
         fail(new Error('Terminal broker shutdown timed out')),
@@ -2285,44 +2385,47 @@ export class TerminalSessionBrokerClient {
         timeoutMs,
         () => fail(new Error('Terminal broker deferred shutdown timed out')),
       )
-      socket.on('connect', () => {
-        const frame: BrokerClientMessage = {
-          token: descriptor.token,
-          rendererLeaseToken: rendererLeaseIdentity.token,
-          rendererLeaseOwnerId: rendererLeaseIdentity.ownerId,
-          rendererLeaseGeneration: rendererLeaseIdentity.generation,
-          ...command,
-        }
-        socket.write(`${JSON.stringify(frame)}\n`)
-      })
-      socket.on('data', (chunk) => {
-        receiveBuffer += chunk
-        if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
-          fail(
-            new Error(
-              'Terminal broker deferred shutdown response exceeds the IPC limit',
-            ),
-          )
-          return
-        }
-        let newline = receiveBuffer.indexOf('\n')
-        while (newline >= 0 && !settled) {
-          const line = receiveBuffer.slice(0, newline)
-          receiveBuffer = receiveBuffer.slice(newline + 1)
-          if (line.length > 0) {
-            try {
-              const message = JSON.parse(line) as BrokerServerMessage
-              if (message.type === expectedResponse) {
-                finish()
+      challengeBroker(socket, descriptor.token, loadCrypto(), {
+        verified: () => {
+          const frame: BrokerClientMessage = {
+            token: descriptor.token,
+            rendererLeaseToken: rendererLeaseIdentity.token,
+            rendererLeaseOwnerId: rendererLeaseIdentity.ownerId,
+            rendererLeaseGeneration: rendererLeaseIdentity.generation,
+            ...command,
+          }
+          socket.write(`${JSON.stringify(frame)}\n`)
+        },
+        data: (chunk) => {
+          receiveBuffer += chunk
+          if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
+            fail(
+              new Error(
+                'Terminal broker deferred shutdown response exceeds the IPC limit',
+              ),
+            )
+            return
+          }
+          let newline = receiveBuffer.indexOf('\n')
+          while (newline >= 0 && !settled) {
+            const line = receiveBuffer.slice(0, newline)
+            receiveBuffer = receiveBuffer.slice(newline + 1)
+            if (line.length > 0) {
+              try {
+                const message = JSON.parse(line) as BrokerServerMessage
+                if (message.type === expectedResponse) {
+                  finish()
+                  return
+                }
+              } catch (error) {
+                fail(error)
                 return
               }
-            } catch (error) {
-              fail(error)
-              return
             }
+            newline = receiveBuffer.indexOf('\n')
           }
-          newline = receiveBuffer.indexOf('\n')
-        }
+        },
+        rejected: fail,
       })
       socket.on('timeout', () =>
         fail(new Error('Terminal broker deferred shutdown timed out')),
