@@ -1711,6 +1711,7 @@ function spawnSession(message, socket) {
     stderrDroppedChars: 0,
     sentinelCode: null,
     stopRequested: false,
+    terminatedUnavailable: false,
     completed: false,
     finishing: false,
     childClosed: false,
@@ -1859,7 +1860,7 @@ function terminateUnavailableSession(id, socket) {
     send(socket, {
       type: 'terminated-unavailable',
       sessionId: id,
-      interrupted: false,
+      interrupted: session.terminatedUnavailable,
       transcriptPath: session.transcriptPath,
       outcome: session.outcome || undefined,
     });
@@ -1867,8 +1868,11 @@ function terminateUnavailableSession(id, socket) {
   }
   // If a user stop was already in progress, preserve its normal stopped
   // outcome. Otherwise this transport failure owns the forced termination
-  // and the renderer must surface it as interrupted.
-  const interrupted = !session.stopRequested;
+  // and the renderer must surface it as interrupted. The reason is kept on
+  // the session: the renderer may ask twice (data and control connections),
+  // and every answer, also after completion, must agree with the first.
+  if (!session.stopRequested) session.terminatedUnavailable = true;
+  const interrupted = session.terminatedUnavailable;
   session.terminationClients.set(socket, interrupted);
   session.stopRequested = true;
   requestGuardStop(session, true);

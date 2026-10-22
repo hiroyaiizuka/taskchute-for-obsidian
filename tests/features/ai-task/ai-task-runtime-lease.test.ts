@@ -705,6 +705,10 @@ describe('AiTaskRuntimeLease', () => {
     const app = {}
     const old = makeManager()
     delete old.terminalBrokerProtocol
+    // The private parts of a 3.0.1 manager that the fence reaches.
+    const broker = { closing: false }
+    const shellForeground = { dispose: jest.fn() }
+    Object.assign(old, { deps: { terminal: { dispatcher: { broker } } }, shellForeground })
 
     retainAiTaskManager(app, manager(old), runtimeWindow(win))
     scheduleAiTaskManagerHotReloadHandoff(manager(old), runtimeWindow(win), 50)
@@ -726,6 +730,10 @@ describe('AiTaskRuntimeLease', () => {
     expect(old.dispose).not.toHaveBeenCalled()
     // Fenced instead: a start already in flight re-checks this and never dispatches.
     expect((old as unknown as { disposed?: boolean }).disposed).toBe(true)
+    // Its client stops retrying the lease activation and never sends again.
+    expect(broker.closing).toBe(true)
+    // Its renderer-local foreground poller stops.
+    expect(shellForeground.dispose).toHaveBeenCalledTimes(1)
     expect(win.pageHideListeners.size).toBe(0)
     // The slot is gone: a later instance cannot adopt it either.
     expect(acquireRetainedAiTaskManager(app, deps(), runtimeWindow(win))).toBeUndefined()

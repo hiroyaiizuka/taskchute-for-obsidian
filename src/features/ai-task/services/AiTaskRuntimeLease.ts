@@ -273,16 +273,40 @@ function speaksCurrentBrokerProtocol(manager: AiTaskManager): boolean {
 }
 
 /**
- * Stop a let-go legacy manager from ever dispatching again, without dispose()
- * (which stops its sessions over its unproved broker client). A start already
- * in flight, awaiting the note or the CLI lookup, re-checks this flag after
- * every await and throws instead of dispatching through the old client.
+ * The private fields of a manager from a bundle before LEV-391 (3.0.1 and
+ * older) that fenceLegacyManager reaches. Each is optional: an even older
+ * bundle may lack it.
+ */
+interface LegacyManagerInternals {
+  disposed?: boolean
+  shellForeground?: { dispose?: () => void }
+  deps?: { terminal?: { dispatcher?: { broker?: { closing?: boolean } } } }
+}
+
+/**
+ * Stop a let-go legacy manager, and its broker client, from ever talking to a
+ * broker again, without dispose() (which stops its sessions over the unproved
+ * client).
+ * - `disposed`: a start already in flight re-checks it after every await and
+ *   throws instead of dispatching.
+ * - the client's `closing`: its lease-activation retry loop, reconnects and
+ *   every send check it and stop.
+ * - `shellForeground`: a renderer-local timer that would otherwise poll, and
+ *   keep the old manager alive, forever.
  */
 function fenceLegacyManager(manager: AiTaskManager): void {
+  const legacy = manager as unknown as LegacyManagerInternals
   try {
-    ;(manager as unknown as { disposed: boolean }).disposed = true
+    legacy.disposed = true
+    const broker = legacy.deps?.terminal?.dispatcher?.broker
+    if (broker && typeof broker === 'object') broker.closing = true
   } catch {
     // A frozen or exotic object: nothing more can be done from here.
+  }
+  try {
+    legacy.shellForeground?.dispose?.()
+  } catch {
+    // Its timer stops on its own once nothing is tracked.
   }
 }
 

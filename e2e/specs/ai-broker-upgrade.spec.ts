@@ -370,3 +370,55 @@ test(`an AI task ${OLD_RELEASE} was starting when the update landed never dispat
     await shutDown(page, left && left.pid !== process.pid ? [left.pid] : [])
   }
 })
+
+test(`a lease activation ${OLD_RELEASE} was retrying when the update landed never dials afterwards`, async ({ obsidian, home }, testInfo) => {
+  const { page, vaultDir } = obsidian
+  const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
+  const { vault, old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)
+  let impostor: Impostor | null = null
+  let fresh: Descriptor | null = null
+  try {
+    // The old broker dies, and the old client starts activating a renderer
+    // lease. Each attempt is refused, so it keeps retrying for ten seconds.
+    process.kill(old.pid, "SIGKILL")
+    await expect.poll(() => isAlive(old.pid)).toBe(false)
+    await page.evaluate((id) => {
+      const manager = (window.app.plugins.plugins[id] as {
+        aiTaskManager: { deps: { terminal: { dispatcher: { broker: { setRendererLeaseToken(token: string): Promise<void> } } } } }
+      }).aiTaskManager
+      window.__lev391Start = manager.deps.terminal.dispatcher.broker
+        .setRendererLeaseToken("lev391-retrying-lease")
+        .then(
+          () => "activated",
+          (error: Error) => `failed: ${error.message}`,
+        )
+      void window.__lev391Start.then((outcome) => {
+        window.__lev391Outcome = outcome
+      })
+    }, PLUGIN_ID)
+    await page.waitForTimeout(500)
+    expect(await page.evaluate(() => window.__lev391Outcome ?? null)).toBeNull()
+
+    await updateToThisBuild(page, vaultDir, claude)
+    fresh = readDescriptor(vault)
+
+    // While the old retry loop is still within its window, a descriptor from
+    // before the proof points at another process's port.
+    impostor = await startImpostor()
+    fs.writeFileSync(
+      descriptorPath(vault),
+      JSON.stringify({ version: 1, port: impostor.port, token: "e".repeat(64), pid: process.pid }),
+      { mode: 0o600 },
+    )
+    // Outlast the retry window (ten seconds from the first attempt).
+    await page.waitForTimeout(10_000)
+
+    expect(impostor.received()).toBe("")
+    expect(impostor.connections()).toBe(0)
+  } finally {
+    await impostor?.close()
+    const left = readDescriptor(vault)
+    if (left && left.pid === process.pid) fs.rmSync(descriptorPath(vault), { force: true })
+    await shutDown(page, [old.pid, ...(fresh ? [fresh.pid] : []), ...(left && left.pid !== process.pid ? [left.pid] : [])])
+  }
+})
