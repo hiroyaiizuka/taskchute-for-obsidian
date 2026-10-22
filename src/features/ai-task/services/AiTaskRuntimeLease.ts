@@ -272,6 +272,20 @@ function speaksCurrentBrokerProtocol(manager: AiTaskManager): boolean {
   return typeof version === 'number' && version >= BROKER_PROTOCOL_VERSION
 }
 
+/**
+ * Stop a let-go legacy manager from ever dispatching again, without dispose()
+ * (which stops its sessions over its unproved broker client). A start already
+ * in flight, awaiting the note or the CLI lookup, re-checks this flag after
+ * every await and throws instead of dispatching through the old client.
+ */
+function fenceLegacyManager(manager: AiTaskManager): void {
+  try {
+    ;(manager as unknown as { disposed: boolean }).disposed = true
+  } catch {
+    // A frozen or exotic object: nothing more can be done from here.
+  }
+}
+
 function cancelManagerTerminalShutdownGrace(
   manager: AiTaskManager,
   rendererLease: AiTaskTerminalRendererLeaseIdentity,
@@ -596,6 +610,7 @@ export function acquireRetainedAiTaskManager(
     } catch {
       // The old broker stops itself after its idle TTL.
     }
+    fenceLegacyManager(slot.manager)
     return undefined
   }
   let currentSlot: AiTaskRuntimeSlot

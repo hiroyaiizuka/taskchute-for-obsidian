@@ -6,7 +6,7 @@ import os from "node:os"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, enableAiTasks, openTaskChute, writeFakeClaude } from "../helpers/aiTask"
+import { PLUGIN_ID, createLinkedPair, enableAiTasks, openTaskChute, writeFakeClaude } from "../helpers/aiTask"
 import { cacheRoot } from "../obsidian/paths"
 
 // LEV-391: updating from a release whose broker cannot prove itself.
@@ -42,6 +42,10 @@ declare global {
   interface Window {
     __lev391Output?: Record<string, string>
     __lev391OldManager?: unknown
+    __lev391Held?: boolean
+    __lev391Release?: () => void
+    __lev391Start?: Promise<string>
+    __lev391Outcome?: string
   }
 }
 
@@ -77,11 +81,53 @@ function descriptorPath(vault: string): string {
   return path.join(os.tmpdir(), `taskchute-plus-ai-broker-${hash}.json`)
 }
 
+/** Each test's vault path is the same on every run; drop a descriptor a failed run left. */
+function forgetLeftoverDescriptor(vault: string): void {
+  fs.rmSync(descriptorPath(vault), { force: true })
+}
+
 function readDescriptor(vault: string): Descriptor | null {
   try {
     return JSON.parse(fs.readFileSync(descriptorPath(vault), "utf8")) as Descriptor
   } catch {
     return null
+  }
+}
+
+interface Impostor {
+  port: number
+  received: () => string
+  connections: () => number
+  close: () => Promise<void>
+}
+
+/** A local server that records every byte anyone sends it. */
+async function startImpostor(port = 0): Promise<Impostor> {
+  let received = ""
+  let connections = 0
+  const sockets = new Set<net.Socket>()
+  const server = net.createServer((socket) => {
+    connections += 1
+    sockets.add(socket)
+    socket.on("data", (chunk) => {
+      received += chunk.toString()
+    })
+    socket.on("error", () => undefined)
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(port, "127.0.0.1", () => resolve())
+  })
+  return {
+    port: (server.address() as net.AddressInfo).port,
+    received: () => received,
+    connections: () => connections,
+    // Drop open connections first, or close() waits for the peer to hang up.
+    close: () =>
+      new Promise((resolve) => {
+        for (const socket of sockets) socket.destroy()
+        server.close(() => resolve())
+      }),
   }
 }
 
@@ -146,6 +192,7 @@ async function runOldReleaseWithTerminal(
     fs.writeFileSync(path.join(home, rc), "PS1='$ '\n")
   }
   const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
+  forgetLeftoverDescriptor(vault)
   await installAndReload(page, vaultDir, await releasedMainJs(OLD_RELEASE))
   await enableAiTasks(page, claude, "terminal")
   await openTaskChute(page)
@@ -220,7 +267,7 @@ test(`after updating from ${OLD_RELEASE}, a process that takes the old broker's 
   const { page, vaultDir } = obsidian
   const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
   const { vault, old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)
-  let impostor: net.Server | null = null
+  let impostor: Impostor | null = null
   let fresh: Descriptor | null = null
   try {
     await updateToThisBuild(page, vaultDir, claude)
@@ -229,19 +276,7 @@ test(`after updating from ${OLD_RELEASE}, a process that takes the old broker's 
     // runtime been kept, its client would reconnect here and send the token.
     process.kill(old.pid, "SIGKILL")
     await expect.poll(() => isAlive(old.pid)).toBe(false)
-    let received = ""
-    let connections = 0
-    impostor = net.createServer((socket) => {
-      connections += 1
-      socket.on("data", (chunk) => {
-        received += chunk.toString()
-      })
-      socket.on("error", () => undefined)
-    })
-    await new Promise<void>((resolve, reject) => {
-      impostor!.once("error", reject)
-      impostor!.listen(old.port, "127.0.0.1", () => resolve())
-    })
+    impostor = await startImpostor(old.port)
 
     // Use the plugin after the takeover: open a terminal and type into it.
     await startShell(page, "AFTER")
@@ -251,10 +286,87 @@ test(`after updating from ${OLD_RELEASE}, a process that takes the old broker's 
     // Give any reconnect loop time to fire.
     await page.waitForTimeout(3_000)
 
-    expect(received).toBe("")
-    expect(connections).toBe(0)
+    expect(impostor.received()).toBe("")
+    expect(impostor.connections()).toBe(0)
   } finally {
-    await new Promise((resolve) => (impostor ? impostor.close(resolve) : resolve(undefined)))
+    await impostor?.close()
     await shutDown(page, [old.pid, ...(fresh ? [fresh.pid] : [])])
+  }
+})
+
+test(`an AI task ${OLD_RELEASE} was starting when the update landed never dispatches through the old client`, async ({ obsidian, home }, testInfo) => {
+  const { page, vaultDir } = obsidian
+  const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
+  for (const rc of [".zshrc", ".bashrc", ".bash_profile", ".zprofile"]) {
+    fs.writeFileSync(path.join(home!, rc), "PS1='$ '\n")
+  }
+  const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
+  forgetLeftoverDescriptor(vault)
+  await installAndReload(page, vaultDir, await releasedMainJs(OLD_RELEASE))
+  await enableAiTasks(page, claude, "terminal")
+  const { aiPath } = await createLinkedPair(page)
+  await openTaskChute(page)
+
+  // Start the AI task on the old release, and hold its first await (reading
+  // the note) so the start is still in flight when the update lands.
+  await page.evaluate(
+    ([id, notePath]) => {
+      const vault = window.app.vault as unknown as {
+        cachedRead(file: { path: string }): Promise<string>
+        getAbstractFileByPath(path: string): unknown
+      }
+      const original = vault.cachedRead.bind(vault)
+      vault.cachedRead = (file) => {
+        if (file.path !== notePath || window.__lev391Held) return original(file)
+        window.__lev391Held = true
+        vault.cachedRead = original
+        return new Promise((resolve) => {
+          window.__lev391Release = () => resolve(original(file))
+        })
+      }
+      const manager = (window.app.plugins.plugins[id] as { aiTaskManager: { startRun(file: unknown): Promise<unknown> } })
+        .aiTaskManager
+      window.__lev391Start = manager.startRun(vault.getAbstractFileByPath(notePath)).then(
+        () => "started",
+        (error: Error) => `failed: ${error.message}`,
+      )
+    },
+    [PLUGIN_ID, aiPath] as const,
+  )
+  await page.waitForFunction(() => window.__lev391Held === true)
+
+  let impostor: Impostor | null = null
+  try {
+    await updateToThisBuild(page, vaultDir, claude)
+
+    // A descriptor from before the proof, left behind by a dead broker, now
+    // points at another process's port.
+    impostor = await startImpostor()
+    fs.writeFileSync(
+      descriptorPath(vault),
+      JSON.stringify({ version: 1, port: impostor.port, token: "e".repeat(64), pid: process.pid }),
+      { mode: 0o600 },
+    )
+
+    // The held start resumes after the update.
+    await page.evaluate(() => {
+      window.__lev391Release?.()
+      void window.__lev391Start?.then((outcome) => {
+        window.__lev391Outcome = outcome
+      })
+    })
+    await page.waitForTimeout(3_000)
+
+    expect(impostor.received()).toBe("")
+    expect(impostor.connections()).toBe(0)
+    // It stopped at its next check instead of dispatching.
+    await expect
+      .poll(() => page.evaluate(() => window.__lev391Outcome ?? null), { timeout: 10_000 })
+      .toMatch(/^failed: .*disposed/i)
+  } finally {
+    await impostor?.close()
+    const left = readDescriptor(vault)
+    if (left && left.pid === process.pid) fs.rmSync(descriptorPath(vault), { force: true })
+    await shutDown(page, left && left.pid !== process.pid ? [left.pid] : [])
   }
 })

@@ -724,6 +724,8 @@ describe('AiTaskRuntimeLease', () => {
     expect(old.scheduleTerminalShutdownAfterGrace).not.toHaveBeenCalled()
     expect(old.rebindRuntimeDependencies).not.toHaveBeenCalled()
     expect(old.dispose).not.toHaveBeenCalled()
+    // Fenced instead: a start already in flight re-checks this and never dispatches.
+    expect((old as unknown as { disposed?: boolean }).disposed).toBe(true)
     expect(win.pageHideListeners.size).toBe(0)
     // The slot is gone: a later instance cannot adopt it either.
     expect(acquireRetainedAiTaskManager(app, deps(), runtimeWindow(win))).toBeUndefined()
