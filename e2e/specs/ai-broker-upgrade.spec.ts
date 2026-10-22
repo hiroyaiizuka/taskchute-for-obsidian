@@ -284,10 +284,9 @@ async function updateToThisBuild(
   await page.evaluate(() => {
     window.__lev391BeforeReload = true
   })
-  await installAndReload(page, vaultDir, thisBuild)
-  // Turning AI tasks on is what finds the old runtime; the window reloads
-  // under it, so this call may never see its manager. Wait for the reload.
-  await setLicense(page, claude, true)
+  // This build lets the old runtime go as it loads and reloads the window,
+  // which may cut these calls off. Wait for the reload either way.
+  await installAndReload(page, vaultDir, thisBuild).catch(() => undefined)
   await expect
     .poll(() => page.evaluate(() => window.__lev391BeforeReload === true).catch(() => true), { timeout: 30_000 })
     .toBe(false)
@@ -578,6 +577,46 @@ test(`a ${OLD_RELEASE} runtime whose shutdown failed is not retried after the up
       { timeout: 10_000 },
     )
     await page.waitForTimeout(3_000)
+
+    expect(impostor.received()).toBe("")
+    expect(impostor.connections()).toBe(0)
+  } finally {
+    await impostor?.close()
+    await shutDown(page, [old.pid])
+  }
+})
+
+test(`updating from ${OLD_RELEASE} into a vault where AI tasks do not start still retires the old runtime`, async ({ obsidian, home }, testInfo) => {
+  const { page, vaultDir } = obsidian
+  const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
+  const { old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)
+  let impostor: Impostor | null = null
+  try {
+    // The update lands in a plugin without a license, so no AI runtime is
+    // built and nothing takes the old one over. It must still be let go, and
+    // the window reloaded, before its handoff timer or its client acts.
+    const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../.."), "main.js")
+    await page.evaluate(() => {
+      window.__lev391BeforeReload = true
+    })
+    await installAndReload(page, vaultDir, thisBuild).catch(() => undefined)
+
+    // Meanwhile the old broker dies and another process takes its port.
+    process.kill(old.pid, "SIGKILL")
+    await expect.poll(() => isAlive(old.pid)).toBe(false)
+    impostor = await startImpostor(old.port)
+
+    await expect
+      .poll(() => page.evaluate(() => window.__lev391BeforeReload === true).catch(() => true), { timeout: 30_000 })
+      .toBe(false)
+    await page.waitForFunction(
+      (id) => Boolean(window.app?.workspace?.layoutReady && window.app.plugins?.plugins?.[id]),
+      PLUGIN_ID,
+      { timeout: 30_000 },
+    )
+    // Past the old runtime's ten-second handoff, whose dispose would have
+    // sent its shutdown here.
+    await page.waitForTimeout(12_000)
 
     expect(impostor.received()).toBe("")
     expect(impostor.connections()).toBe(0)

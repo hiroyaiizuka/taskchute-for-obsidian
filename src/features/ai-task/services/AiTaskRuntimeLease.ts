@@ -591,6 +591,57 @@ function moveSlotToCurrentSchema(
   )
 }
 
+/**
+ * Let go of a retained runtime from a release before LEV-391. Nothing on it
+ * that talks to the broker is called: no lease activation, no shutdown-grace
+ * IPC, no dispose (which stops sessions over the broker). Clearing the slot
+ * cancels its handoff timer (whose dispose would do the same); its sessions
+ * are saved and its socket closed, as a renderer reload does. The next manager
+ * restores them, and its own client retires the old broker's descriptor
+ * without dialling it.
+ */
+function retireLegacySlot(
+  sourceWindow: AiTaskRuntimeWindow,
+  slot: AnyAiTaskRuntimeSlot,
+): void {
+  clearSlot(sourceWindow, slot)
+  try {
+    slot.manager.prepareForRendererReload()
+  } catch {
+    // The old broker stops itself after its idle TTL.
+  }
+  fenceLegacyManager(slot.manager)
+}
+
+/**
+ * Run on every plugin start, before and regardless of whether AI tasks can
+ * start (an unlicensed vault never reaches acquireRetainedAiTaskManager).
+ * Returns true when a retained runtime from a release before LEV-391 was let
+ * go; the caller then reloads the window (see reloadRendererOnce).
+ */
+export function retireLegacyRetainedAiTaskManager(
+  app: object,
+  win: AiTaskRuntimeWindow = runtimeWindow(),
+  legacyFocusedWindow: AiTaskRuntimeWindow | undefined =
+    legacyFocusedRuntimeWindow(),
+): boolean {
+  for (const candidate of [win, legacyFocusedWindow]) {
+    if (!candidate) continue
+    const slot = candidate[AI_TASK_RUNTIME_SLOT_KEY]
+    if (
+      !slot ||
+      slot.app !== app ||
+      slot.manager.isDisposed() ||
+      speaksCurrentBrokerProtocol(slot.manager)
+    ) {
+      continue
+    }
+    retireLegacySlot(candidate, slot)
+    return true
+  }
+  return false
+}
+
 /** Adopt a manager retained by the immediately preceding plugin instance. */
 export function acquireRetainedAiTaskManager(
   app: object,
@@ -629,18 +680,7 @@ export function acquireRetainedAiTaskManager(
     return undefined
   }
   if (!speaksCurrentBrokerProtocol(slot.manager)) {
-    // Do not call anything on it that talks to the broker: no lease activation,
-    // no shutdown-grace IPC, no dispose (which stops sessions over the broker).
-    // Save its sessions and close its socket, as a renderer reload does. The
-    // new manager restores them from the saved state, and its own client
-    // retires the old broker's descriptor without dialling it.
-    clearSlot(sourceWindow, slot)
-    try {
-      slot.manager.prepareForRendererReload()
-    } catch {
-      // The old broker stops itself after its idle TTL.
-    }
-    fenceLegacyManager(slot.manager)
+    retireLegacySlot(sourceWindow, slot)
     onLegacyRuntimeRetired?.()
     return undefined
   }

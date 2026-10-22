@@ -4,6 +4,7 @@ import {
   AI_TASK_TERMINAL_SHUTDOWN_GRACE_MS,
   fenceLegacyManager,
   forgetRetainedAiTaskManager,
+  retireLegacyRetainedAiTaskManager,
   speaksCurrentBrokerProtocol,
   getAiTaskRuntimeTerminalLeaseIdentity,
   prepareRetainedAiTaskManagerForRendererTransition,
@@ -71,6 +72,15 @@ export function getSharedAiTaskManagersPendingDisposal(
   }
   if (retireLegacyPendingDisposals(pending) > 0) reloadRendererOnce(app)
   return pending
+}
+
+/**
+ * On every plugin start, whether or not AI tasks can start: let go of a
+ * runtime a release before LEV-391 retained across this update, and reload
+ * the window once to end its unreachable clients too.
+ */
+export function retirePreviousReleaseAiTaskRuntime(app: object): void {
+  if (retireLegacyRetainedAiTaskManager(app)) reloadRendererOnce(app)
 }
 
 /**

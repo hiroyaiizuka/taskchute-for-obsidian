@@ -15,6 +15,7 @@ import { notifyAiTaskSettingsChanged } from "./features/ai-task/notifyAiTaskSett
 import {
   getSharedAiTaskManagersPendingDisposal,
   registerAiTaskAppShutdownCleanup,
+  retirePreviousReleaseAiTaskRuntime,
 } from "./features/ai-task/registerProcessCleanup"
 import { createAiTaskAmbientScheduler } from "./features/ai-task/AiTaskAmbientRuntime"
 import type { AiTaskAmbientScheduler } from "./features/ai-task/services/AiTaskAmbientScheduler"
@@ -83,6 +84,8 @@ export default class TaskChutePlusPlugin extends Plugin {
   async onload(): Promise<void> {
     this.aiTaskLifecycleGeneration += 1
     this.aiTaskLifecycleActive = true
+    // Before anything decides whether AI tasks may run (LEV-391).
+    retirePreviousReleaseAiTaskRuntime(this.app)
 
     this.settings = await prepareSettings(this)
 
