@@ -24,7 +24,8 @@ import {
 import {
   orphanStorePath,
   readOrphans,
-  writeOrphans,
+  updateOrphans,
+  type OrphanChange,
 } from './BrokerOrphanStore'
 import type { SpawnProcessRequest } from './NodeProcessGateway'
 import { listNodeExecutableCandidates } from './NodeExecutableLocator'
@@ -86,7 +87,11 @@ interface NodeFsModuleLike {
     isSymbolicLink(): boolean
   }
   unlinkSync(path: string): void
-  writeFileSync(path: string, data: string, options: { mode: number }): void
+  writeFileSync(
+    path: string,
+    data: string,
+    options: { mode: number; flag: string },
+  ): void
   renameSync(from: string, to: string): void
 }
 
@@ -2115,13 +2120,15 @@ export class TerminalSessionBrokerClient {
       '[TerminalBroker] Gave up confirming session termination; reporting it unavailable',
       sessions.map(([sessionId]) => sessionId),
     )
+    const added: Array<{ sessionId: string; pid: number; port: number }> = []
     for (const [sessionId, pending] of sessions) {
       if (pending.descriptor) {
         this.orphanedSessions.set(sessionId, pending.descriptor)
+        added.push({ sessionId, pid: pending.descriptor.pid, port: pending.descriptor.port })
       }
       this.settleUnavailableSession(sessionId, pending)
     }
-    this.persistOrphanedSessions()
+    this.persistOrphanChange({ add: added })
     this.scheduleOrphanCleanup()
   }
 
@@ -2137,28 +2144,29 @@ export class TerminalSessionBrokerClient {
       if (records.length === 0) return
       // Only the broker in the descriptor can be authenticated.
       const current = this.readDescriptor()
+      const unreachable: string[] = []
       for (const record of records) {
         if (current && current.pid === record.pid && current.port === record.port) {
           this.orphanedSessions.set(record.sessionId, current)
+        } else {
+          unreachable.push(record.sessionId)
         }
       }
-      this.persistOrphanedSessions()
+      if (unreachable.length > 0) this.persistOrphanChange({ remove: unreachable })
       this.scheduleOrphanCleanup()
     } catch (error) {
       this.options.log?.('warn', '[TerminalBroker] Could not restore pending terminations', error)
     }
   }
 
-  private persistOrphanedSessions(): void {
+  /** Save only this client's change; another client's records stay. */
+  private persistOrphanChange(change: OrphanChange): void {
     try {
-      writeOrphans(
+      updateOrphans(
         loadFs(),
         orphanStorePath(this.descriptorPath),
-        Array.from(this.orphanedSessions, ([sessionId, descriptor]) => ({
-          sessionId,
-          pid: descriptor.pid,
-          port: descriptor.port,
-        })),
+        isTrustedDescriptorFile,
+        change,
       )
     } catch (error) {
       this.options.log?.('warn', '[TerminalBroker] Could not save pending terminations', error)
@@ -2213,6 +2221,7 @@ export class TerminalSessionBrokerClient {
   private async cleanUpOrphanedSessions(): Promise<void> {
     if (this.closing || this.orphanedSessions.size === 0) return
     this.orphanCleanupRunning = true
+    const settled: string[] = []
     try {
       const groups = new Map<string, { descriptor: BrokerDescriptor; ids: string[] }>()
       for (const [sessionId, descriptor] of this.orphanedSessions) {
@@ -2227,6 +2236,7 @@ export class TerminalSessionBrokerClient {
           for (const sessionId of sessionIds) {
             if (this.orphanedSessions.get(sessionId) === descriptor) {
               this.orphanedSessions.delete(sessionId)
+              settled.push(sessionId)
             }
           }
         }
@@ -2258,7 +2268,7 @@ export class TerminalSessionBrokerClient {
       }
     } finally {
       this.orphanCleanupRunning = false
-      this.persistOrphanedSessions()
+      if (settled.length > 0) this.persistOrphanChange({ remove: settled })
       this.scheduleOrphanCleanup()
     }
   }

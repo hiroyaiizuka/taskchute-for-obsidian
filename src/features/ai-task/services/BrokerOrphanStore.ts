@@ -9,6 +9,11 @@
  * It names a broker only by pid and port. The token stays in the broker's
  * descriptor; a record whose broker no longer matches the descriptor cannot be
  * authenticated, so it is dropped on load.
+ *
+ * Several clients may share the file: a hot reload keeps the previous client
+ * alive (terminal handles hold it) next to the new one. So nobody rewrites it
+ * from its own list. Each change reads the file and applies only what that
+ * client added or settled, and a record another client added stays.
  */
 
 export interface OrphanRecord {
@@ -19,7 +24,11 @@ export interface OrphanRecord {
 
 export interface OrphanStoreFs {
   readFileSync(path: string, encoding: 'utf8'): string
-  writeFileSync(path: string, data: string, options: { mode: number }): void
+  writeFileSync(
+    path: string,
+    data: string,
+    options: { mode: number; flag: string },
+  ): void
   renameSync(from: string, to: string): void
   unlinkSync(path: string): void
   lstatSync(path: string): {
@@ -32,7 +41,14 @@ export interface OrphanStoreFs {
   }
 }
 
+export interface OrphanChange {
+  add?: OrphanRecord[]
+  /** Session ids whose termination was confirmed, or whose broker is gone. */
+  remove?: string[]
+}
+
 const MAX_RECORDS = 256
+const TEMPORARY_ATTEMPTS = 8
 
 export function orphanStorePath(descriptorPath: string): string {
   return `${descriptorPath}.orphans.json`
@@ -70,8 +86,27 @@ export function readOrphans(
   }
 }
 
+/**
+ * Apply one client's change to the saved records. Node's fs calls are
+ * synchronous, so clients in one renderer never interleave inside it.
+ */
+export function updateOrphans(
+  fs: OrphanStoreFs,
+  path: string,
+  isTrustedFile: (stats: ReturnType<OrphanStoreFs['lstatSync']>) => boolean,
+  change: OrphanChange,
+): void {
+  const remove = new Set(change.remove ?? [])
+  const records = new Map<string, OrphanRecord>()
+  for (const record of readOrphans(fs, path, isTrustedFile)) {
+    if (!remove.has(record.sessionId)) records.set(record.sessionId, record)
+  }
+  for (const record of change.add ?? []) records.set(record.sessionId, record)
+  writeOrphans(fs, path, Array.from(records.values()))
+}
+
 /** Replace the saved records; an empty list removes the file. */
-export function writeOrphans(
+function writeOrphans(
   fs: OrphanStoreFs,
   path: string,
   records: OrphanRecord[],
@@ -84,9 +119,29 @@ export function writeOrphans(
     }
     return
   }
-  const temporary = `${path}.${String(Date.now())}.tmp`
-  fs.writeFileSync(temporary, JSON.stringify(records.slice(0, MAX_RECORDS)), {
-    mode: 0o600,
-  })
-  fs.renameSync(temporary, path)
+  const data = JSON.stringify(records.slice(0, MAX_RECORDS))
+  // The temporary file sits in the shared temporary directory. Create it
+  // exclusively ('wx' never follows or truncates an existing entry), under a
+  // fresh name on each collision, and rename only the file made here.
+  for (let attempt = 0; attempt < TEMPORARY_ATTEMPTS; attempt += 1) {
+    const temporary = `${path}.${Date.now().toString(36)}${Math.random().toString(36).slice(2)}.tmp`
+    try {
+      fs.writeFileSync(temporary, data, { mode: 0o600, flag: 'wx' })
+    } catch (error) {
+      if ((error as { code?: unknown }).code === 'EEXIST') continue
+      throw error
+    }
+    try {
+      fs.renameSync(temporary, path)
+    } catch (error) {
+      try {
+        fs.unlinkSync(temporary)
+      } catch {
+        // Nothing left to remove.
+      }
+      throw error
+    }
+    return
+  }
+  throw new Error('Could not create a temporary file for pending terminations')
 }
