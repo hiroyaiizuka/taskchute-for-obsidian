@@ -335,10 +335,13 @@ const BROKER_UNAVAILABLE_RECOVERY_MAX_MS = 30_000
 const BROKER_UNAVAILABLE_CONFIRMATION_GIVE_UP_MS = 60_000
 const BROKER_ORPHAN_CLEANUP_INTERVAL_MS = 30_000
 /**
- * Announces, on the window, that a client saved pending terminations. Every
- * client in the renderer shares that window, including those of earlier
- * bundles a hot reload left behind, so the one holding the current lease
- * learns about a session an older client gave up on.
+ * Announces, on the window, that a client changed the saved pending
+ * terminations. Every client in the renderer shares that window, including
+ * those of earlier bundles a hot reload left behind. So the one holding the
+ * current lease learns about a session an older client gave up on, and an
+ * older client stops retrying one the current client has confirmed (its own
+ * lease would be refused forever, and each attempt resets the broker's idle
+ * timer).
  */
 const ORPHANS_SAVED_EVENT = 'taskchute-plus:broker-orphans-saved'
 const BROKER_UNAVAILABLE_CONFIRMATION_MIN_ATTEMPTS = 5
@@ -2149,11 +2152,12 @@ export class TerminalSessionBrokerClient {
   }
 
   /**
-   * Pick up saved retries: at construction, those a previous renderer left;
-   * later, those another client in this renderer just saved. Only on the
-   * first pass are records of an unreachable broker dropped from the file.
+   * Follow the saved retries: at construction, pick up those a previous
+   * renderer left, dropping records of an unreachable broker from the file;
+   * later, on another client's change in this renderer, pick up its additions
+   * and stop retrying what is no longer saved (confirmed by someone else).
    */
-  private adoptSavedOrphans(dropUnreachable: boolean): void {
+  private adoptSavedOrphans(atConstruction: boolean): void {
     if (this.closing) return
     try {
       const fs = loadFs()
@@ -2162,6 +2166,12 @@ export class TerminalSessionBrokerClient {
         orphanStorePath(this.descriptorPath),
         isTrustedDescriptorFile,
       )
+      if (!atConstruction) {
+        const saved = new Set(records.map((record) => record.sessionId))
+        for (const sessionId of Array.from(this.orphanedSessions.keys())) {
+          if (!saved.has(sessionId)) this.orphanedSessions.delete(sessionId)
+        }
+      }
       if (records.length === 0) return
       // Only the broker in the descriptor can be authenticated.
       const current = this.readDescriptor()
@@ -2174,7 +2184,7 @@ export class TerminalSessionBrokerClient {
           unreachable.push(record.sessionId)
         }
       }
-      if (dropUnreachable && unreachable.length > 0) {
+      if (atConstruction && unreachable.length > 0) {
         this.persistOrphanChange({ remove: unreachable })
       }
       this.scheduleOrphanCleanup()
@@ -2192,7 +2202,7 @@ export class TerminalSessionBrokerClient {
         isTrustedDescriptorFile,
         change,
       )
-      if ((change.add?.length ?? 0) > 0) {
+      if ((change.add?.length ?? 0) > 0 || (change.remove?.length ?? 0) > 0) {
         window.dispatchEvent(
           new CustomEvent(ORPHANS_SAVED_EVENT, { detail: this.descriptorPath }),
         )

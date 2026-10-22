@@ -1174,6 +1174,16 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
         'the late orphan is stopped after the broker resumes',
         60_000,
       )
+      // Once the current client has confirmed it, the older client stops
+      // retrying too: its refused attempts would keep resetting the broker's
+      // idle timer.
+      const pendingIn = (client: TerminalSessionBrokerClient): number =>
+        (client as unknown as { orphanedSessions: Map<string, unknown> }).orphanedSessions.size
+      await waitUntil(
+        () => pendingIn(older) === 0 && pendingIn(current!) === 0,
+        'neither client retries the confirmed termination',
+        30_000,
+      )
     } finally {
       if (brokerPid !== undefined) {
         try {
