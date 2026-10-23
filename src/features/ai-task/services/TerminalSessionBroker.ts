@@ -26,6 +26,7 @@ import {
   readOrphans,
   updateOrphans,
   type OrphanChange,
+  type OrphanRecord,
 } from './BrokerOrphanStore'
 import type { SpawnProcessRequest } from './NodeProcessGateway'
 import { listNodeExecutableCandidates } from './NodeExecutableLocator'
@@ -351,6 +352,21 @@ const BROKER_ORPHAN_CLEANUP_INTERVAL_MS = 30_000
  * timer).
  */
 const ORPHANS_SAVED_EVENT = 'taskchute-plus:broker-orphans-saved'
+/**
+ * A new client announces itself on the window (LEV-398). It is the one the
+ * runtime uses from now on; an older client a terminal handle still holds
+ * gives it the pending terminations it was retrying, including changes it
+ * could not save, and stops listening, so a reload does not leave one more
+ * listening client behind each time. The detail carries data only: the older
+ * client may come from another bundle.
+ */
+const ORPHANS_CLIENT_STARTED_EVENT = 'taskchute-plus:broker-orphans-client-started'
+/**
+ * An older client that already handed its retries over gives a session it
+ * gives up on later to the newest client the same way. When no client
+ * accepts it (the newest one has shut down), it retries the session itself.
+ */
+const ORPHANS_HANDOVER_EVENT = 'taskchute-plus:broker-orphans-handover'
 const BROKER_UNAVAILABLE_CONFIRMATION_MIN_ATTEMPTS = 5
 /** A login shell normally answers in a few seconds; a hung one must not hold a terminal. */
 const BROKER_PREPARE_ENV_TIMEOUT_MS = 12_000
@@ -533,6 +549,32 @@ function wait(timeoutMs: number): Promise<void> {
   return sleepWithStableTimer(timeoutMs)
 }
 
+/** The retries one client hands to another; plain data (see ORPHANS_CLIENT_STARTED_EVENT). */
+interface OrphanHandover {
+  descriptorPath: string
+  orphans: Array<{ sessionId: string; descriptor: BrokerDescriptor }>
+  /** Of the orphans, those not saved yet. */
+  unsavedAdds: string[]
+  /** Sessions settled whose removal was not saved yet. */
+  unsavedRemoves: string[]
+  accepted: boolean
+}
+
+function emptyOrphanHandover(descriptorPath: string): OrphanHandover {
+  return { descriptorPath, orphans: [], unsavedAdds: [], unsavedRemoves: [], accepted: false }
+}
+
+function isOrphanHandover(value: unknown): value is OrphanHandover {
+  if (!value || typeof value !== 'object') return false
+  const source = value as Record<string, unknown>
+  return (
+    typeof source.descriptorPath === 'string' &&
+    Array.isArray(source.orphans) &&
+    Array.isArray(source.unsavedAdds) &&
+    Array.isArray(source.unsavedRemoves)
+  )
+}
+
 function descriptorsEqual(
   left: BrokerDescriptor | null,
   right: BrokerDescriptor,
@@ -598,9 +640,46 @@ export class TerminalSessionBrokerClient {
   private readonly orphanedSessions = new Map<string, BrokerDescriptor>()
   private orphanCleanupTimer: StableTimeoutId | null = null
   private orphanCleanupRunning = false
+  /**
+   * Changes to the saved list that could not be written yet. A sync with the
+   * file never drops an unsaved addition (it is not "confirmed elsewhere",
+   * only missing from the file), and every later save writes them again.
+   */
+  private readonly unsavedOrphanAdds = new Map<string, OrphanRecord>()
+  private readonly unsavedOrphanRemoves = new Set<string>()
+  /** A newer client in this window took over the retries. */
+  private orphansHandedOver = false
+  /** Counts handovers, so a retry round in flight stops at one. */
+  private orphanHandoverEpoch = 0
   private readonly onOrphansSaved = (event: Event): void => {
     if ((event as CustomEvent<unknown>).detail !== this.descriptorPath) return
     this.adoptSavedOrphans(false)
+  }
+  private readonly onOrphanClientStarted = (event: Event): void => {
+    const detail = (event as CustomEvent<unknown>).detail
+    if (!isOrphanHandover(detail) || detail.descriptorPath !== this.descriptorPath) return
+    for (const [sessionId, descriptor] of this.orphanedSessions) {
+      detail.orphans.push({ sessionId, descriptor })
+    }
+    detail.unsavedAdds.push(...this.unsavedOrphanAdds.keys())
+    detail.unsavedRemoves.push(...this.unsavedOrphanRemoves)
+    this.orphansHandedOver = true
+    this.orphanHandoverEpoch += 1
+    this.unsavedOrphanAdds.clear()
+    this.unsavedOrphanRemoves.clear()
+    this.stopOrphanCleanup()
+  }
+  private readonly onOrphansHandedOver = (event: Event): void => {
+    const detail = (event as CustomEvent<unknown>).detail
+    if (
+      this.closing ||
+      !isOrphanHandover(detail) ||
+      detail.descriptorPath !== this.descriptorPath
+    ) {
+      return
+    }
+    this.takeOverOrphans(detail)
+    detail.accepted = true
   }
   private readonly pendingSessionAcks = new Map<
     string,
@@ -677,9 +756,20 @@ export class TerminalSessionBrokerClient {
       (options.rendererLeaseGeneration ?? 0) >= 1
         ? (options.rendererLeaseGeneration as number)
         : 1
+    try {
+      const handover = emptyOrphanHandover(this.descriptorPath)
+      window.dispatchEvent(new CustomEvent(ORPHANS_CLIENT_STARTED_EVENT, { detail: handover }))
+      // Before the file: a handed-over record of another broker is not
+      // dropped as unreachable below.
+      this.takeOverOrphans(handover)
+    } catch {
+      // No window.
+    }
     this.adoptSavedOrphans(true)
     try {
       window.addEventListener(ORPHANS_SAVED_EVENT, this.onOrphansSaved)
+      window.addEventListener(ORPHANS_CLIENT_STARTED_EVENT, this.onOrphanClientStarted)
+      window.addEventListener(ORPHANS_HANDOVER_EVENT, this.onOrphansHandedOver)
     } catch {
       // No window: only this client's own retries run.
     }
@@ -772,6 +862,7 @@ export class TerminalSessionBrokerClient {
     target: BrokerDescriptor,
     identity: RendererLeaseIdentity,
     timeoutMs: number,
+    keepShutdown = false,
   ): Promise<boolean> {
     const socket = this.socket
     if (!socket || socket.destroyed || !descriptorsEqual(this.descriptor, target)) return false
@@ -781,6 +872,7 @@ export class TerminalSessionBrokerClient {
       rendererLeaseOwnerId: identity.ownerId,
       rendererLeaseGeneration: identity.generation,
       op: 'activate-renderer-lease',
+      ...(keepShutdown ? { keepShutdown: true as const } : {}),
     }
     const entry: { socket: NodeSocketLike; answer: (() => void) | null } = {
       socket,
@@ -2341,15 +2433,50 @@ export class TerminalSessionBrokerClient {
       '[TerminalBroker] Gave up confirming session termination; reporting it unavailable',
       sessions.map(([sessionId]) => sessionId),
     )
-    const added: Array<{ sessionId: string; pid: number; port: number }> = []
+    const handover = emptyOrphanHandover(this.descriptorPath)
     for (const [sessionId, pending] of sessions) {
       if (pending.descriptor) {
-        this.orphanedSessions.set(sessionId, pending.descriptor)
-        added.push({ sessionId, pid: pending.descriptor.pid, port: pending.descriptor.port })
+        handover.orphans.push({ sessionId, descriptor: pending.descriptor })
+        handover.unsavedAdds.push(sessionId)
+        if (!this.orphansHandedOver) this.orphanedSessions.set(sessionId, pending.descriptor)
       }
       this.settleUnavailableSession(sessionId, pending)
     }
-    this.persistOrphanChange({ add: added })
+    if (handover.orphans.length === 0) return
+    if (this.orphansHandedOver) {
+      try {
+        window.dispatchEvent(new CustomEvent(ORPHANS_HANDOVER_EVENT, { detail: handover }))
+      } catch {
+        // No window.
+      }
+      if (handover.accepted) return
+    }
+    this.takeOverOrphans(handover)
+  }
+
+  /**
+   * Retry these sessions from now on, and save them. Unsaved changes of the
+   * client that handed them over are saved as this client's own.
+   */
+  private takeOverOrphans(handover: OrphanHandover): void {
+    const descriptors = new Map<string, BrokerDescriptor>()
+    for (const { sessionId, descriptor } of handover.orphans) {
+      if (typeof sessionId !== 'string' || !isDescriptor(descriptor)) continue
+      descriptors.set(sessionId, descriptor)
+      if (!this.orphanedSessions.has(sessionId)) {
+        this.orphanedSessions.set(sessionId, descriptor)
+      }
+    }
+    const remove = handover.unsavedRemoves.filter(
+      (sessionId): sessionId is string => typeof sessionId === 'string',
+    )
+    for (const sessionId of remove) this.orphanedSessions.delete(sessionId)
+    const add: OrphanRecord[] = []
+    for (const sessionId of handover.unsavedAdds) {
+      const descriptor = descriptors.get(sessionId)
+      if (descriptor) add.push({ sessionId, pid: descriptor.pid, port: descriptor.port })
+    }
+    this.persistOrphanChange({ add, remove })
     this.scheduleOrphanCleanup()
   }
 
@@ -2371,6 +2498,8 @@ export class TerminalSessionBrokerClient {
       if (!atConstruction) {
         const saved = new Set(records.map((record) => record.sessionId))
         for (const sessionId of Array.from(this.orphanedSessions.keys())) {
+          // Missing because this client could not save it, not confirmed.
+          if (this.unsavedOrphanAdds.has(sessionId)) continue
           if (!saved.has(sessionId)) this.orphanedSessions.delete(sessionId)
         }
       }
@@ -2380,6 +2509,8 @@ export class TerminalSessionBrokerClient {
       const unreachable: string[] = []
       for (const record of records) {
         if (this.orphanedSessions.has(record.sessionId)) continue
+        // Settled here; the file still lists it only because that save failed.
+        if (this.unsavedOrphanRemoves.has(record.sessionId)) continue
         if (current && current.pid === record.pid && current.port === record.port) {
           this.orphanedSessions.set(record.sessionId, current)
         } else {
@@ -2395,22 +2526,42 @@ export class TerminalSessionBrokerClient {
     }
   }
 
-  /** Save only this client's change; another client's records stay. */
-  private persistOrphanChange(change: OrphanChange): void {
+  /**
+   * Save only this client's change; another client's records stay. A change
+   * that cannot be written is kept and written with the next one.
+   */
+  private persistOrphanChange(change: OrphanChange = {}): void {
+    for (const record of change.add ?? []) {
+      this.unsavedOrphanRemoves.delete(record.sessionId)
+      this.unsavedOrphanAdds.set(record.sessionId, record)
+    }
+    for (const sessionId of change.remove ?? []) {
+      this.unsavedOrphanAdds.delete(sessionId)
+      this.unsavedOrphanRemoves.add(sessionId)
+    }
+    if (this.unsavedOrphanAdds.size === 0 && this.unsavedOrphanRemoves.size === 0) return
     try {
       updateOrphans(
         loadFs(),
         orphanStorePath(this.descriptorPath),
         isTrustedDescriptorFile,
-        change,
+        {
+          add: Array.from(this.unsavedOrphanAdds.values()),
+          remove: Array.from(this.unsavedOrphanRemoves),
+        },
       )
-      if ((change.add?.length ?? 0) > 0 || (change.remove?.length ?? 0) > 0) {
-        window.dispatchEvent(
-          new CustomEvent(ORPHANS_SAVED_EVENT, { detail: this.descriptorPath }),
-        )
-      }
     } catch (error) {
       this.options.log?.('warn', '[TerminalBroker] Could not save pending terminations', error)
+      return
+    }
+    this.unsavedOrphanAdds.clear()
+    this.unsavedOrphanRemoves.clear()
+    try {
+      window.dispatchEvent(
+        new CustomEvent(ORPHANS_SAVED_EVENT, { detail: this.descriptorPath }),
+      )
+    } catch {
+      // No window.
     }
   }
 
@@ -2439,8 +2590,14 @@ export class TerminalSessionBrokerClient {
    * hold the sessions, and the next client drops records of a gone broker.
    */
   private stopOrphanCleanup(): void {
+    // A last try for changes not saved yet, so the next renderer sees them.
+    this.persistOrphanChange()
+    this.unsavedOrphanAdds.clear()
+    this.unsavedOrphanRemoves.clear()
     try {
       window.removeEventListener(ORPHANS_SAVED_EVENT, this.onOrphansSaved)
+      window.removeEventListener(ORPHANS_CLIENT_STARTED_EVENT, this.onOrphanClientStarted)
+      window.removeEventListener(ORPHANS_HANDOVER_EVENT, this.onOrphansHandedOver)
     } catch {
       // No window.
     }
@@ -2469,6 +2626,7 @@ export class TerminalSessionBrokerClient {
   private async cleanUpOrphanedSessions(): Promise<void> {
     if (this.closing || this.orphanedSessions.size === 0) return
     this.orphanCleanupRunning = true
+    const handoverEpoch = this.orphanHandoverEpoch
     const settled: string[] = []
     try {
       const groups = new Map<string, { descriptor: BrokerDescriptor; ids: string[] }>()
@@ -2479,10 +2637,12 @@ export class TerminalSessionBrokerClient {
         groups.set(key, group)
       }
       for (const { descriptor, ids } of groups.values()) {
-        if (this.closing) return
+        if (this.closing || handoverEpoch !== this.orphanHandoverEpoch) return
         const forget = (sessionIds: string[]): void => {
           for (const sessionId of sessionIds) {
-            if (this.orphanedSessions.get(sessionId) === descriptor) {
+            // By value: records read from the file at different times are
+            // different objects for the same broker.
+            if (descriptorsEqual(this.orphanedSessions.get(sessionId) ?? null, descriptor)) {
               this.orphanedSessions.delete(sessionId)
               settled.push(sessionId)
             }
@@ -2497,15 +2657,25 @@ export class TerminalSessionBrokerClient {
         }
         const results = new Map<string, UnavailableTerminationResult>()
         try {
-          await this.requestAuthenticatedDeferredShutdown(
-            descriptor,
-            // The window may be closing: its exit grace stands.
-            { op: 'activate-renderer-lease', keepShutdown: true },
-            'renderer-lease-activated',
-            this.captureRendererLeaseIdentity(),
+          const identity = this.captureRendererLeaseIdentity()
+          const timeoutMs =
             this.options.deferredShutdownTimeoutMs ??
-              BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS,
-          )
+            BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS
+          // On the data connection when there is one: a separate connection
+          // could make the lease current ahead of that connection's own
+          // activation still queued behind other writes. The data connection
+          // would then keep the old lease, and its close would not arm the
+          // exit grace (Note W in the broker source).
+          if (!(await this.activateLeaseOnDataTransport(descriptor, identity, timeoutMs, true))) {
+            await this.requestAuthenticatedDeferredShutdown(
+              descriptor,
+              // The window may be closing: its exit grace stands.
+              { op: 'activate-renderer-lease', keepShutdown: true },
+              'renderer-lease-activated',
+              identity,
+              timeoutMs,
+            )
+          }
           await this.requestUnavailableTermination(descriptor, ids, results)
         } catch (error) {
           if (error instanceof UntrustedBrokerError || isConnectionRefusedError(error)) {
@@ -2517,7 +2687,8 @@ export class TerminalSessionBrokerClient {
       }
     } finally {
       this.orphanCleanupRunning = false
-      if (settled.length > 0) this.persistOrphanChange({ remove: settled })
+      // Also writes what an earlier save could not.
+      this.persistOrphanChange({ remove: settled })
       this.scheduleOrphanCleanup()
     }
   }
