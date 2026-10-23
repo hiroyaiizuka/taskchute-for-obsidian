@@ -766,6 +766,10 @@ export class TerminalSessionBrokerClient {
       // No window.
     }
     this.adoptSavedOrphans(true)
+    this.followOrphansInWindow()
+  }
+
+  private followOrphansInWindow(): void {
     try {
       window.addEventListener(ORPHANS_SAVED_EVENT, this.onOrphansSaved)
       window.addEventListener(ORPHANS_CLIENT_STARTED_EVENT, this.onOrphanClientStarted)
@@ -2450,6 +2454,10 @@ export class TerminalSessionBrokerClient {
         // No window.
       }
       if (handover.accepted) return
+      // No newer client is left: this one owns the retries again, and
+      // follows the window as before, so the next client can take them.
+      this.orphansHandedOver = false
+      this.followOrphansInWindow()
     }
     this.takeOverOrphans(handover)
   }

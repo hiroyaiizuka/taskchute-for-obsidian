@@ -52,6 +52,8 @@ interface FakeBroker {
   ops: string[]
   /** Drop every connected client, as a broker restart would. */
   dropClients(): void
+  /** Start answering terminations from now on. */
+  answerTerminate(answer: 'missing'): void
 }
 
 /**
@@ -62,6 +64,7 @@ async function startFakeBroker(
   options: { answerAttach?: boolean; answerTerminate?: 'missing'; answerActivation?: boolean } = {},
 ): Promise<FakeBroker> {
   const ops: string[] = []
+  const answers = { terminate: options.answerTerminate }
   const sockets = new Set<Socket>()
   const server = createServer((socket) => {
     answerBrokerProof(socket, TOKEN)
@@ -82,7 +85,7 @@ async function startFakeBroker(
         if (message.op === 'activate-renderer-lease' && options.answerActivation) {
           socket.write(`${JSON.stringify({ type: 'renderer-lease-activated' })}\n`)
         }
-        if (message.op === 'terminate-unavailable' && options.answerTerminate === 'missing') {
+        if (message.op === 'terminate-unavailable' && answers.terminate === 'missing') {
           socket.write(`${JSON.stringify({ type: 'missing', sessionId: message.sessionId })}\n`)
         }
         if (message.op === 'spawn' || (message.op === 'attach' && options.answerAttach)) {
@@ -110,6 +113,9 @@ async function startFakeBroker(
     ops,
     dropClients: () => {
       for (const socket of sockets) socket.destroy()
+    },
+    answerTerminate: (answer) => {
+      answers.terminate = answer
     },
   }
 }
@@ -616,6 +622,7 @@ describePosix('pending terminations shared by the clients of one window (LEV-398
     // The client a terminal handle keeps across the reload.
     const older = fastClient(identity, options)
     let newer: TerminalSessionBrokerClient | null = null
+    let latest: TerminalSessionBrokerClient | null = null
     const giveUp = async (sessionId: string): Promise<void> => {
       const stuck = recordingCallbacks()
       older.attach(sessionId, stuck.callbacks)
@@ -653,17 +660,38 @@ describePosix('pending terminations shared by the clients of one window (LEV-398
       expect(pendingOf(newer)).toContain('session-after-reload')
       expect(savedIds(store)).toContain('session-after-reload')
 
-      // With no newer client left, the older one retries it itself.
+      // With no newer client left, the older one retries it itself, also
+      // when it cannot save it.
       newer.detach()
       orphanInternals(newer).stopOrphanCleanup()
+      rmSync(store, { force: true })
+      mkdirSync(store)
       await giveUp('session-alone')
       expect(pendingOf(older)).toEqual(['session-alone'])
+      rmSync(store, { recursive: true })
+
+      // It follows the window again: the next client takes it over, and
+      // saves it.
+      latest = fastClient(identity, {
+        ...options,
+        deferredShutdownTimeoutMs: 1_000,
+        unavailableTerminationTimeoutMs: 1_000,
+      })
+      expect(pendingOf(older)).toEqual([])
+      expect(pendingOf(latest)).toEqual(['session-alone'])
+      expect(savedIds(store)).toEqual(['session-alone'])
+
+      // Once the broker answers for it, no client retries it.
+      fake.answerTerminate('missing')
+      await orphanInternals(latest).cleanUpOrphanedSessions()
+      expect(pendingOf(latest)).toEqual([])
+      expect(pendingOf(older)).toEqual([])
+      expect(existsSync(store)).toBe(false)
     } finally {
-      older.detach()
-      orphanInternals(older).stopOrphanCleanup()
-      if (newer) {
-        newer.detach()
-        orphanInternals(newer).stopOrphanCleanup()
+      for (const client of [older, newer, latest]) {
+        if (!client) continue
+        client.detach()
+        orphanInternals(client).stopOrphanCleanup()
       }
       rmSync(store, { recursive: true, force: true })
       if (existsSync(descriptorPath)) unlinkSync(descriptorPath)
