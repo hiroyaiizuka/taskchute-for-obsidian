@@ -183,7 +183,23 @@ function platformArgs(): string[] {
   return process.platform === "darwin" ? ["--use-mock-keychain"] : []
 }
 
+/**
+ * Now and then the window this attached to closes while it loads (Playwright:
+ * "Target page, context or browser has been closed"), before any test code
+ * runs. Obsidian seems to replace its first window at startup. That is not
+ * the test failing, so start over once, from fresh directories. Any other
+ * error, or the same one twice, still fails the test.
+ */
 export async function launchObsidian(options: LaunchOptions): Promise<ObsidianSession> {
+  try {
+    return await launchOnce(options)
+  } catch (error) {
+    if (!(error instanceof Error) || !/has been closed/.test(error.message)) throw error
+    return launchOnce(options)
+  }
+}
+
+async function launchOnce(options: LaunchOptions): Promise<ObsidianSession> {
   const { configDir, vaultDir } = prepareDirectories(options.workDir)
   if (options.home) linkUserFonts(options.home)
   const port = await freePort()
