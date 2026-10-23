@@ -997,6 +997,15 @@ export class TerminalSessionBrokerClient {
     cols: number,
     rows: number,
   ): void {
+    this.requestResize(sessionId, cols, rows, false)
+  }
+
+  private requestResize(
+    sessionId: string,
+    cols: number,
+    rows: number,
+    claimLease: boolean,
+  ): void {
     if (
       this.closing ||
       this.unavailableSessions.has(sessionId) ||
@@ -1014,6 +1023,7 @@ export class TerminalSessionBrokerClient {
         rows,
       },
       false,
+      claimLease,
     ).catch((error: unknown) => {
       // Superseded by a lease rotation, not lost with the connection: no
       // reattach will replay it. Ask again under the lease held now, unless a
@@ -1022,12 +1032,16 @@ export class TerminalSessionBrokerClient {
         error instanceof RendererLeaseChangedError &&
         this.latestResizes.get(sessionId) === request
       ) {
-        this.resize(sessionId, cols, rows)
+        this.requestResize(sessionId, cols, rows, true)
       }
     })
   }
 
   stop(sessionId: string, force: boolean): void {
+    this.requestStop(sessionId, force, false)
+  }
+
+  private requestStop(sessionId: string, force: boolean, claimLease: boolean): void {
     if (this.closing || !isValidBrokerSessionId(sessionId)) return
     this.explicitlyStoppedSessionIds.add(sessionId)
     if (this.unavailableSessions.has(sessionId)) {
@@ -1038,11 +1052,11 @@ export class TerminalSessionBrokerClient {
       this.scheduleUnavailableRecovery(true)
       return
     }
-    void this.send({ op: 'stop', sessionId, force }, false).catch((error) => {
+    void this.send({ op: 'stop', sessionId, force }, false, claimLease).catch((error) => {
       if (error instanceof RendererLeaseChangedError) {
         // Superseded, not failed: ask for the same stop under the lease this
         // client holds now, never escalating it to a forced termination.
-        if (this.callbacks.has(sessionId)) this.stop(sessionId, force)
+        if (this.callbacks.has(sessionId)) this.requestStop(sessionId, force, true)
         return
       }
       this.options.log?.('warn', '[TerminalBroker] Stop failed', error)
@@ -1230,6 +1244,14 @@ export class TerminalSessionBrokerClient {
   private async send(
     message: BrokerClientCommand,
     allowBrokerStart = true,
+    /**
+     * Activate the lease on this connection first. A request resent after a
+     * lease rotation can reach a fresh connection before the activation sent
+     * on a control connection: the broker would refuse it as stale and drop
+     * the connection. Written in front of it on the same connection, the
+     * activation is always read first (LEV-397).
+     */
+    claimLease = false,
   ): Promise<BrokerDescriptor> {
     if (this.closing) {
       throw new Error('Terminal broker client is shutting down')
@@ -1264,6 +1286,19 @@ export class TerminalSessionBrokerClient {
     })
     if (frame.length > MAX_CLIENT_FRAME_BYTES) {
       throw new Error('Terminal broker request exceeds the IPC limit')
+    }
+    if (claimLease) {
+      const activation: BrokerClientMessage = {
+        token: descriptor.token,
+        rendererLeaseToken: rendererLeaseIdentity.token,
+        rendererLeaseOwnerId: rendererLeaseIdentity.ownerId,
+        rendererLeaseGeneration: rendererLeaseIdentity.generation,
+        op: 'activate-renderer-lease',
+        keepShutdown: true,
+      }
+      // Its answer is read in turn with no one waiting for it.
+      this.dataLeaseActivations.push({ socket, answer: null })
+      socket.write(`${JSON.stringify(activation)}\n`)
     }
     socket.write(`${frame}\n`)
     return descriptor

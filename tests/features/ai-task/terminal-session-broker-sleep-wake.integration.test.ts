@@ -1860,4 +1860,100 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       cleanup(descriptorPath, pids)
     }
   })
+
+  /** Hold every lease activation sent on a control connection for `delayMs`. */
+  function delayControlActivation(client: TerminalSessionBrokerClient, delayMs: number): void {
+    const internal = client as unknown as {
+      requestAuthenticatedDeferredShutdown: (...args: unknown[]) => Promise<void>
+    }
+    const original = internal.requestAuthenticatedDeferredShutdown.bind(client)
+    internal.requestAuthenticatedDeferredShutdown = async (...args: unknown[]) => {
+      if ((args[1] as { op?: unknown } | undefined)?.op === 'activate-renderer-lease') await sleep(delayMs)
+      return Reflect.apply(original, client, args)
+    }
+  }
+
+  test('a stop resent on a fresh connection after a lease rotation still reaches the broker (LEV-397)', async () => {
+    const unique = `lev397-reconnect-stop-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-reconnect-stop', 'RECONNECT_STOP_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+      let unavailable = false
+      void session.unavailable.then(() => {
+        unavailable = true
+      })
+
+      // The connection is gone when the stop is asked, so the stop opens a
+      // new one; the lease rotates meanwhile, and its activation on a control
+      // connection is slow. The new connection is ready first.
+      delayControlActivation(client, 1_500)
+      ;(client as unknown as { socket: { destroy(): void } | null }).socket?.destroy()
+      client.stop('session-reconnect-stop', false)
+      const activation = client.setRendererLeaseToken('lev397-lease-reconnect-stop-2', 'lev397-owner', 2)
+
+      const outcome = (await withTimeout(session.exited)) as { status: string }
+      expect(outcome.status).toBe('stopped')
+      expect(unavailable).toBe(false)
+      await activation.catch(() => undefined)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a resize resent on a fresh connection after a lease rotation keeps the connection (LEV-397)', async () => {
+    const unique = `lev397-reconnect-resize-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    const netModule = jest.requireActual<{ createConnection: (...args: unknown[]) => Socket }>('net')
+    const createConnection = netModule.createConnection
+    try {
+      const session = startSession(client, 'session-reconnect-resize', 'RECONNECT_RESIZE_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      // Record what goes out on every connection made from here on.
+      const opened: Array<{ socket: Socket; frames: Array<{ op: string; rendererLeaseGeneration?: number; cols?: number }> }> = []
+      netModule.createConnection = (...args: unknown[]) => {
+        const socket = createConnection(...args)
+        const record = { socket, frames: [] as (typeof opened)[number]['frames'] }
+        opened.push(record)
+        const write = socket.write.bind(socket)
+        ;(socket as unknown as { write(data: string): boolean }).write = (data: string) => {
+          for (const line of data.split('\n')) {
+            if (line.startsWith('{')) record.frames.push(JSON.parse(line) as (typeof record.frames)[number])
+          }
+          return write(data)
+        }
+        return socket
+      }
+
+      delayControlActivation(client, 1_500)
+      ;(client as unknown as { socket: { destroy(): void } | null }).socket?.destroy()
+      client.resize('session-reconnect-resize', 132, 43)
+      const activation = client.setRendererLeaseToken('lev397-lease-reconnect-resize-2', 'lev397-owner', 2)
+      await sleep(1_000)
+
+      // The data connection the resize opened: the new size went out under
+      // the new lease, and the broker kept the connection.
+      const data = opened.find((record) => record.frames.some((frame) => frame.op === 'resize'))
+      expect(data).toBeDefined()
+      const resent = data!.frames.filter((frame) => frame.op === 'resize')
+      expect(resent).toEqual([expect.objectContaining({ cols: 132, rendererLeaseGeneration: 2 })])
+      expect(data!.socket.destroyed).toBe(false)
+      expect(isAlive(sessionPid)).toBe(true)
+      await activation.catch(() => undefined)
+    } finally {
+      netModule.createConnection = createConnection
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
 })
