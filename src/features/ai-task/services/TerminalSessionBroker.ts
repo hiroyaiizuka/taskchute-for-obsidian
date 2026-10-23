@@ -383,6 +383,17 @@ interface RendererLeaseIdentity {
   generation: number
 }
 
+/**
+ * A request made under a lease that rotated before it reached the connection.
+ * Not a transport failure: the connection is fine (LEV-397).
+ */
+class RendererLeaseChangedError extends Error {
+  constructor() {
+    super('Terminal broker renderer lease changed before the request was sent')
+    this.name = 'RendererLeaseChangedError'
+  }
+}
+
 function sameRendererLease(
   a: RendererLeaseIdentity,
   b: RendererLeaseIdentity,
@@ -914,6 +925,13 @@ export class TerminalSessionBrokerClient {
     // must never resurrect an empty broker after the real session vanished.
     void this.send({ op: 'input', sessionId, data }, false).catch((error) => {
       this.options.log?.('warn', '[TerminalBroker] Input failed', error)
+      if (error instanceof RendererLeaseChangedError) {
+        // The connection stays, so no reattach will report it later. Report
+        // this input now, outside the once-per-outage bookkeeping.
+        const callbacks = this.callbacks.get(sessionId)
+        if (callbacks) this.reportInputDropped(callbacks)
+        return
+      }
       // Not reported at once: a reconnect is usually underway. It is reported
       // once when the session reattaches or is written off.
       const pending = this.unavailableSessions.get(sessionId)
@@ -933,6 +951,10 @@ export class TerminalSessionBrokerClient {
     record.inputLost = false
     if (record.inputDropNotified) return
     record.inputDropNotified = true
+    this.reportInputDropped(callbacks)
+  }
+
+  private reportInputDropped(callbacks: TerminalBrokerSessionCallbacks): void {
     try {
       callbacks.onInputDropped?.()
     } catch (error) {
@@ -1198,7 +1220,7 @@ export class TerminalSessionBrokerClient {
     // sends a stale frame after it (LEV-397), taking every attached terminal
     // with it. The request stays the old renderer's, so fail it here instead.
     if (!sameRendererLease(rendererLeaseIdentity, this.captureRendererLeaseIdentity())) {
-      throw new Error('Terminal broker renderer lease changed before the request was sent')
+      throw new RendererLeaseChangedError()
     }
     const frame = JSON.stringify({
       ...message,

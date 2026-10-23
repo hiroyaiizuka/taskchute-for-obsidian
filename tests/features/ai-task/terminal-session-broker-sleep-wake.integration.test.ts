@@ -529,6 +529,7 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
     const connectionLost = deferred<void>()
     let output = ''
     let pid: number | undefined
+    let inputDropped = 0
     client.start(
       sessionId,
       readyShell(marker),
@@ -548,6 +549,9 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
         onExit: (outcome) => exited.resolve(outcome),
         onUnavailable: () => unavailable.resolve(),
         onConnectionLost: () => connectionLost.resolve(),
+        onInputDropped: () => {
+          inputDropped += 1
+        },
       },
     )
     return {
@@ -558,6 +562,7 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       connectionLost: connectionLost.promise,
       output: () => output,
       pid: () => pid,
+      inputDropped: () => inputDropped,
     }
   }
 
@@ -1729,6 +1734,15 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       client.write('session-queued', 'typed-before-rotation\n')
       await client.setRendererLeaseToken('lev397-lease-queued-2', 'lev397-owner', 2)
       await sleep(500)
+      // That input is dropped, and the user is told at once.
+      expect(session.inputDropped()).toBe(1)
+
+      // So is the next one dropped this way: no outage ever re-arms it.
+      client.write('session-queued', 'typed-before-second-rotation\n')
+      await client.setRendererLeaseToken('lev397-lease-queued-3', 'lev397-owner', 3)
+      await sleep(500)
+      expect(session.inputDropped()).toBe(2)
+      expect(session.output()).not.toContain('ECHO:typed-before')
 
       // The connection and its terminal survive, and take input again.
       expect(socketOf()).toBe(before)
