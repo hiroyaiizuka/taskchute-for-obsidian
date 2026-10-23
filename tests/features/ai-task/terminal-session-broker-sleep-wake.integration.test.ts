@@ -561,6 +561,16 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
     }
   }
 
+  /** Block until the process is stopped (ps state T), so nothing it does can race a write. */
+  function waitUntilStoppedSync(pid: number): void {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      const state = execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim()
+      if (state.startsWith('T')) return
+    }
+    throw new Error(`process ${String(pid)} did not stop`)
+  }
+
   function brokerPidOf(descriptorPath: string): number {
     return (JSON.parse(readFileSync(descriptorPath, 'utf8')) as { pid: number }).pid
   }
@@ -1612,19 +1622,23 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       brokerPid = brokerPidOf(descriptorPath)
       pids.push(brokerPid)
 
-      // A hot reload rotates the lease, and the broker freezes the moment
-      // the activation is written, before it can answer. The window then
+      // A hot reload rotates the lease, and the broker is frozen just before
+      // the activation is written, so it cannot answer. The window then
       // closes: neither the activation nor the exit grace is acknowledged.
+      // Only the activation frame waits for the freeze; a control
+      // connection's proof exchange goes through first.
       const frozen = deferred<void>()
       const freezeOnActivation = <T extends { write(data: string): boolean }>(socket: T): T => {
         const write = socket.write.bind(socket)
         socket.write = (data: string) => {
-          const written = write(data)
           if (data.includes('"op":"activate-renderer-lease"') && brokerPid !== undefined) {
             process.kill(brokerPid, 'SIGSTOP')
+            waitUntilStoppedSync(brokerPid)
+            const written = write(data)
             frozen.resolve()
+            return written
           }
-          return written
+          return write(data)
         }
         return socket
       }

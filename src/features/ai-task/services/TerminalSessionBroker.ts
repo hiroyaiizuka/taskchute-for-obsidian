@@ -625,8 +625,16 @@ export class TerminalSessionBrokerClient {
    * owner intentionally released the transport.
    */
   private transportGeneration = 0
-  /** Lease activations sent on the data connection, waiting for the broker. */
-  private readonly dataLeaseActivations = new Set<() => void>()
+  /**
+   * Lease activations sent on the data connection, in the order the broker
+   * answers them. One that timed out keeps its place, with no one waiting,
+   * until its late answer arrives, so that answer is not taken for a newer
+   * activation's. Entries for an earlier connection are dropped.
+   */
+  private dataLeaseActivations: Array<{
+    socket: NodeSocketLike
+    answer: (() => void) | null
+  }> = []
   private rendererLeaseToken: string
   private rendererLeaseOwnerId: string
   private rendererLeaseGeneration: number
@@ -754,11 +762,17 @@ export class TerminalSessionBrokerClient {
       rendererLeaseGeneration: identity.generation,
       op: 'activate-renderer-lease',
     }
-    let answered!: () => void
+    const entry: { socket: NodeSocketLike; answer: (() => void) | null } = {
+      socket,
+      answer: null,
+    }
     const activated = new Promise<void>((resolve) => {
-      answered = resolve
+      entry.answer = resolve
     })
-    this.dataLeaseActivations.add(answered)
+    this.dataLeaseActivations = this.dataLeaseActivations.filter(
+      (pending) => pending.socket === socket,
+    )
+    this.dataLeaseActivations.push(entry)
     let timer: StableTimeoutId | null = null
     try {
       socket.write(`${JSON.stringify(frame)}\n`)
@@ -774,7 +788,7 @@ export class TerminalSessionBrokerClient {
       return true
     } finally {
       if (timer !== null) stableTimeoutSource.clearTimeout(timer)
-      this.dataLeaseActivations.delete(answered)
+      entry.answer = null
     }
   }
 
@@ -1462,11 +1476,13 @@ export class TerminalSessionBrokerClient {
     }
     if (message.type === 'renderer-lease-activated') {
       // Answers arrive in the order the activations were written.
-      const [first] = this.dataLeaseActivations
-      if (first) {
-        this.dataLeaseActivations.delete(first)
-        first()
+      while (
+        this.dataLeaseActivations.length > 0 &&
+        this.dataLeaseActivations[0].socket !== this.socket
+      ) {
+        this.dataLeaseActivations.shift()
       }
+      this.dataLeaseActivations.shift()?.answer?.()
       return
     }
     if (!('sessionId' in message)) return
