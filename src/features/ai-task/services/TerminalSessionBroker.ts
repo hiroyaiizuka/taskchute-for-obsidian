@@ -643,6 +643,8 @@ export class TerminalSessionBrokerClient {
    * owner intentionally released the transport.
    */
   private transportGeneration = 0
+  /** The newest size asked for each session, to resend after a lease rotation. */
+  private readonly latestResizes = new Map<string, { cols: number; rows: number }>()
   /**
    * Lease activations sent on the data connection, in the order the broker
    * answers them. One that timed out keeps its place, with no one waiting,
@@ -986,6 +988,7 @@ export class TerminalSessionBrokerClient {
   /** Drop every per-session record once the session is over for this client. */
   private forgetSession(sessionId: string): void {
     this.sessionRecords.delete(sessionId)
+    this.latestResizes.delete(sessionId)
     this.explicitlyStoppedSessionIds.delete(sessionId)
   }
 
@@ -1001,6 +1004,8 @@ export class TerminalSessionBrokerClient {
     ) {
       return
     }
+    const request = { cols, rows }
+    this.latestResizes.set(sessionId, request)
     void this.send(
       {
         op: 'resize',
@@ -1009,7 +1014,17 @@ export class TerminalSessionBrokerClient {
         rows,
       },
       false,
-    ).catch(() => undefined)
+    ).catch((error: unknown) => {
+      // Superseded by a lease rotation, not lost with the connection: no
+      // reattach will replay it. Ask again under the lease held now, unless a
+      // newer size was asked for meanwhile (that one resends itself).
+      if (
+        error instanceof RendererLeaseChangedError &&
+        this.latestResizes.get(sessionId) === request
+      ) {
+        this.resize(sessionId, cols, rows)
+      }
+    })
   }
 
   stop(sessionId: string, force: boolean): void {

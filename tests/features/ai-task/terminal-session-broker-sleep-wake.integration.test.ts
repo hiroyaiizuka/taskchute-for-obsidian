@@ -1823,4 +1823,41 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       cleanup(descriptorPath, pids)
     }
   })
+
+  test('a resize queued just before a lease rotation is resent with the newest size (LEV-397)', async () => {
+    const unique = `lev397-queued-resize-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-queued-resize', 'QUEUED_RESIZE_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      // Record what reaches the data connection.
+      const socket = (client as unknown as { socket: { write(data: string): boolean } | null }).socket!
+      const write = socket.write.bind(socket)
+      const resizes: Array<{ cols: number; rows: number; rendererLeaseGeneration: number }> = []
+      socket.write = (data: string) => {
+        for (const line of data.split('\n')) {
+          if (line.includes('"op":"resize"')) resizes.push(JSON.parse(line) as (typeof resizes)[number])
+        }
+        return write(data)
+      }
+
+      // Two sizes are on their way when the lease rotates.
+      client.resize('session-queued-resize', 100, 30)
+      client.resize('session-queued-resize', 120, 40)
+      await client.setRendererLeaseToken('lev397-lease-queued-resize-2', 'lev397-owner', 2)
+      await sleep(500)
+
+      // Only the newest size is resent, once, under the new lease.
+      expect(resizes).toEqual([expect.objectContaining({ cols: 120, rows: 40, rendererLeaseGeneration: 2 })])
+      expect(isAlive(sessionPid)).toBe(true)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
 })
