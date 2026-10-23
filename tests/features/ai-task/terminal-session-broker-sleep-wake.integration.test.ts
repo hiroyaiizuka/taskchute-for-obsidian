@@ -1598,4 +1598,102 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       cleanup(descriptorPath, pids)
     }
   })
+
+  test('a window that closes before the broker answers its lease activation still gets the exit grace (LEV-397)', async () => {
+    const unique = `lev397-unanswered-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1, { rendererLeaseActivationRetryWindowMs: 400 })
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(client, 'session-unanswered', 'UNANSWERED_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // A hot reload rotates the lease, and the broker freezes the moment
+      // the activation is written, before it can answer. The window then
+      // closes: neither the activation nor the exit grace is acknowledged.
+      const frozen = deferred<void>()
+      const freezeOnActivation = <T extends { write(data: string): boolean }>(socket: T): T => {
+        const write = socket.write.bind(socket)
+        socket.write = (data: string) => {
+          const written = write(data)
+          if (data.includes('"op":"activate-renderer-lease"') && brokerPid !== undefined) {
+            process.kill(brokerPid, 'SIGSTOP')
+            frozen.resolve()
+          }
+          return written
+        }
+        return socket
+      }
+      const dataSocket = (client as unknown as { socket: { write(data: string): boolean } | null }).socket
+      if (dataSocket) freezeOnActivation(dataSocket)
+      // The client loads net when it connects; wrap the sockets it makes.
+      const netModule = jest.requireActual<{ createConnection: (...args: unknown[]) => Socket }>('net')
+      const createConnection = netModule.createConnection
+      netModule.createConnection = (...args: unknown[]) => freezeOnActivation(createConnection(...args))
+      const rotated = { token: 'lev397-lease-unanswered', ownerId: 'lev397-owner', generation: 2 }
+      let activation: Promise<void>
+      try {
+        activation = client.setRendererLeaseToken(rotated.token, rotated.ownerId, rotated.generation)
+        await withTimeout(frozen.promise)
+      } finally {
+        netModule.createConnection = createConnection
+      }
+      await expect(
+        client.scheduleShutdownAfterGrace(1_000, rotated.token, rotated.ownerId, rotated.generation),
+      ).rejects.toThrow()
+      client.detach()
+      await expect(activation).rejects.toThrow()
+      process.kill(brokerPid, 'SIGCONT')
+
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(sessionPid),
+        'the resumed broker shuts down at the end of the exit grace',
+        30_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('overlapping lease activations keep the data connection (LEV-397)', async () => {
+    const unique = `lev397-overlap-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-overlap', 'OVERLAP_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      const socketOf = () => (client as unknown as { socket: { destroyed: boolean } | null }).socket
+      const before = socketOf()
+      await Promise.all([
+        client.setRendererLeaseToken('lev397-lease-overlap-2', 'lev397-owner', 2),
+        client.setRendererLeaseToken('lev397-lease-overlap-3', 'lev397-owner', 3),
+      ])
+      await sleep(500)
+
+      // The broker took both, in order, on the same connection.
+      expect(socketOf()).toBe(before)
+      expect(before?.destroyed).toBe(false)
+      client.write('session-overlap', 'after-overlap\n')
+      await waitUntil(() => session.output().includes('ECHO:after-overlap'), 'the terminal still takes input', 10_000)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
 })

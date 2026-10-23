@@ -445,31 +445,40 @@ describePosix('TerminalSessionBrokerClient integration', () => {
       await withTimeout(firstAttached.promise)
       await withTimeout(ready.promise)
 
-      // Prove activation has a bounded retry independent of any attach. The
-      // first dedicated control socket is failed deliberately; the second
-      // must claim generation 3 before this Promise resolves.
+      // Prove activation has a bounded retry independent of any attach. With
+      // a data connection the activation goes there (LEV-397), otherwise on a
+      // dedicated control socket. The first attempt is failed deliberately,
+      // whichever way it goes; a later one must claim generation 3 before
+      // this Promise resolves.
       const internal = client as unknown as {
         requestAuthenticatedDeferredShutdown: (
           ...args: unknown[]
         ) => Promise<void>
+        activateLeaseOnDataTransport: (...args: unknown[]) => Promise<boolean>
         socket: { destroy(): void } | null
       }
       const originalControl =
         internal.requestAuthenticatedDeferredShutdown.bind(client)
+      const originalData = internal.activateLeaseOnDataTransport.bind(client)
       let activationAttempts = 0
+      internal.activateLeaseOnDataTransport = (
+        ...args: unknown[]
+      ): Promise<boolean> => {
+        activationAttempts += 1
+        if (activationAttempts === 1) {
+          return Promise.reject(new Error('synthetic first activation loss'))
+        }
+        return Reflect.apply(originalData, client, args)
+      }
       internal.requestAuthenticatedDeferredShutdown = (
         ...args: unknown[]
       ): Promise<void> => {
         const command = args[1] as { op?: unknown } | undefined
-        if (
-          command?.op === 'activate-renderer-lease' &&
-          activationAttempts === 0
-        ) {
-          activationAttempts += 1
-          return Promise.reject(new Error('synthetic first activation loss'))
-        }
         if (command?.op === 'activate-renderer-lease') {
           activationAttempts += 1
+          if (activationAttempts === 1) {
+            return Promise.reject(new Error('synthetic first activation loss'))
+          }
         }
         return Reflect.apply(originalControl, client, args)
       }

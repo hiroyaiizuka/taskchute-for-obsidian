@@ -180,8 +180,8 @@ let cachedBrokerSource: string | undefined
  * it keep the grace from arming when the current renderer's connection
  * closes first. A connection takes the lease of the last
  * frame it carried under the current lease, so a client that rotates its
- * lease in place (a hot reload adopting it) repeats the activation on its
- * data connection, with keepShutdown. A stale
+ * lease in place (a hot reload adopting it) activates it on its data
+ * connection. A stale
  * schedule request is acknowledged so an old renderer can finish tearing
  * down, but never re-arms the current renderer's deadline.
  *

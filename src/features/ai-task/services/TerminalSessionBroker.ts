@@ -625,6 +625,8 @@ export class TerminalSessionBrokerClient {
    * owner intentionally released the transport.
    */
   private transportGeneration = 0
+  /** Lease activations sent on the data connection, waiting for the broker. */
+  private readonly dataLeaseActivations = new Set<() => void>()
   private rendererLeaseToken: string
   private rendererLeaseOwnerId: string
   private rendererLeaseGeneration: number
@@ -705,16 +707,18 @@ export class TerminalSessionBrokerClient {
         this.lastAuthenticatedDescriptor ??
         this.readDescriptor()
       if (target) {
+        const timeoutMs =
+          this.options.deferredShutdownTimeoutMs ??
+          BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS
         try {
+          if (await this.activateLeaseOnDataTransport(target, identity, timeoutMs)) return
           await this.requestAuthenticatedDeferredShutdown(
             target,
             { op: 'activate-renderer-lease' },
             'renderer-lease-activated',
             identity,
-            this.options.deferredShutdownTimeoutMs ??
-              BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS,
+            timeoutMs,
           )
-          this.moveDataTransportToLease(target, identity)
           return
         } catch (error) {
           lastError = error
@@ -726,26 +730,52 @@ export class TerminalSessionBrokerClient {
   }
 
   /**
-   * The broker arms the exit grace when the last connection of the current
-   * lease closes, and knows a connection's lease from the frames it carried
-   * (Note W in the broker source). Tell it this data connection now belongs
-   * to the lease just activated, without cancelling a grace already armed.
+   * Activate the lease on the data connection when there is one. The broker
+   * knows a connection's lease from the frames it carried and arms the exit
+   * grace when the last connection of the current lease closes (Note W in
+   * the broker source). On this connection the activation is one step with
+   * moving the connection to the lease, and it is always read before the
+   * connection's close, so a window that closes before the broker answers
+   * still leaves a connection of the current lease behind. Overlapping
+   * activations also arrive in the order they were made. False when there is
+   * no verified data connection to that broker.
    */
-  private moveDataTransportToLease(
+  private async activateLeaseOnDataTransport(
     target: BrokerDescriptor,
     identity: RendererLeaseIdentity,
-  ): void {
+    timeoutMs: number,
+  ): Promise<boolean> {
     const socket = this.socket
-    if (!socket || socket.destroyed || !descriptorsEqual(this.descriptor, target)) return
+    if (!socket || socket.destroyed || !descriptorsEqual(this.descriptor, target)) return false
     const frame: BrokerClientMessage = {
       token: target.token,
       rendererLeaseToken: identity.token,
       rendererLeaseOwnerId: identity.ownerId,
       rendererLeaseGeneration: identity.generation,
       op: 'activate-renderer-lease',
-      keepShutdown: true,
     }
-    socket.write(`${JSON.stringify(frame)}\n`)
+    let answered!: () => void
+    const activated = new Promise<void>((resolve) => {
+      answered = resolve
+    })
+    this.dataLeaseActivations.add(answered)
+    let timer: StableTimeoutId | null = null
+    try {
+      socket.write(`${JSON.stringify(frame)}\n`)
+      await Promise.race([
+        activated,
+        new Promise<never>((_resolve, reject) => {
+          timer = stableTimeoutSource.setTimeout(
+            () => reject(new Error('Terminal broker renderer lease activation timed out')),
+            timeoutMs,
+          )
+        }),
+      ])
+      return true
+    } finally {
+      if (timer !== null) stableTimeoutSource.clearTimeout(timer)
+      this.dataLeaseActivations.delete(answered)
+    }
   }
 
   private captureRendererLeaseIdentity(
@@ -1428,6 +1458,15 @@ export class TerminalSessionBrokerClient {
 
   private handleMessage(message: BrokerServerMessage): void {
     if (message.type === 'shutdown-ack') {
+      return
+    }
+    if (message.type === 'renderer-lease-activated') {
+      // Answers arrive in the order the activations were written.
+      const [first] = this.dataLeaseActivations
+      if (first) {
+        this.dataLeaseActivations.delete(first)
+        first()
+      }
       return
     }
     if (!('sessionId' in message)) return
