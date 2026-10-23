@@ -194,9 +194,13 @@ export async function launchObsidian(options: LaunchOptions): Promise<ObsidianSe
   try {
     return await launchOnce(options)
   } catch (error) {
-    if (!(error instanceof Error) || !/has been closed/.test(error.message)) throw error
+    if (!windowWasClosed(error)) throw error
     return launchOnce(options)
   }
+}
+
+function windowWasClosed(error: unknown): boolean {
+  return error instanceof Error && /has been closed/.test(error.message)
 }
 
 async function launchOnce(options: LaunchOptions): Promise<ObsidianSession> {
@@ -267,7 +271,9 @@ async function launchOnce(options: LaunchOptions): Promise<ObsidianSession> {
       .waitForFunction((id) => !!window.app.plugins.plugins[id], PLUGIN_ID, {
         timeout: PLUGIN_LOAD_TIMEOUT_MS,
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        // A closed window is not a plugin failure; keep it so launchObsidian retries.
+        if (windowWasClosed(error)) throw error
         throw new Error(
           `${PLUGIN_ID} did not load. Console errors:\n${errors.join("\n") || "(none)"}`,
         )
