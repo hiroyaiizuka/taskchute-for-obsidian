@@ -883,7 +883,7 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     writeFileSync(
       descriptorPath,
       JSON.stringify({
-        version: 1,
+        version: 2,
         port: stalePort,
         token: 'd'.repeat(64),
         // This PID is alive but is the Jest process, not the broker.
@@ -1847,5 +1847,57 @@ describePosix('TerminalSessionBrokerClient integration', () => {
 
     expect(() => process.kill(childPid ?? -1, 0)).toThrow()
     expect(existsSync(getTerminalBrokerDescriptorPath(identity))).toBe(false)
+  })
+
+  test('a termination asked for twice, as data and control connections do, stays an interruption', async () => {
+    const unique = `double-termination-${process.pid}-${Date.now()}-${Math.random()}`
+    const identity = `broker-integration-${unique}`
+    const descriptorPath = getTerminalBrokerDescriptorPath(identity)
+    const sessionId = `session-${unique}`
+    const lease = {
+      rendererLeaseToken: 'double-termination-lease',
+      rendererLeaseOwnerId: 'double-termination-owner',
+      rendererLeaseGeneration: 1,
+    }
+    const ready = deferred<void>()
+    const client = new TerminalSessionBrokerClient({ identity, ...lease })
+    try {
+      client.start(
+        sessionId,
+        {
+          command: '/bin/sh',
+          args: ['-c', 'printf "READY\\n"; while :; do sleep 1; done'],
+          env: { ...process.env },
+          stdinMode: 'pipe',
+        },
+        `/tmp/taskchute-broker-integration-${unique}.log`,
+        undefined,
+        {
+          onData: (data) => {
+            if (data.includes('READY')) ready.resolve()
+          },
+          onExit: () => undefined,
+          onUnavailable: () => undefined,
+        },
+      )
+      await withTimeout(ready.promise)
+
+      // The client queues the request on its data connection and sends it
+      // again on a control connection; the broker may read them in any order.
+      const frame = { op: 'terminate-unavailable', sessionId, ...lease }
+      const [first, second] = await Promise.all([
+        sendRawBrokerFrame(descriptorPath, frame, 10_000),
+        sendRawBrokerFrame(descriptorPath, frame, 10_000),
+      ])
+      expect(first).toMatchObject({ type: 'terminated-unavailable', interrupted: true })
+      expect(second).toMatchObject({ type: 'terminated-unavailable', interrupted: true })
+      // Asked again after the session completed: still an interruption.
+      await expect(sendRawBrokerFrame(descriptorPath, frame, 10_000)).resolves.toMatchObject({
+        type: 'terminated-unavailable',
+        interrupted: true,
+      })
+    } finally {
+      await client.shutdown().catch(() => undefined)
+    }
   })
 })

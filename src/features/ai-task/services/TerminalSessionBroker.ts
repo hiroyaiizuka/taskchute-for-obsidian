@@ -16,6 +16,17 @@ import type {
 } from './dispatchers/Dispatcher'
 import { Platform } from 'obsidian'
 
+import {
+  BROKER_PROTOCOL_VERSION,
+  challengeBroker,
+  UntrustedBrokerError,
+} from './BrokerProof'
+import {
+  orphanStorePath,
+  readOrphans,
+  updateOrphans,
+  type OrphanChange,
+} from './BrokerOrphanStore'
 import type { SpawnProcessRequest } from './NodeProcessGateway'
 import { listNodeExecutableCandidates } from './NodeExecutableLocator'
 import { buildTerminalBrokerSource } from './TerminalSessionBrokerSource'
@@ -76,6 +87,12 @@ interface NodeFsModuleLike {
     isSymbolicLink(): boolean
   }
   unlinkSync(path: string): void
+  writeFileSync(
+    path: string,
+    data: string,
+    options: { mode: number; flag: string },
+  ): void
+  renameSync(from: string, to: string): void
 }
 
 interface NodeOsModuleLike {
@@ -91,6 +108,10 @@ interface NodeCryptoModuleLike {
   createHash(algorithm: string): {
     update(value: string): { digest(encoding: 'hex'): string }
   }
+  createHmac(
+    algorithm: string,
+    key: string,
+  ): { update(value: string): { digest(encoding: 'hex'): string } }
   randomBytes(size: number): NodeBufferLike
 }
 
@@ -117,7 +138,7 @@ interface NodeChildProcessModuleLike {
 }
 
 interface BrokerDescriptor {
-  version: 1
+  version: 2
   port: number
   token: string
   pid: number
@@ -146,7 +167,7 @@ type BrokerClientMessage =
   | { token: string; op: 'terminate-unavailable'; sessionId: string }
   | { token: string; op: 'schedule-shutdown'; graceMs: number }
   | { token: string; op: 'cancel-deferred-shutdown' }
-  | { token: string; op: 'activate-renderer-lease' }
+  | { token: string; op: 'activate-renderer-lease'; keepShutdown?: true }
   | { token: string; op: 'shutdown' }
   ) & {
     rendererLeaseToken?: string
@@ -226,6 +247,8 @@ interface UnavailableSession {
   since: number
   /** Recovery rounds that have tried it. */
   attempts: number
+  /** Its termination was also queued on the verified data transport. */
+  queuedOnTransport?: boolean
 }
 
 interface UnavailableTerminationResult {
@@ -259,6 +282,8 @@ export interface TerminalBrokerClientOptions {
   unavailableConfirmationGiveUpMs?: number
   /** Attempts an unconfirmed termination gets before the window can end it. */
   unavailableConfirmationMinAttempts?: number
+  /** Interval of the background retry for terminations given up undelivered. */
+  orphanCleanupIntervalMs?: number
   /**
    * Clock for the confirmation window; defaults to performance.now, which
    * does not advance while the machine sleeps.
@@ -283,7 +308,12 @@ export interface TerminalBrokerClientOptions {
   rendererLeaseActivationRetryWindowMs?: number
 }
 
-const BROKER_VERSION = 1
+// Version 2 brokers prove they hold the token before the client sends it
+// (LEV-391). Version 1 brokers cannot, so they are never trusted: their
+// descriptor is retired and a fresh broker started. A version 1 broker left
+// without clients stops itself, and its sessions, after its idle TTL.
+const BROKER_VERSION = BROKER_PROTOCOL_VERSION
+const LEGACY_BROKER_VERSION = 1
 const BROKER_CONNECT_TIMEOUT_MS = 700
 const BROKER_STARTUP_TIMEOUT_MS = 5_000
 const BROKER_RETRY_MS = 50
@@ -303,6 +333,17 @@ const BROKER_UNAVAILABLE_RECOVERY_MAX_MS = 30_000
  * answers later.
  */
 const BROKER_UNAVAILABLE_CONFIRMATION_GIVE_UP_MS = 60_000
+const BROKER_ORPHAN_CLEANUP_INTERVAL_MS = 30_000
+/**
+ * Announces, on the window, that a client changed the saved pending
+ * terminations. Every client in the renderer shares that window, including
+ * those of earlier bundles a hot reload left behind. So the one holding the
+ * current lease learns about a session an older client gave up on, and an
+ * older client stops retrying one the current client has confirmed (its own
+ * lease would be refused forever, and each attempt resets the broker's idle
+ * timer).
+ */
+const ORPHANS_SAVED_EVENT = 'taskchute-plus:broker-orphans-saved'
 const BROKER_UNAVAILABLE_CONFIRMATION_MIN_ATTEMPTS = 5
 /** A login shell normally answers in a few seconds; a hung one must not hold a terminal. */
 const BROKER_PREPARE_ENV_TIMEOUT_MS = 12_000
@@ -524,6 +565,18 @@ export class TerminalSessionBrokerClient {
   private readonly sessionRecords = new Map<string, SessionRecord>()
   private readonly explicitlyStoppedSessionIds = new Set<string>()
   private readonly unavailableSessions = new Map<string, UnavailableSession>()
+  /**
+   * Sessions reported unavailable whose termination no broker has confirmed,
+   * by the broker that owns them. Saved to disk; see BrokerOrphanStore and
+   * cleanUpOrphanedSessions.
+   */
+  private readonly orphanedSessions = new Map<string, BrokerDescriptor>()
+  private orphanCleanupTimer: StableTimeoutId | null = null
+  private orphanCleanupRunning = false
+  private readonly onOrphansSaved = (event: Event): void => {
+    if ((event as CustomEvent<unknown>).detail !== this.descriptorPath) return
+    this.adoptSavedOrphans(false)
+  }
   private readonly pendingSessionAcks = new Map<
     string,
     {
@@ -587,6 +640,12 @@ export class TerminalSessionBrokerClient {
       (options.rendererLeaseGeneration ?? 0) >= 1
         ? (options.rendererLeaseGeneration as number)
         : 1
+    this.adoptSavedOrphans(true)
+    try {
+      window.addEventListener(ORPHANS_SAVED_EVENT, this.onOrphansSaved)
+    } catch {
+      // No window: only this client's own retries run.
+    }
   }
 
   async setRendererLeaseToken(
@@ -890,15 +949,32 @@ export class TerminalSessionBrokerClient {
       this.lastAuthenticatedDescriptor ??
       this.readDescriptor()
     if (!target) return
+    const identity = this.captureRendererLeaseIdentity(
+      rendererLeaseToken,
+      rendererLeaseOwnerId,
+      rendererLeaseGeneration,
+    )
+    // Also queue it on the verified data transport, which the window's
+    // detach flushes before closing. A frozen broker answers no proof, so the
+    // control connection below never gets to send it; the queued frame is
+    // what that broker reads on resume, after the window is gone. The broker
+    // checks the lease the same way on either connection.
+    if (this.socket && !this.socket.destroyed && descriptorsEqual(this.descriptor, target)) {
+      const frame: BrokerClientMessage = {
+        token: target.token,
+        rendererLeaseToken: identity.token,
+        rendererLeaseOwnerId: identity.ownerId,
+        rendererLeaseGeneration: identity.generation,
+        op: 'schedule-shutdown',
+        graceMs: normalizedGraceMs,
+      }
+      this.socket.write(`${JSON.stringify(frame)}\n`)
+    }
     await this.requestAuthenticatedDeferredShutdown(
       target,
       { op: 'schedule-shutdown', graceMs: normalizedGraceMs },
       'shutdown-scheduled',
-      this.captureRendererLeaseIdentity(
-        rendererLeaseToken,
-        rendererLeaseOwnerId,
-        rendererLeaseGeneration,
-      ),
+      identity,
       this.options.deferredShutdownTimeoutMs ??
         BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS,
     )
@@ -967,6 +1043,7 @@ export class TerminalSessionBrokerClient {
       this.readDescriptor()
     if (!target) {
       this.detach()
+      this.stopOrphanCleanup()
       return
     }
     const childPids = Array.from(this.sessionRecords.values())
@@ -997,6 +1074,7 @@ export class TerminalSessionBrokerClient {
     } finally {
       this.detach()
       this.unavailableSessions.clear()
+      this.stopOrphanCleanup()
     }
   }
 
@@ -1092,7 +1170,13 @@ export class TerminalSessionBrokerClient {
         // channel. Fresh spawn/start uses connectOrStart below and may replace
         // a refused descriptor; restored attach must not discard its only
         // trusted owner merely because the first socket attempt lost a race.
-        this.removeDescriptorIfMatchesAndStopped(descriptor)
+        // A wrong proof is different: the port no longer belongs to our
+        // broker, so its descriptor is not a trusted owner any more.
+        if (error instanceof UntrustedBrokerError) {
+          this.removeDescriptorIfMatches(descriptor)
+        } else {
+          this.removeDescriptorIfMatchesAndStopped(descriptor)
+        }
         throw error
       })
     const tracked = attempt.finally(() => {
@@ -1106,12 +1190,16 @@ export class TerminalSessionBrokerClient {
     if (generation !== this.transportGeneration) {
       throw new Error('Terminal broker connection was superseded')
     }
+    this.retireLegacyDescriptor()
     const existing = this.readDescriptor()
     if (existing) {
       try {
         return await this.connect(existing, generation)
       } catch (error) {
-        if (isConnectionRefusedError(error)) {
+        if (
+          isConnectionRefusedError(error) ||
+          error instanceof UntrustedBrokerError
+        ) {
           this.removeDescriptorIfMatches(existing)
         } else {
           this.removeDescriptorIfMatchesAndStopped(existing)
@@ -1225,29 +1313,40 @@ export class TerminalSessionBrokerClient {
         socket.destroy()
         reject(error instanceof Error ? error : new Error(describeError(error)))
       }
-      socket.on('connect', () => {
-        if (settled) return
-        if (generation !== this.transportGeneration) {
-          fail(new Error('Terminal broker connection was superseded'))
-          return
-        }
-        settled = true
-        socket.setTimeout(0)
-        this.socket = socket
-        this.descriptor = descriptor
-        this.lastAuthenticatedDescriptor = descriptor
-        this.receiveBuffer = ''
-        this.reconnectAttempts = 0
-        this.bindSocket(socket)
-        resolve(socket)
+      challengeBroker(socket, descriptor.token, loadCrypto(), {
+        deadlineMs:
+          this.options.connectTimeoutMs ?? BROKER_CONNECT_TIMEOUT_MS,
+        timers: stableTimeoutSource,
+        verified: () => {
+          if (settled) return
+          if (generation !== this.transportGeneration) {
+            fail(new Error('Terminal broker connection was superseded'))
+            return
+          }
+          settled = true
+          socket.setTimeout(0)
+          this.socket = socket
+          this.descriptor = descriptor
+          this.lastAuthenticatedDescriptor = descriptor
+          this.receiveBuffer = ''
+          this.reconnectAttempts = 0
+          this.bindSocket(socket)
+          resolve(socket)
+        },
+        data: (chunk) => {
+          if (this.socket === socket) this.handleData(chunk)
+        },
+        rejected: fail,
       })
       socket.on('timeout', () => fail(new Error('Terminal broker connection timed out')))
       socket.on('error', fail)
+      socket.on('close', () =>
+        fail(new Error('Terminal broker closed the connection before proving itself')),
+      )
     })
   }
 
   private bindSocket(socket: NodeSocketLike): void {
-    socket.on('data', (chunk) => this.handleData(chunk))
     socket.on('close', () => {
       if (this.socket === socket) {
         this.socket = null
@@ -1397,6 +1496,37 @@ export class TerminalSessionBrokerClient {
       return isDescriptor(parsed) ? parsed : null
     } catch {
       return null
+    }
+  }
+
+  /**
+   * A broker from before LEV-391 cannot prove it holds its token, so nothing is
+   * ever sent to it. Clear its descriptor so a fresh broker can claim the path.
+   * The old broker is not signalled: its pid may have been reused, and with no
+   * clients left it stops itself, and its sessions, after its idle TTL.
+   */
+  private retireLegacyDescriptor(): void {
+    try {
+      const fs = loadFs()
+      const before = fs.lstatSync(this.descriptorPath)
+      if (!isTrustedDescriptorFile(before)) return
+      const parsed = JSON.parse(fs.readFileSync(this.descriptorPath, 'utf8')) as unknown
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        (parsed as { version?: unknown }).version !== LEGACY_BROKER_VERSION
+      ) {
+        return
+      }
+      const after = fs.lstatSync(this.descriptorPath)
+      if (before.dev !== after.dev || before.ino !== after.ino) return
+      fs.unlinkSync(this.descriptorPath)
+      this.options.log?.(
+        'warn',
+        '[TerminalBroker] Retired a broker that cannot prove its token; starting a new one',
+      )
+    } catch {
+      // No descriptor, or it changed underneath us: nothing to retire.
     }
   }
 
@@ -1840,6 +1970,7 @@ export class TerminalSessionBrokerClient {
     const results = new Map<string, UnavailableTerminationResult>()
     for (const group of this.groupByOwningBroker(sessions)) {
       if (!group.descriptor) continue
+      this.queueTerminationOnTransport(group.descriptor, group.sessions)
       try {
         await this.requestUnavailableTermination(
           group.descriptor,
@@ -1929,6 +2060,38 @@ export class TerminalSessionBrokerClient {
     }
   }
 
+  /**
+   * Also queue the termination on the data transport, once, when that socket
+   * is open to the same broker. It already proved itself, so the token is safe
+   * on it. A frozen (SIGSTOPped) broker cannot answer the control channel's
+   * proof challenge, so the control channel never gets as far as sending the
+   * termination; the frame queued here is what the broker reads on resume,
+   * after the spawn it may still be holding. Its reply is not a confirmation:
+   * confirmation still comes from the control channel or a dead broker.
+   */
+  private queueTerminationOnTransport(
+    descriptor: BrokerDescriptor,
+    sessions: Array<[string, UnavailableSession]>,
+  ): void {
+    const socket = this.socket
+    if (!socket || socket.destroyed || !descriptorsEqual(this.descriptor, descriptor)) {
+      return
+    }
+    for (const [sessionId, pending] of sessions) {
+      if (pending.queuedOnTransport) continue
+      pending.queuedOnTransport = true
+      const frame: BrokerClientMessage = {
+        token: descriptor.token,
+        rendererLeaseToken: this.rendererLeaseToken,
+        rendererLeaseOwnerId: this.rendererLeaseOwnerId,
+        rendererLeaseGeneration: this.rendererLeaseGeneration,
+        op: 'terminate-unavailable',
+        sessionId,
+      }
+      socket.write(`${JSON.stringify(frame)}\n`)
+    }
+  }
+
   /** Pending sessions grouped by the broker that owns them. */
   private groupByOwningBroker(
     sessions: Array<[string, UnavailableSession]>,
@@ -1977,13 +2140,13 @@ export class TerminalSessionBrokerClient {
    * Stop confirming and report the sessions unavailable. Whatever kept the
    * broker from answering (a frozen process, a lost socket) has outlasted the
    * window; the alternative was a terminal that looked alive but swallowed
-   * every keystroke, and no new terminal until a reload. Every attempt that
-   * reached a broker wrote its session-scoped terminate-unavailable request
-   * into that broker's socket before timing out, so a broker that resumes
-   * reads them and stops the session — and, remembering the id, refuses a
-   * stale spawn of it too. A session whose broker could never be reached at
-   * all had nothing to stop it with; only that broker's own owner watchdog
-   * and guards can, which they do when it dies.
+   * every keystroke, and no new terminal until a reload.
+   *
+   * Its termination is still unconfirmed: a frozen broker answers no proof,
+   * and nothing is sent before the proof; a frame that did reach it may be
+   * refused under a lease that is no longer current. So it is retried in the
+   * background, across renderer reloads, until the broker confirms it or is
+   * gone; see cleanUpOrphanedSessions.
    */
   private giveUpUnavailableSessions(
     sessions: Array<[string, UnavailableSession]>,
@@ -1993,8 +2156,184 @@ export class TerminalSessionBrokerClient {
       '[TerminalBroker] Gave up confirming session termination; reporting it unavailable',
       sessions.map(([sessionId]) => sessionId),
     )
+    const added: Array<{ sessionId: string; pid: number; port: number }> = []
     for (const [sessionId, pending] of sessions) {
+      if (pending.descriptor) {
+        this.orphanedSessions.set(sessionId, pending.descriptor)
+        added.push({ sessionId, pid: pending.descriptor.pid, port: pending.descriptor.port })
+      }
       this.settleUnavailableSession(sessionId, pending)
+    }
+    this.persistOrphanChange({ add: added })
+    this.scheduleOrphanCleanup()
+  }
+
+  /**
+   * Follow the saved retries: at construction, pick up those a previous
+   * renderer left, dropping records of an unreachable broker from the file;
+   * later, on another client's change in this renderer, pick up its additions
+   * and stop retrying what is no longer saved (confirmed by someone else).
+   */
+  private adoptSavedOrphans(atConstruction: boolean): void {
+    if (this.closing) return
+    try {
+      const fs = loadFs()
+      const records = readOrphans(
+        fs,
+        orphanStorePath(this.descriptorPath),
+        isTrustedDescriptorFile,
+      )
+      if (!atConstruction) {
+        const saved = new Set(records.map((record) => record.sessionId))
+        for (const sessionId of Array.from(this.orphanedSessions.keys())) {
+          if (!saved.has(sessionId)) this.orphanedSessions.delete(sessionId)
+        }
+      }
+      if (records.length === 0) return
+      // Only the broker in the descriptor can be authenticated.
+      const current = this.readDescriptor()
+      const unreachable: string[] = []
+      for (const record of records) {
+        if (this.orphanedSessions.has(record.sessionId)) continue
+        if (current && current.pid === record.pid && current.port === record.port) {
+          this.orphanedSessions.set(record.sessionId, current)
+        } else {
+          unreachable.push(record.sessionId)
+        }
+      }
+      if (atConstruction && unreachable.length > 0) {
+        this.persistOrphanChange({ remove: unreachable })
+      }
+      this.scheduleOrphanCleanup()
+    } catch (error) {
+      this.options.log?.('warn', '[TerminalBroker] Could not restore pending terminations', error)
+    }
+  }
+
+  /** Save only this client's change; another client's records stay. */
+  private persistOrphanChange(change: OrphanChange): void {
+    try {
+      updateOrphans(
+        loadFs(),
+        orphanStorePath(this.descriptorPath),
+        isTrustedDescriptorFile,
+        change,
+      )
+      if ((change.add?.length ?? 0) > 0 || (change.remove?.length ?? 0) > 0) {
+        window.dispatchEvent(
+          new CustomEvent(ORPHANS_SAVED_EVENT, { detail: this.descriptorPath }),
+        )
+      }
+    } catch (error) {
+      this.options.log?.('warn', '[TerminalBroker] Could not save pending terminations', error)
+    }
+  }
+
+  private scheduleOrphanCleanup(): void {
+    if (
+      this.closing ||
+      this.orphanedSessions.size === 0 ||
+      this.orphanCleanupTimer !== null ||
+      this.orphanCleanupRunning
+    ) {
+      return
+    }
+    this.orphanCleanupTimer = stableTimeoutSource.setTimeout(
+      () => {
+        this.orphanCleanupTimer = null
+        void this.cleanUpOrphanedSessions()
+      },
+      this.options.orphanCleanupIntervalMs ?? BROKER_ORPHAN_CLEANUP_INTERVAL_MS,
+    )
+  }
+
+  /**
+   * Only shutdown stops it. detach() runs whenever the last session settles,
+   * which is exactly when orphans are left, and a hot reload keeps this client.
+   * The saved list stays: a broker that outlived a failed shutdown may still
+   * hold the sessions, and the next client drops records of a gone broker.
+   */
+  private stopOrphanCleanup(): void {
+    try {
+      window.removeEventListener(ORPHANS_SAVED_EVENT, this.onOrphansSaved)
+    } catch {
+      // No window.
+    }
+    if (this.orphanCleanupTimer !== null) {
+      stableTimeoutSource.clearTimeout(this.orphanCleanupTimer)
+      this.orphanCleanupTimer = null
+    }
+    this.orphanedSessions.clear()
+  }
+
+  /**
+   * Retry the termination of sessions given up on. A session leaves the list
+   * once its broker answers for it (terminated, or missing), or once that
+   * broker is gone: dead with its descriptor gone, refusing its port, or
+   * replaced on it by someone who cannot prove itself (a broker holds its
+   * port until it exits). A dead broker's guards and owner watchdog reap its
+   * sessions. Its UI was settled when it was given up.
+   *
+   * Each round first activates this renderer's lease. A broker frozen through
+   * a reload still holds the previous renderer's lease and refuses this one's
+   * termination until it is activated; activation is the ordinary adoption
+   * barrier, so a stale renderer still cannot take over. It keeps any exit
+   * grace already armed: the window may be closing, and a retry is not a
+   * renderer adopting the sessions.
+   */
+  private async cleanUpOrphanedSessions(): Promise<void> {
+    if (this.closing || this.orphanedSessions.size === 0) return
+    this.orphanCleanupRunning = true
+    const settled: string[] = []
+    try {
+      const groups = new Map<string, { descriptor: BrokerDescriptor; ids: string[] }>()
+      for (const [sessionId, descriptor] of this.orphanedSessions) {
+        const key = `${String(descriptor.pid)}:${String(descriptor.port)}:${descriptor.token}`
+        const group = groups.get(key) ?? { descriptor, ids: [] }
+        group.ids.push(sessionId)
+        groups.set(key, group)
+      }
+      for (const { descriptor, ids } of groups.values()) {
+        if (this.closing) return
+        const forget = (sessionIds: string[]): void => {
+          for (const sessionId of sessionIds) {
+            if (this.orphanedSessions.get(sessionId) === descriptor) {
+              this.orphanedSessions.delete(sessionId)
+              settled.push(sessionId)
+            }
+          }
+        }
+        if (
+          this.isProcessAlive(descriptor.pid) === false &&
+          !descriptorsEqual(this.readDescriptor(), descriptor)
+        ) {
+          forget(ids)
+          continue
+        }
+        const results = new Map<string, UnavailableTerminationResult>()
+        try {
+          await this.requestAuthenticatedDeferredShutdown(
+            descriptor,
+            // The window may be closing: its exit grace stands.
+            { op: 'activate-renderer-lease', keepShutdown: true },
+            'renderer-lease-activated',
+            this.captureRendererLeaseIdentity(),
+            this.options.deferredShutdownTimeoutMs ??
+              BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS,
+          )
+          await this.requestUnavailableTermination(descriptor, ids, results)
+        } catch (error) {
+          if (error instanceof UntrustedBrokerError || isConnectionRefusedError(error)) {
+            forget(ids)
+          }
+        }
+        // Answers that came in before a timeout still count.
+        forget(Array.from(results.keys()))
+      }
+    } finally {
+      this.orphanCleanupRunning = false
+      if (settled.length > 0) this.persistOrphanChange({ remove: settled })
+      this.scheduleOrphanCleanup()
     }
   }
 
@@ -2099,65 +2438,72 @@ export class TerminalSessionBrokerClient {
           BROKER_UNAVAILABLE_TERMINATION_TIMEOUT_MS,
         () => fail(new Error('Terminal broker termination timed out')),
       )
-      socket.on('connect', () => {
-        for (const sessionId of sessionIds) {
-          const frame: BrokerClientMessage = {
-            token: descriptor.token,
-            rendererLeaseToken: this.rendererLeaseToken,
-            rendererLeaseOwnerId: this.rendererLeaseOwnerId,
-            rendererLeaseGeneration: this.rendererLeaseGeneration,
-            op: 'terminate-unavailable',
-            sessionId,
-          }
-          socket.write(`${JSON.stringify(frame)}\n`)
-        }
-      })
-      socket.on('data', (chunk) => {
-        receiveBuffer += chunk
-        if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
-          fail(new Error('Terminal broker termination response exceeds the IPC limit'))
-          return
-        }
-        let newline = receiveBuffer.indexOf('\n')
-        while (newline >= 0 && !settled) {
-          const line = receiveBuffer.slice(0, newline)
-          receiveBuffer = receiveBuffer.slice(newline + 1)
-          if (line.length > 0) {
-            try {
-              const message = JSON.parse(line) as BrokerServerMessage
-              if (
-                'sessionId' in message &&
-                typeof message.sessionId === 'string' &&
-                pending.has(message.sessionId)
-              ) {
-                if (message.type === 'terminated-unavailable') {
-                  results.set(message.sessionId, {
-                    interrupted: message.interrupted,
-                    ...(typeof message.transcriptPath === 'string' &&
-                    message.transcriptPath.length > 0 &&
-                    message.transcriptPath.length <= 8 * 1024
-                      ? { transcriptPath: message.transcriptPath }
-                      : {}),
-                    ...(message.outcome ? { outcome: message.outcome } : {}),
-                  })
-                  pending.delete(message.sessionId)
-                } else if (message.type === 'missing') {
-                  // The authenticated broker confirmed it owns no such
-                  // process. Record that confirmation so a later failure for
-                  // another session does not suppress this session's
-                  // unavailable notification.
-                  results.set(message.sessionId, { interrupted: true })
-                  pending.delete(message.sessionId)
-                }
-              }
-            } catch (error) {
-              fail(error)
-              return
+      challengeBroker(socket, descriptor.token, loadCrypto(), {
+        deadlineMs:
+          this.options.unavailableTerminationTimeoutMs ??
+            BROKER_UNAVAILABLE_TERMINATION_TIMEOUT_MS,
+        timers: stableTimeoutSource,
+        verified: () => {
+          for (const sessionId of sessionIds) {
+            const frame: BrokerClientMessage = {
+              token: descriptor.token,
+              rendererLeaseToken: this.rendererLeaseToken,
+              rendererLeaseOwnerId: this.rendererLeaseOwnerId,
+              rendererLeaseGeneration: this.rendererLeaseGeneration,
+              op: 'terminate-unavailable',
+              sessionId,
             }
+            socket.write(`${JSON.stringify(frame)}\n`)
           }
-          newline = receiveBuffer.indexOf('\n')
-        }
-        if (pending.size === 0) finish()
+        },
+        data: (chunk) => {
+          receiveBuffer += chunk
+          if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
+            fail(new Error('Terminal broker termination response exceeds the IPC limit'))
+            return
+          }
+          let newline = receiveBuffer.indexOf('\n')
+          while (newline >= 0 && !settled) {
+            const line = receiveBuffer.slice(0, newline)
+            receiveBuffer = receiveBuffer.slice(newline + 1)
+            if (line.length > 0) {
+              try {
+                const message = JSON.parse(line) as BrokerServerMessage
+                if (
+                  'sessionId' in message &&
+                  typeof message.sessionId === 'string' &&
+                  pending.has(message.sessionId)
+                ) {
+                  if (message.type === 'terminated-unavailable') {
+                    results.set(message.sessionId, {
+                      interrupted: message.interrupted,
+                      ...(typeof message.transcriptPath === 'string' &&
+                      message.transcriptPath.length > 0 &&
+                      message.transcriptPath.length <= 8 * 1024
+                        ? { transcriptPath: message.transcriptPath }
+                        : {}),
+                      ...(message.outcome ? { outcome: message.outcome } : {}),
+                    })
+                    pending.delete(message.sessionId)
+                  } else if (message.type === 'missing') {
+                    // The authenticated broker confirmed it owns no such
+                    // process. Record that confirmation so a later failure for
+                    // another session does not suppress this session's
+                    // unavailable notification.
+                    results.set(message.sessionId, { interrupted: true })
+                    pending.delete(message.sessionId)
+                  }
+                }
+              } catch (error) {
+                fail(error)
+                return
+              }
+            }
+            newline = receiveBuffer.indexOf('\n')
+          }
+          if (pending.size === 0) finish()
+        },
+        rejected: fail,
       })
       socket.on('timeout', () =>
         fail(new Error('Terminal broker termination timed out')),
@@ -2200,40 +2546,45 @@ export class TerminalSessionBrokerClient {
         timeoutMs,
         () => fail(new Error('Terminal broker shutdown timed out')),
       )
-      socket.on('connect', () => {
-        const frame: BrokerClientMessage = {
-          token: descriptor.token,
-          rendererLeaseToken: this.rendererLeaseToken,
-          rendererLeaseOwnerId: this.rendererLeaseOwnerId,
-          rendererLeaseGeneration: this.rendererLeaseGeneration,
-          op: 'shutdown',
-        }
-        socket.write(`${JSON.stringify(frame)}\n`)
-      })
-      socket.on('data', (chunk) => {
-        receiveBuffer += chunk
-        if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
-          fail(new Error('Terminal broker shutdown response exceeds the IPC limit'))
-          return
-        }
-        let newline = receiveBuffer.indexOf('\n')
-        while (newline >= 0 && !settled) {
-          const line = receiveBuffer.slice(0, newline)
-          receiveBuffer = receiveBuffer.slice(newline + 1)
-          if (line.length > 0) {
-            try {
-              const message = JSON.parse(line) as BrokerServerMessage
-              if (message.type === 'shutdown-ack') {
-                finish()
+      challengeBroker(socket, descriptor.token, loadCrypto(), {
+        deadlineMs: timeoutMs,
+        timers: stableTimeoutSource,
+        verified: () => {
+          const frame: BrokerClientMessage = {
+            token: descriptor.token,
+            rendererLeaseToken: this.rendererLeaseToken,
+            rendererLeaseOwnerId: this.rendererLeaseOwnerId,
+            rendererLeaseGeneration: this.rendererLeaseGeneration,
+            op: 'shutdown',
+          }
+          socket.write(`${JSON.stringify(frame)}\n`)
+        },
+        data: (chunk) => {
+          receiveBuffer += chunk
+          if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
+            fail(new Error('Terminal broker shutdown response exceeds the IPC limit'))
+            return
+          }
+          let newline = receiveBuffer.indexOf('\n')
+          while (newline >= 0 && !settled) {
+            const line = receiveBuffer.slice(0, newline)
+            receiveBuffer = receiveBuffer.slice(newline + 1)
+            if (line.length > 0) {
+              try {
+                const message = JSON.parse(line) as BrokerServerMessage
+                if (message.type === 'shutdown-ack') {
+                  finish()
+                  return
+                }
+              } catch (error) {
+                fail(error)
                 return
               }
-            } catch (error) {
-              fail(error)
-              return
             }
+            newline = receiveBuffer.indexOf('\n')
           }
-          newline = receiveBuffer.indexOf('\n')
-        }
+        },
+        rejected: fail,
       })
       socket.on('timeout', () =>
         fail(new Error('Terminal broker shutdown timed out')),
@@ -2252,7 +2603,7 @@ export class TerminalSessionBrokerClient {
     command:
       | { op: 'schedule-shutdown'; graceMs: number }
       | { op: 'cancel-deferred-shutdown' }
-      | { op: 'activate-renderer-lease' },
+      | { op: 'activate-renderer-lease'; keepShutdown?: true },
     expectedResponse:
       | 'shutdown-scheduled'
       | 'shutdown-canceled'
@@ -2285,44 +2636,49 @@ export class TerminalSessionBrokerClient {
         timeoutMs,
         () => fail(new Error('Terminal broker deferred shutdown timed out')),
       )
-      socket.on('connect', () => {
-        const frame: BrokerClientMessage = {
-          token: descriptor.token,
-          rendererLeaseToken: rendererLeaseIdentity.token,
-          rendererLeaseOwnerId: rendererLeaseIdentity.ownerId,
-          rendererLeaseGeneration: rendererLeaseIdentity.generation,
-          ...command,
-        }
-        socket.write(`${JSON.stringify(frame)}\n`)
-      })
-      socket.on('data', (chunk) => {
-        receiveBuffer += chunk
-        if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
-          fail(
-            new Error(
-              'Terminal broker deferred shutdown response exceeds the IPC limit',
-            ),
-          )
-          return
-        }
-        let newline = receiveBuffer.indexOf('\n')
-        while (newline >= 0 && !settled) {
-          const line = receiveBuffer.slice(0, newline)
-          receiveBuffer = receiveBuffer.slice(newline + 1)
-          if (line.length > 0) {
-            try {
-              const message = JSON.parse(line) as BrokerServerMessage
-              if (message.type === expectedResponse) {
-                finish()
+      challengeBroker(socket, descriptor.token, loadCrypto(), {
+        deadlineMs: timeoutMs,
+        timers: stableTimeoutSource,
+        verified: () => {
+          const frame: BrokerClientMessage = {
+            token: descriptor.token,
+            rendererLeaseToken: rendererLeaseIdentity.token,
+            rendererLeaseOwnerId: rendererLeaseIdentity.ownerId,
+            rendererLeaseGeneration: rendererLeaseIdentity.generation,
+            ...command,
+          }
+          socket.write(`${JSON.stringify(frame)}\n`)
+        },
+        data: (chunk) => {
+          receiveBuffer += chunk
+          if (receiveBuffer.length > MAX_CLIENT_FRAME_BYTES) {
+            fail(
+              new Error(
+                'Terminal broker deferred shutdown response exceeds the IPC limit',
+              ),
+            )
+            return
+          }
+          let newline = receiveBuffer.indexOf('\n')
+          while (newline >= 0 && !settled) {
+            const line = receiveBuffer.slice(0, newline)
+            receiveBuffer = receiveBuffer.slice(newline + 1)
+            if (line.length > 0) {
+              try {
+                const message = JSON.parse(line) as BrokerServerMessage
+                if (message.type === expectedResponse) {
+                  finish()
+                  return
+                }
+              } catch (error) {
+                fail(error)
                 return
               }
-            } catch (error) {
-              fail(error)
-              return
             }
+            newline = receiveBuffer.indexOf('\n')
           }
-          newline = receiveBuffer.indexOf('\n')
-        }
+        },
+        rejected: fail,
       })
       socket.on('timeout', () =>
         fail(new Error('Terminal broker deferred shutdown timed out')),

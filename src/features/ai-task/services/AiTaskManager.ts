@@ -38,6 +38,7 @@ import type { AiModelCatalog } from '../models/AiModelCatalog'
 import { extractPromptSection, type PromptHeadingInfo } from './PromptExtractor'
 import { stripAnsiSequences } from './streams/AnsiStripper'
 import { capEventText } from './streams/StreamJsonParser'
+import { BROKER_PROTOCOL_VERSION } from './BrokerProof'
 import type {
   AiDispatcher,
   AiGraceTimer,
@@ -633,6 +634,11 @@ function isStoppingRun(record: AiRunRecord): boolean {
 }
 
 export class AiTaskManager {
+  /**
+   * Read by the runtime lease on plugin hot reload. A retained manager from a
+   * bundle that does not speak this protocol is not adopted (LEV-391).
+   */
+  readonly terminalBrokerProtocol = BROKER_PROTOCOL_VERSION
   private readonly runs = new Map<string, InternalRun>()
   private readonly pendingStarts = new Set<string>()
   private readonly preparedStartReservations =

@@ -1,3 +1,4 @@
+import { BROKER_PROOF_PREFIX } from './BrokerProof'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from './TerminalSessionOwnerWatchdogSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from './TerminalSessionGuardSource'
 import { TERMINAL_BROKER_PURE_SOURCE } from './broker-source/TerminalBrokerPureSource'
@@ -159,6 +160,15 @@ let cachedBrokerSource: string | undefined
  * (fd 4) is closed too: on Linux the terminal can inherit it as well. So a
  * detached process holding either no longer keeps the session open; like any
  * process the broker never recorded (Note C), it is not waited for.
+ *
+ * Note U: A renderer may ask to terminate an unavailable session twice, on
+ * its data and its control connection (LEV-391). The session keeps whether
+ * the first request interrupted it, so every answer, also one after
+ * completion, agrees: a transport failure never turns into a normal stop.
+ *
+ * Note V: Activating a renderer lease cancels the exit grace: a renderer is
+ * adopting the sessions. A pending-termination retry activates with
+ * keepShutdown, because the window that armed the grace may be closing.
  *
  * LEV-379: ps and lsof answer in seconds on a busy Mac, longer right after
  * wake, and the broker serves every terminal from one event loop. So when a
@@ -1710,6 +1720,7 @@ function spawnSession(message, socket) {
     stderrDroppedChars: 0,
     sentinelCode: null,
     stopRequested: false,
+    terminatedUnavailable: false,
     completed: false,
     finishing: false,
     childClosed: false,
@@ -1858,7 +1869,7 @@ function terminateUnavailableSession(id, socket) {
     send(socket, {
       type: 'terminated-unavailable',
       sessionId: id,
-      interrupted: false,
+      interrupted: session.terminatedUnavailable,
       transcriptPath: session.transcriptPath,
       outcome: session.outcome || undefined,
     });
@@ -1866,8 +1877,9 @@ function terminateUnavailableSession(id, socket) {
   }
   // If a user stop was already in progress, preserve its normal stopped
   // outcome. Otherwise this transport failure owns the forced termination
-  // and the renderer must surface it as interrupted.
-  const interrupted = !session.stopRequested;
+  // and the renderer must surface it as interrupted. Note U.
+  if (!session.stopRequested) session.terminatedUnavailable = true;
+  const interrupted = session.terminatedUnavailable;
   session.terminationClients.set(socket, interrupted);
   session.stopRequested = true;
   requestGuardStop(session, true);
@@ -1924,7 +1936,8 @@ function handle(socket, message) {
       socket.destroy();
       return;
     }
-    cancelDeferredShutdown();
+    // Note V (buildTerminalBrokerSource).
+    if (message.keepShutdown !== true) cancelDeferredShutdown();
     send(socket, { type: 'renderer-lease-activated' });
     return;
   }
@@ -2100,6 +2113,11 @@ const server = net.createServer(socket => {
       if (line) {
         try {
           const message = JSON.parse(line);
+          if (!authenticated && message && message.op === 'prove' && /^[a-f0-9]{64}$/.test(message.nonce)) {
+            send(socket, { type: 'proof', proof: crypto.createHmac('sha256', token).update(${JSON.stringify(BROKER_PROOF_PREFIX)} + message.nonce).digest('hex') });
+            newline = buffer.indexOf('\n');
+            continue;
+          }
           if (!message || message.token !== token) { socket.destroy(); return; }
           if (
             message.rendererLeaseToken !== undefined &&
@@ -2146,7 +2164,7 @@ const server = net.createServer(socket => {
 startOwnerWatchdog(() => {
   server.listen(0, '127.0.0.1', () => {
     const address = server.address();
-    const descriptor = JSON.stringify({ version: 1, port: address.port, token, pid: process.pid });
+    const descriptor = JSON.stringify({ version: 2, port: address.port, token, pid: process.pid });
     try {
       fs.writeFileSync(descriptorPath, descriptor, { mode: 0o600, flag: 'wx' });
       try { fs.chmodSync(descriptorPath, 0o600); } catch (_) {}

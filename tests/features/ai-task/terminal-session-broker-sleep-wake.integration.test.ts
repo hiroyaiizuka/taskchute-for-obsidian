@@ -17,8 +17,10 @@ import {
   type TerminalBrokerSessionCallbacks,
 } from '@/features/ai-task/services/TerminalSessionBroker'
 import type { SpawnProcessRequest } from '@/features/ai-task/services/NodeProcessGateway'
+import { orphanStorePath } from '@/features/ai-task/services/BrokerOrphanStore'
 import { describePosix } from '@tests/support/platform'
 import {
+  answerBrokerProof,
   deferred,
   isAlive,
   ownerPidFiles,
@@ -61,6 +63,7 @@ async function startFakeBroker(
   const ops: string[] = []
   const sockets = new Set<Socket>()
   const server = createServer((socket) => {
+    answerBrokerProof(socket, TOKEN)
     sockets.add(socket)
     socket.on('close', () => sockets.delete(socket))
     socket.on('error', () => undefined)
@@ -111,7 +114,7 @@ function writeDescriptor(identity: string, port: number, pid: number): string {
   const descriptorPath = getTerminalBrokerDescriptorPath(identity)
   writeFileSync(
     descriptorPath,
-    JSON.stringify({ version: 1, port, token: TOKEN, pid }),
+    JSON.stringify({ version: 2, port, token: TOKEN, pid }),
     { mode: 0o600 },
   )
   return descriptorPath
@@ -929,6 +932,402 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
         60_000,
       )
       expect(healthy.output()).not.toContain('ECHO:fresh')
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a client restoring a session from a frozen broker stops it once the broker resumes (LEV-391)', async () => {
+    const unique = `lev391-restore-frozen-${process.pid}-${Date.now()}-${Math.random()}`
+    const identity = `broker-${unique}`
+    const descriptorPath = getTerminalBrokerDescriptorPath(identity)
+    const lease = {
+      rendererLeaseToken: 'lev391-restore-lease',
+      rendererLeaseOwnerId: 'lev391-restore-owner',
+      rendererLeaseGeneration: 1,
+    }
+    const before = new TerminalSessionBrokerClient({ identity, ...lease })
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    let after: TerminalSessionBrokerClient | null = null
+    try {
+      const session = startSession(before, 'session-restored', 'RESTORED_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // The renderer reloads; the session keeps running in the broker. Then
+      // the broker freezes before the new renderer restores it.
+      before.detach()
+      process.kill(brokerPid, 'SIGSTOP')
+
+      after = new TerminalSessionBrokerClient({
+        identity,
+        ...lease,
+        connectTimeoutMs: 300,
+        sessionAckTimeoutMs: 1_000,
+        unavailableTerminationTimeoutMs: 200,
+        unavailableRecoveryBaseMs: 50,
+        unavailableRecoveryMaxMs: 100,
+        unavailableConfirmationGiveUpMs: 1_500,
+        unavailableConfirmationMinAttempts: 3,
+        orphanCleanupIntervalMs: 200,
+      })
+      const unavailable = deferred<void>()
+      after.attach('session-restored', {
+        onData: () => undefined,
+        onExit: () => unavailable.resolve(),
+        onUnavailable: () => unavailable.resolve(),
+      })
+      // The new client never verified this broker, so it could send nothing,
+      // and it gives up within the window.
+      await withTimeout(unavailable.promise, 30_000)
+
+      process.kill(brokerPid, 'SIGCONT')
+
+      // Its termination is still delivered once the broker can prove itself.
+      await waitUntil(
+        () => !isAlive(sessionPid),
+        'the restored session is stopped after the broker resumes',
+        60_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await after?.shutdown().catch(() => undefined)
+      await before.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a termination given up in one renderer is finished by the next, under its own lease, once the broker resumes (LEV-391)', async () => {
+    const unique = `lev391-orphan-reload-${process.pid}-${Date.now()}-${Math.random()}`
+    const identity = `broker-${unique}`
+    const descriptorPath = getTerminalBrokerDescriptorPath(identity)
+    const owner = 'lev391-orphan-owner'
+    const lease = (generation: number) => ({
+      rendererLeaseToken: `lev391-orphan-lease-${String(generation)}`,
+      rendererLeaseOwnerId: owner,
+      rendererLeaseGeneration: generation,
+    })
+    const frozenWindow = {
+      connectTimeoutMs: 300,
+      sessionAckTimeoutMs: 1_000,
+      unavailableTerminationTimeoutMs: 200,
+      deferredShutdownTimeoutMs: 300,
+      unavailableRecoveryBaseMs: 50,
+      unavailableRecoveryMaxMs: 100,
+      unavailableConfirmationGiveUpMs: 1_500,
+      unavailableConfirmationMinAttempts: 3,
+      rendererLeaseActivationRetryWindowMs: 500,
+    }
+    // Renderer 1 spawns the session, then the window reloads.
+    const first = new TerminalSessionBrokerClient({ identity, ...lease(1) })
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    let second: TerminalSessionBrokerClient | null = null
+    let third: TerminalSessionBrokerClient | null = null
+    try {
+      const session = startSession(first, 'session-orphaned', 'ORPHANED_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+      first.detach()
+      process.kill(brokerPid, 'SIGSTOP')
+
+      // Renderer 2 restores it from the frozen broker and gives up; its
+      // retries never get to run before it is replaced in turn.
+      second = new TerminalSessionBrokerClient({
+        identity,
+        ...lease(2),
+        ...frozenWindow,
+        orphanCleanupIntervalMs: 60 * 60 * 1_000,
+      })
+      const unavailable = deferred<void>()
+      second.attach('session-orphaned', {
+        onData: () => undefined,
+        onExit: () => unavailable.resolve(),
+        onUnavailable: () => unavailable.resolve(),
+      })
+      await withTimeout(unavailable.promise, 30_000)
+      expect(existsSync(orphanStorePath(descriptorPath))).toBe(true)
+      second.detach()
+
+      // Renderer 3 picks the pending termination up from disk. Its own lease
+      // activation runs out while the broker is still frozen.
+      third = new TerminalSessionBrokerClient({
+        identity,
+        ...lease(3),
+        ...frozenWindow,
+        orphanCleanupIntervalMs: 200,
+      })
+      await expect(
+        third.setRendererLeaseToken(lease(3).rendererLeaseToken, owner, 3),
+      ).rejects.toThrow()
+
+      // The broker resumes still holding renderer 1's lease.
+      process.kill(brokerPid, 'SIGCONT')
+
+      await waitUntil(
+        () => !isAlive(sessionPid),
+        'the orphaned session is stopped after the broker resumes',
+        60_000,
+      )
+      await waitUntil(
+        () => !existsSync(orphanStorePath(descriptorPath)),
+        'the pending termination is forgotten once the broker answers',
+        30_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await third?.shutdown().catch(() => undefined)
+      await second?.shutdown().catch(() => undefined)
+      await first.shutdown().catch(() => undefined)
+      rmSync(orphanStorePath(descriptorPath), { force: true })
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a session an older client gives up on late is stopped by the client holding the current lease (LEV-391)', async () => {
+    const unique = `lev391-late-orphan-${process.pid}-${Date.now()}-${Math.random()}`
+    const identity = `broker-${unique}`
+    const descriptorPath = getTerminalBrokerDescriptorPath(identity)
+    const owner = 'lev391-late-owner'
+    const lease = (generation: number) => ({
+      rendererLeaseToken: `lev391-late-lease-${String(generation)}`,
+      rendererLeaseOwnerId: owner,
+      rendererLeaseGeneration: generation,
+    })
+    const frozenWindow = {
+      connectTimeoutMs: 300,
+      sessionAckTimeoutMs: 1_000,
+      unavailableTerminationTimeoutMs: 200,
+      deferredShutdownTimeoutMs: 300,
+      unavailableRecoveryBaseMs: 50,
+      unavailableRecoveryMaxMs: 100,
+      unavailableConfirmationGiveUpMs: 1_500,
+      unavailableConfirmationMinAttempts: 3,
+    }
+    // The client an old terminal handle keeps after two hot reloads, and the
+    // one the latest reload made. Both live in this window.
+    const older = new TerminalSessionBrokerClient({
+      identity,
+      ...lease(1),
+      ...frozenWindow,
+      orphanCleanupIntervalMs: 200,
+    })
+    let current: TerminalSessionBrokerClient | null = null
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(older, 'session-late', 'LATE_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // The latest client read the (empty) store when it was made, and holds
+      // the current lease: the older one's lease is stale from now on.
+      current = new TerminalSessionBrokerClient({
+        identity,
+        ...lease(3),
+        ...frozenWindow,
+        orphanCleanupIntervalMs: 200,
+      })
+      await current.setRendererLeaseToken(lease(3).rendererLeaseToken, owner, 3)
+
+      // Later, the broker freezes and the older client loses its connection
+      // and gives the session up.
+      process.kill(brokerPid, 'SIGSTOP')
+      ;(older as unknown as { socket: { destroy(): void } | null }).socket?.destroy()
+      await withTimeout(session.unavailable, 30_000)
+
+      process.kill(brokerPid, 'SIGCONT')
+
+      // The older client's lease is refused; the current client takes it on.
+      await waitUntil(
+        () => !isAlive(sessionPid),
+        'the late orphan is stopped after the broker resumes',
+        60_000,
+      )
+      // Once the current client has confirmed it, the older client stops
+      // retrying too: its refused attempts would keep resetting the broker's
+      // idle timer.
+      const pendingIn = (client: TerminalSessionBrokerClient): number =>
+        (client as unknown as { orphanedSessions: Map<string, unknown> }).orphanedSessions.size
+      await waitUntil(
+        () => pendingIn(older) === 0 && pendingIn(current!) === 0,
+        'neither client retries the confirmed termination',
+        30_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await current?.shutdown().catch(() => undefined)
+      await older.shutdown().catch(() => undefined)
+      rmSync(orphanStorePath(descriptorPath), { force: true })
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a pending termination retried after the window closes keeps the exit grace (LEV-391)', async () => {
+    const unique = `lev391-exit-grace-${process.pid}-${Date.now()}-${Math.random()}`
+    const identity = `broker-${unique}`
+    const descriptorPath = getTerminalBrokerDescriptorPath(identity)
+    const lease = {
+      rendererLeaseToken: 'lev391-exit-lease',
+      rendererLeaseOwnerId: 'lev391-exit-owner',
+      rendererLeaseGeneration: 1,
+    }
+    const first = new TerminalSessionBrokerClient({ identity, ...lease })
+    let closing: TerminalSessionBrokerClient | null = null
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      // A healthy session and one that will be orphaned.
+      const healthy = startSession(first, 'session-healthy-exit', 'HEALTHY_EXIT_READY', unique)
+      const healthyPid = await withTimeout(healthy.attached)
+      pids.push(healthyPid)
+      await withTimeout(healthy.ready)
+      const orphan = startSession(first, 'session-orphan-exit', 'ORPHAN_EXIT_READY', unique)
+      pids.push(await withTimeout(orphan.attached))
+      await withTimeout(orphan.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+      first.detach()
+      process.kill(brokerPid, 'SIGSTOP')
+
+      // The next window restores only the orphan, from the frozen broker, and
+      // gives it up.
+      closing = new TerminalSessionBrokerClient({
+        identity,
+        ...lease,
+        connectTimeoutMs: 300,
+        sessionAckTimeoutMs: 1_000,
+        unavailableTerminationTimeoutMs: 200,
+        deferredShutdownTimeoutMs: 2_000,
+        unavailableRecoveryBaseMs: 50,
+        unavailableRecoveryMaxMs: 100,
+        unavailableConfirmationGiveUpMs: 1_500,
+        unavailableConfirmationMinAttempts: 3,
+        orphanCleanupIntervalMs: 1_000,
+      })
+      const unavailable = deferred<void>()
+      closing.attach('session-orphan-exit', {
+        onData: () => undefined,
+        onExit: () => unavailable.resolve(),
+        onUnavailable: () => unavailable.resolve(),
+      })
+      await withTimeout(unavailable.promise, 30_000)
+
+      // The broker resumes and the window closes: exit grace, then detach.
+      // The orphan retry keeps running after the detach.
+      process.kill(brokerPid, 'SIGCONT')
+      await closing.scheduleShutdownAfterGrace(
+        5_000,
+        lease.rendererLeaseToken,
+        lease.rendererLeaseOwnerId,
+        lease.rendererLeaseGeneration,
+      )
+      closing.detach()
+
+      // Its activation must not cancel the grace: the broker stops, and the
+      // healthy session with it.
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(healthyPid),
+        'the broker shuts down at the end of the exit grace',
+        60_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await closing?.shutdown().catch(() => undefined)
+      await first.shutdown().catch(() => undefined)
+      rmSync(orphanStorePath(descriptorPath), { force: true })
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('an exit grace asked of a frozen broker still stops it once it resumes after the window is gone (LEV-391)', async () => {
+    const unique = `lev391-frozen-exit-${process.pid}-${Date.now()}-${Math.random()}`
+    const identity = `broker-${unique}`
+    const descriptorPath = getTerminalBrokerDescriptorPath(identity)
+    const lease = {
+      rendererLeaseToken: 'lev391-frozen-exit-lease',
+      rendererLeaseOwnerId: 'lev391-frozen-exit-owner',
+      rendererLeaseGeneration: 1,
+    }
+    const client = new TerminalSessionBrokerClient({
+      identity,
+      ...lease,
+      deferredShutdownTimeoutMs: 300,
+    })
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const healthy = startSession(client, 'session-frozen-exit', 'FROZEN_EXIT_READY', unique)
+      const healthyPid = await withTimeout(healthy.attached)
+      pids.push(healthyPid)
+      await withTimeout(healthy.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // The broker is frozen through the window's exit: the control
+      // connection cannot get the exit grace past the proof, and the window
+      // detaches right after asking.
+      process.kill(brokerPid, 'SIGSTOP')
+      await expect(
+        client.scheduleShutdownAfterGrace(
+          2_000,
+          lease.rendererLeaseToken,
+          lease.rendererLeaseOwnerId,
+          lease.rendererLeaseGeneration,
+        ),
+      ).rejects.toThrow()
+      client.detach()
+
+      process.kill(brokerPid, 'SIGCONT')
+
+      // Not the 30-minute idle timeout: the exit grace, then shutdown.
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(healthyPid),
+        'the resumed broker shuts down at the end of the exit grace',
+        30_000,
+      )
     } finally {
       if (brokerPid !== undefined) {
         try {

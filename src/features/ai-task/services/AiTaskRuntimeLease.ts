@@ -13,6 +13,7 @@
  */
 
 import type { AiTaskManager, AiTaskManagerDeps } from './AiTaskManager'
+import { BROKER_PROTOCOL_VERSION } from './BrokerProof'
 
 export const AI_TASK_RUNTIME_HANDOFF_GRACE_MS = 10_000
 export const AI_TASK_TERMINAL_SHUTDOWN_GRACE_MS = 60_000
@@ -258,6 +259,55 @@ function persistManagerForRendererTransition(manager: AiTaskManager): void {
   // save-only API. Full preparation is still safer than disposing its broker
   // session during the one-time hot-upgrade boundary.
   manager.prepareForRendererReload()
+}
+
+/**
+ * A manager from a bundle older than LEV-391 dials the broker without first
+ * checking that it is our broker. Adopting it would keep that code running in
+ * this bundle, so it is let go instead (see acquireRetainedAiTaskManager).
+ */
+export function speaksCurrentBrokerProtocol(manager: object): boolean {
+  const version = (manager as { terminalBrokerProtocol?: unknown })
+    .terminalBrokerProtocol
+  return typeof version === 'number' && version >= BROKER_PROTOCOL_VERSION
+}
+
+/**
+ * The private fields of a manager from a bundle before LEV-391 (3.0.1 and
+ * older) that fenceLegacyManager reaches. Each is optional: an even older
+ * bundle may lack it.
+ */
+interface LegacyManagerInternals {
+  disposed?: boolean
+  shellForeground?: { dispose?: () => void }
+  deps?: { terminal?: { dispatcher?: { broker?: { closing?: boolean } } } }
+}
+
+/**
+ * Stop a let-go legacy manager, and its broker client, from ever talking to a
+ * broker again, without dispose() (which stops its sessions over the unproved
+ * client).
+ * - `disposed`: a start already in flight re-checks it after every await and
+ *   throws instead of dispatching.
+ * - the client's `closing`: its lease-activation retry loop, reconnects and
+ *   every send check it and stop.
+ * - `shellForeground`: a renderer-local timer that would otherwise poll, and
+ *   keep the old manager alive, forever.
+ */
+export function fenceLegacyManager(manager: object): void {
+  const legacy = manager as unknown as LegacyManagerInternals
+  try {
+    legacy.disposed = true
+    const broker = legacy.deps?.terminal?.dispatcher?.broker
+    if (broker && typeof broker === 'object') broker.closing = true
+  } catch {
+    // A frozen or exotic object: nothing more can be done from here.
+  }
+  try {
+    legacy.shellForeground?.dispose?.()
+  } catch {
+    // Its timer stops on its own once nothing is tracked.
+  }
 }
 
 function cancelManagerTerminalShutdownGrace(
@@ -541,6 +591,57 @@ function moveSlotToCurrentSchema(
   )
 }
 
+/**
+ * Let go of a retained runtime from a release before LEV-391. Nothing on it
+ * that talks to the broker is called: no lease activation, no shutdown-grace
+ * IPC, no dispose (which stops sessions over the broker). Clearing the slot
+ * cancels its handoff timer (whose dispose would do the same); its sessions
+ * are saved and its socket closed, as a renderer reload does. The next manager
+ * restores them, and its own client retires the old broker's descriptor
+ * without dialling it.
+ */
+function retireLegacySlot(
+  sourceWindow: AiTaskRuntimeWindow,
+  slot: AnyAiTaskRuntimeSlot,
+): void {
+  clearSlot(sourceWindow, slot)
+  try {
+    slot.manager.prepareForRendererReload()
+  } catch {
+    // The old broker stops itself after its idle TTL.
+  }
+  fenceLegacyManager(slot.manager)
+}
+
+/**
+ * Run on every plugin start, before and regardless of whether AI tasks can
+ * start (an unlicensed vault never reaches acquireRetainedAiTaskManager).
+ * Returns true when a retained runtime from a release before LEV-391 was let
+ * go; the caller then reloads the window (see reloadRendererOnce).
+ */
+export function retireLegacyRetainedAiTaskManager(
+  app: object,
+  win: AiTaskRuntimeWindow = runtimeWindow(),
+  legacyFocusedWindow: AiTaskRuntimeWindow | undefined =
+    legacyFocusedRuntimeWindow(),
+): boolean {
+  for (const candidate of [win, legacyFocusedWindow]) {
+    if (!candidate) continue
+    const slot = candidate[AI_TASK_RUNTIME_SLOT_KEY]
+    if (
+      !slot ||
+      slot.app !== app ||
+      slot.manager.isDisposed() ||
+      speaksCurrentBrokerProtocol(slot.manager)
+    ) {
+      continue
+    }
+    retireLegacySlot(candidate, slot)
+    return true
+  }
+  return false
+}
+
 /** Adopt a manager retained by the immediately preceding plugin instance. */
 export function acquireRetainedAiTaskManager(
   app: object,
@@ -550,6 +651,12 @@ export function acquireRetainedAiTaskManager(
     legacyFocusedRuntimeWindow(),
   rendererLeaseGenerationStore?:
     AiTaskTerminalRendererLeaseGenerationStore,
+  /**
+   * Called after a runtime from a bundle before LEV-391 was let go. Its broker
+   * clients are not all reachable from here (terminal handles from an earlier
+   * hot reload keep their own), so only a renderer reload ends them all.
+   */
+  onLegacyRuntimeRetired?: () => void,
 ): AiTaskManager | undefined {
   let sourceWindow = win
   let slot = win[AI_TASK_RUNTIME_SLOT_KEY]
@@ -570,6 +677,11 @@ export function acquireRetainedAiTaskManager(
   if (slot.app !== app || slot.manager.isDisposed()) {
     clearSlot(sourceWindow, slot)
     if (!slot.manager.isDisposed()) slot.manager.dispose()
+    return undefined
+  }
+  if (!speaksCurrentBrokerProtocol(slot.manager)) {
+    retireLegacySlot(sourceWindow, slot)
+    onLegacyRuntimeRetired?.()
     return undefined
   }
   let currentSlot: AiTaskRuntimeSlot

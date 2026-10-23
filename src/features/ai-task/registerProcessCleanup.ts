@@ -1,8 +1,11 @@
-import type { Plugin } from 'obsidian'
+import { Platform, type Plugin } from 'obsidian'
 import type { AiTaskManager } from './services/AiTaskManager'
 import {
   AI_TASK_TERMINAL_SHUTDOWN_GRACE_MS,
+  fenceLegacyManager,
   forgetRetainedAiTaskManager,
+  retireLegacyRetainedAiTaskManager,
+  speaksCurrentBrokerProtocol,
   getAiTaskRuntimeTerminalLeaseIdentity,
   prepareRetainedAiTaskManagerForRendererTransition,
 } from './services/AiTaskRuntimeLease'
@@ -38,12 +41,57 @@ type DisposableAiTaskManager = Pick<AiTaskManager, 'dispose' | 'disposeAndWait'>
 
 const AI_TASK_PENDING_DISPOSAL_REGISTRY_KEY =
   '__taskchutePlusAiTaskPendingDisposalRegistryV1__'
+/** Set on a registry this release (or a later one) created. */
+const REGISTRY_PROOF_MARK = '__taskchutePlusBrokerProofProtocol__'
+/** Set once a release before LEV-391 has used the registry. */
+const REGISTRY_LEGACY_MARK = '__taskchutePlusLegacyReleaseRan__'
+
+type PendingDisposalRegistry = WeakMap<object, Set<AiTaskManager>> & {
+  [REGISTRY_PROOF_MARK]?: true
+  [REGISTRY_LEGACY_MARK]?: true
+}
 
 interface PendingDisposalRegistryRoot {
-  [AI_TASK_PENDING_DISPOSAL_REGISTRY_KEY]?: WeakMap<
-    object,
-    Set<AiTaskManager>
-  >
+  [AI_TASK_PENDING_DISPOSAL_REGISTRY_KEY]?: PendingDisposalRegistry
+}
+
+function registryGet(
+  registry: WeakMap<object, Set<AiTaskManager>>,
+  app: object,
+): Set<AiTaskManager> | undefined {
+  return WeakMap.prototype.get.call(registry, app) as Set<AiTaskManager> | undefined
+}
+
+function registrySet(
+  registry: WeakMap<object, Set<AiTaskManager>>,
+  app: object,
+  pending: Set<AiTaskManager>,
+): void {
+  WeakMap.prototype.set.call(registry, app, pending)
+}
+
+/**
+ * Every release with a terminal broker (2.1.0 to 3.0.1) builds or reads this
+ * registry when its plugin is constructed, through the registry's own
+ * methods. This release reads it through WeakMap.prototype instead, and gives
+ * the registry it creates methods that record any other caller. So the
+ * registry tells whether a release before LEV-391 ever ran in this renderer,
+ * even after its runtime has left every registry and slot (LEV-391).
+ */
+function createPendingDisposalRegistry(): PendingDisposalRegistry {
+  const registry: PendingDisposalRegistry = new WeakMap()
+  for (const name of ['get', 'set', 'has', 'delete'] as const) {
+    const method = Reflect.get(WeakMap.prototype, name) as (...args: unknown[]) => unknown
+    Object.defineProperty(registry, name, {
+      configurable: true,
+      value: (...args: unknown[]) => {
+        registry[REGISTRY_LEGACY_MARK] = true
+        return method.apply(registry, args)
+      },
+    })
+  }
+  Object.defineProperty(registry, REGISTRY_PROOF_MARK, { value: true })
+  return registry
 }
 
 /**
@@ -57,17 +105,94 @@ export function getSharedAiTaskManagersPendingDisposal(
   root: object = window,
 ): Set<AiTaskManager> {
   const registryRoot = root as PendingDisposalRegistryRoot
-  let registry = registryRoot[AI_TASK_PENDING_DISPOSAL_REGISTRY_KEY]
-  if (!registry) {
-    registry = new WeakMap<object, Set<AiTaskManager>>()
+  const found = registryRoot[AI_TASK_PENDING_DISPOSAL_REGISTRY_KEY]
+  let registry = found
+  if (!registry || registry[REGISTRY_PROOF_MARK] !== true) {
+    // None yet, or one a release before LEV-391 built: move this app's set
+    // into a registry of our own, remembering who built the old one.
+    registry = createPendingDisposalRegistry()
+    if (found) {
+      registry[REGISTRY_LEGACY_MARK] = true
+      const inherited = registryGet(found, app)
+      if (inherited) registrySet(registry, app, inherited)
+    }
     registryRoot[AI_TASK_PENDING_DISPOSAL_REGISTRY_KEY] = registry
   }
-  let pending = registry.get(app)
+  let pending = registryGet(registry, app)
   if (!pending) {
     pending = new Set<AiTaskManager>()
-    registry.set(app, pending)
+    registrySet(registry, app, pending)
   }
+  if (retireLegacyPendingDisposals(pending) > 0) reloadRendererOnce(app)
   return pending
+}
+
+/** Whether a release before LEV-391 ran in this renderer (see above). */
+function legacyReleaseRanHere(root: object): boolean {
+  const registry = (root as PendingDisposalRegistryRoot)[
+    AI_TASK_PENDING_DISPOSAL_REGISTRY_KEY
+  ]
+  if (!registry) return false
+  return registry[REGISTRY_PROOF_MARK] !== true || registry[REGISTRY_LEGACY_MARK] === true
+}
+
+/**
+ * On every plugin start, whether or not AI tasks can start: let go of a
+ * runtime a release before LEV-391 retained across this update, and reload
+ * the window once to end its unreachable clients too.
+ *
+ * A runtime can also have left every registry and slot and still keep
+ * clients alive: one whose handoff expired while its plugin was off, for
+ * example, after a hot reload had given its terminal handles their own
+ * client. Nothing reaches those, so the window is reloaded whenever a release
+ * before LEV-391 ran in it at all. Only the desktop app runs a broker.
+ */
+export function retirePreviousReleaseAiTaskRuntime(
+  app: object,
+  root: object = window,
+): void {
+  const retired = retireLegacyRetainedAiTaskManager(app)
+  if (retired || (Platform.isDesktop && legacyReleaseRanHere(root))) {
+    reloadRendererOnce(app)
+  }
+}
+
+const reloadRequested = new WeakSet<object>()
+
+/**
+ * Reload the window to end a release before LEV-391 for good. Terminal
+ * handles from an earlier hot reload keep broker clients that cannot be
+ * reached and fenced from here; a reload ends them all, and broker sessions
+ * are restored by the next renderer as on any reload. Deferred so the plugin
+ * that asks finishes loading first. Asked at most once per app.
+ */
+export function reloadRendererOnce(app: object): void {
+  if (reloadRequested.has(app)) return
+  reloadRequested.add(app)
+  const commands = (app as { commands?: { executeCommandById?(id: string): unknown } }).commands
+  window.setTimeout(() => {
+    commands?.executeCommandById?.('app:reload')
+  }, 0)
+}
+
+/**
+ * A release before LEV-391 can leave a manager here whose settings-OFF
+ * shutdown failed. Retrying it runs that release's code, which sends the
+ * broker token without asking the broker to prove itself. So it is dropped
+ * and fenced instead, without calling anything that talks to the broker, and
+ * the window is reloaded once (see reloadRendererOnce), even while AI tasks
+ * stay off. Its broker, left with no clients, stops itself and its sessions
+ * after its idle TTL.
+ */
+function retireLegacyPendingDisposals(pending: Set<AiTaskManager>): number {
+  let retired = 0
+  for (const manager of Array.from(pending)) {
+    if (speaksCurrentBrokerProtocol(manager)) continue
+    pending.delete(manager)
+    fenceLegacyManager(manager)
+    retired += 1
+  }
+  return retired
 }
 
 /**

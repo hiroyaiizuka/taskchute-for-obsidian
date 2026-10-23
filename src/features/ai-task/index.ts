@@ -38,6 +38,7 @@ import { RecipeService } from '../recipe/services/RecipeService'
 import { RecipeContextProvider } from '../recipe/services/RecipeContextProvider'
 import { AiRunSessionStateStore } from './services/AiRunSessionStateStore'
 import { folderConsentNeeded } from './services/AiFolderConsent'
+import { reloadRendererOnce } from './registerProcessCleanup'
 import {
   acquireRetainedAiTaskManager,
   AI_TASK_TERMINAL_RENDERER_LEASE_GENERATION_STORAGE_KEY,
@@ -285,6 +286,14 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     undefined,
     undefined,
     rendererLeaseGenerationStore,
+    () => {
+      // Updating from a release that sent the broker token without proof
+      // (LEV-391). Its terminal handles keep broker clients this bundle cannot
+      // reach, so reload the window once: that ends them all, and the broker
+      // sessions are restored by the next renderer as on any reload.
+      log('warn', '[AiTask] Reloading once to retire the previous release\'s terminal clients')
+      reloadRendererOnce(plugin.app)
+    },
   )
   if (retained) {
     plugin.aiTaskRuntimeLeaseGeneration =

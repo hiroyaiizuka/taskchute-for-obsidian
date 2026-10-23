@@ -10,6 +10,7 @@ import {
   getAiTaskRuntimeLeaseGeneration,
   prepareRetainedAiTaskManagerForRendererTransition,
   retainAiTaskManager,
+  retireLegacyRetainedAiTaskManager,
   scheduleAiTaskManagerHotReloadHandoff,
   type AiTaskRuntimeWindow,
 } from '@/features/ai-task/services/AiTaskRuntimeLease'
@@ -21,6 +22,7 @@ type FakeManager = Pick<
   | 'persistSessionStateForRendererReload'
   | 'prepareForRendererReload'
 > & {
+  terminalBrokerProtocol?: number
   rebindRuntimeDependencies: jest.Mock<void, [AiTaskManagerDeps]>
   cancelTerminalShutdownAfterGrace?: jest.Mock
   scheduleTerminalShutdownAfterGrace?: jest.Mock
@@ -30,6 +32,7 @@ type FakeManager = Pick<
 
 function makeManager(): FakeManager {
   return {
+    terminalBrokerProtocol: 2,
     dispose: jest.fn(),
     isDisposed: jest.fn(() => false),
     persistSessionStateForRendererReload: jest.fn(),
@@ -696,6 +699,94 @@ describe('AiTaskRuntimeLease', () => {
 
     expect(adopted).toBeUndefined()
     expect(current.dispose).toHaveBeenCalledTimes(1)
+  })
+
+  test('a manager from a bundle without the broker proof is not adopted, and nothing on it talks to the broker', () => {
+    const win = new FakeRuntimeWindow()
+    const app = {}
+    const old = makeManager()
+    delete old.terminalBrokerProtocol
+    // The private parts of a 3.0.1 manager that the fence reaches.
+    const broker = { closing: false }
+    const shellForeground = { dispose: jest.fn() }
+    Object.assign(old, { deps: { terminal: { dispatcher: { broker } } }, shellForeground })
+
+    retainAiTaskManager(app, manager(old), runtimeWindow(win))
+    scheduleAiTaskManagerHotReloadHandoff(manager(old), runtimeWindow(win), 50)
+    // Only what the new bundle does from here on counts.
+    old.setTerminalRendererLeaseToken?.mockClear()
+    old.cancelTerminalShutdownAfterGrace?.mockClear()
+    old.scheduleTerminalShutdownAfterGrace?.mockClear()
+    const retired = jest.fn()
+    const adopted = acquireRetainedAiTaskManager(
+      app,
+      deps(),
+      runtimeWindow(win),
+      undefined,
+      undefined,
+      retired,
+    )
+    win.runTimers()
+
+    expect(adopted).toBeUndefined()
+    // Its handles may keep other clients, so the caller reloads the window.
+    expect(retired).toHaveBeenCalledTimes(1)
+    // Sessions are saved and the socket closed, so the new manager restores them.
+    expect(old.prepareForRendererReload).toHaveBeenCalledTimes(1)
+    // Every one of these would send the token through the old, unproved client.
+    expect(old.setTerminalRendererLeaseToken).not.toHaveBeenCalled()
+    expect(old.cancelTerminalShutdownAfterGrace).not.toHaveBeenCalled()
+    expect(old.scheduleTerminalShutdownAfterGrace).not.toHaveBeenCalled()
+    expect(old.rebindRuntimeDependencies).not.toHaveBeenCalled()
+    expect(old.dispose).not.toHaveBeenCalled()
+    // Fenced instead: a start already in flight re-checks this and never dispatches.
+    expect((old as unknown as { disposed?: boolean }).disposed).toBe(true)
+    // Its client stops retrying the lease activation and never sends again.
+    expect(broker.closing).toBe(true)
+    // Its renderer-local foreground poller stops.
+    expect(shellForeground.dispose).toHaveBeenCalledTimes(1)
+    expect(win.pageHideListeners.size).toBe(0)
+    // The slot is gone: a later instance cannot adopt it either.
+    expect(acquireRetainedAiTaskManager(app, deps(), runtimeWindow(win))).toBeUndefined()
+  })
+
+  test('at plugin start, a retained runtime from before the proof is let go even if AI tasks never start', () => {
+    const win = new FakeRuntimeWindow()
+    const app = {}
+    const old = makeManager()
+    delete old.terminalBrokerProtocol
+    const broker = { closing: false }
+    Object.assign(old, { deps: { terminal: { dispatcher: { broker } } } })
+
+    retainAiTaskManager(app, manager(old), runtimeWindow(win))
+    scheduleAiTaskManagerHotReloadHandoff(manager(old), runtimeWindow(win), 50)
+    old.setTerminalRendererLeaseToken?.mockClear()
+    old.cancelTerminalShutdownAfterGrace?.mockClear()
+    old.scheduleTerminalShutdownAfterGrace?.mockClear()
+
+    // The updated plugin is unlicensed: only this runs, no acquire.
+    expect(retireLegacyRetainedAiTaskManager(app, runtimeWindow(win), undefined)).toBe(true)
+    win.runTimers()
+
+    expect(old.prepareForRendererReload).toHaveBeenCalledTimes(1)
+    expect(broker.closing).toBe(true)
+    // Its handoff timer would have run dispose(), which sends over the
+    // unproved client; clearing the slot cancelled it.
+    expect(old.dispose).not.toHaveBeenCalled()
+    expect(old.setTerminalRendererLeaseToken).not.toHaveBeenCalled()
+    expect(old.scheduleTerminalShutdownAfterGrace).not.toHaveBeenCalled()
+    expect(acquireRetainedAiTaskManager(app, deps(), runtimeWindow(win), undefined)).toBeUndefined()
+  })
+
+  test('at plugin start, a retained runtime of this release is left for adoption', () => {
+    const win = new FakeRuntimeWindow()
+    const app = {}
+    const current = makeManager()
+    retainAiTaskManager(app, manager(current), runtimeWindow(win))
+
+    expect(retireLegacyRetainedAiTaskManager(app, runtimeWindow(win), undefined)).toBe(false)
+    expect(current.prepareForRendererReload).not.toHaveBeenCalled()
+    expect(acquireRetainedAiTaskManager(app, deps(), runtimeWindow(win), undefined)).toBe(current)
   })
 
   test('explicit feature disable forgets the lease before tracked disposal', () => {
