@@ -2,7 +2,6 @@ import {
   chmodSync,
   copyFileSync,
   existsSync,
-  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -28,11 +27,9 @@ import { deferred, withTimeout } from './brokerTestUtils'
 function installNodePrefix(prefix: string): string {
   const binary = join(prefix, 'bin', 'node')
   mkdirSync(dirname(binary))
-  try {
-    linkSync(process.execPath, binary)
-  } catch {
-    copyFileSync(process.execPath, binary)
-  }
+  // A copy, not a hardlink: macOS lsof may name a hardlinked executable by
+  // its other path, which would hide whether the broker really runs from here.
+  copyFileSync(process.execPath, binary)
   chmodSync(binary, 0o755)
   const libraries = join(dirname(dirname(process.execPath)), 'lib')
   if (existsSync(libraries)) symlinkSync(libraries, join(prefix, 'lib'))
