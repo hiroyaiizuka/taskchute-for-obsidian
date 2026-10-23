@@ -22,6 +22,12 @@ import {
  * on a name the broker introduces later.
  *
  * Keep this plain ES2018 — nothing transpiles the contents of this template.
+ *
+ * resolveNodeExecutable exists because the broker outlives node upgrades: a
+ * versioned install (Homebrew's Cellar/node/<version>) deletes the binary the
+ * broker was started from, so its own execPath can stop existing while it keeps
+ * serving sessions. Relative PATH entries are skipped because the broker checks
+ * candidates from its own cwd but spawns them from the request's.
  */
 export const TERMINAL_BROKER_PURE_SOURCE = String.raw`const ownerPidFileEnvName = 'TASKCHUTE_BROKER_OWNER_PID_FILE';
 const terminalArgvBootstrapProgram = ${JSON.stringify(POSIX_TERMINAL_BOOTSTRAP)};
@@ -375,5 +381,21 @@ function consumeStderrInto(session, text, flush, marker, emit) {
   // The loop above consumed every newline, so what remains is a newline-free
   // tail that no emit has bounded yet.
   if (!flush) boundStderrHead(session);
+}
+function pathEnvValue(env) {
+  const key = Object.keys(env || {}).find(name => name.toUpperCase() === 'PATH');
+  return key ? String(env[key] || '') : '';
+}
+function resolveNodeExecutable(execPath, pathValue, platform, isExecutable) {
+  if (isExecutable(execPath)) return execPath;
+  const windows = platform === 'win32';
+  const name = windows ? 'node.exe' : 'node';
+  const absolute = windows ? /^(?:[A-Za-z]:)?[\\/]/ : /^\//;
+  for (const directory of String(pathValue || '').split(windows ? ';' : ':')) {
+    if (!absolute.test(directory)) continue;
+    const candidate = directory.replace(/[\\/]+$/, '') + (windows ? '\\' : '/') + name;
+    if (isExecutable(candidate)) return candidate;
+  }
+  return null;
 }
 `

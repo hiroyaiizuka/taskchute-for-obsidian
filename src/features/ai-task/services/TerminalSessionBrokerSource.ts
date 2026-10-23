@@ -369,6 +369,14 @@ function broadcast(session, value) {
     if (!sendRaw(socket, frame)) markPressured(session, socket);
   }
 }
+function isExecutableFile(candidate) {
+  try {
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return fs.statSync(candidate).isFile();
+  } catch (_) {
+    return false;
+  }
+}
 function pidLivenessState(pid) {
   if (!Number.isInteger(pid) || pid < 1) return 'dead';
   try {
@@ -1306,6 +1314,22 @@ function spawnSession(message, socket) {
     });
     return;
   }
+  const nodeExecutable = resolveNodeExecutable(
+    process.execPath,
+    pathEnvValue(request.env || process.env),
+    process.platform,
+    isExecutableFile,
+  );
+  if (!nodeExecutable) {
+    send(socket, {
+      type: 'error',
+      sessionId: message.sessionId,
+      message:
+        'Node.js was not found: ' + process.execPath +
+        ' no longer exists and no node executable is on PATH',
+    });
+    return;
+  }
   const ownerToken = crypto.randomBytes(24).toString('hex');
   const guardToken = crypto.randomBytes(24).toString('hex');
   const ownerPidFile = ownerSessionPrefix + ownerToken + '.jsonl';
@@ -1370,7 +1394,7 @@ function spawnSession(message, socket) {
   const rootStartedAtLower = Date.now();
   try {
     child = cp.spawn(
-      process.execPath,
+      nodeExecutable,
       ['-e', sessionGuardProgram, guardToken],
       {
         cwd: request.cwd,
@@ -1446,7 +1470,9 @@ function spawnSession(message, socket) {
     send(socket, {
       type: 'error',
       sessionId: message.sessionId,
-      message: 'Terminal root ownership identity could not be recorded',
+      message: child && child.pid
+        ? 'Terminal root ownership identity could not be recorded'
+        : 'Terminal session process could not be started with ' + nodeExecutable,
     });
     return;
   }

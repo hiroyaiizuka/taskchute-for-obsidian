@@ -29,6 +29,13 @@ const broker = context as unknown as {
     request: { command: string; args: string[] },
     initialInput?: string,
   ) => boolean
+  pathEnvValue: (env: Record<string, string | undefined>) => string
+  resolveNodeExecutable: (
+    execPath: string,
+    pathValue: string,
+    platform: string,
+    isExecutable: (candidate: string) => boolean,
+  ) => string | null
 }
 
 const stderrPendingLimit = runInContext(
@@ -262,5 +269,70 @@ describe('python ownership-hook detection', () => {
     })
 
     expect(disables(...toRequest(ptyCommand))).toBe(true)
+  })
+})
+
+describe('resolveNodeExecutable', () => {
+  const installed = (...paths: string[]) => (candidate: string) =>
+    paths.includes(candidate)
+
+  test('keeps the broker executable while it still exists', () => {
+    expect(
+      broker.resolveNodeExecutable(
+        '/opt/homebrew/Cellar/node/25.2.1/bin/node',
+        '/opt/homebrew/bin:/usr/bin',
+        'darwin',
+        installed('/opt/homebrew/Cellar/node/25.2.1/bin/node', '/opt/homebrew/bin/node'),
+      ),
+    ).toBe('/opt/homebrew/Cellar/node/25.2.1/bin/node')
+  })
+
+  test('falls back to the first node on PATH once the broker executable is gone', () => {
+    expect(
+      broker.resolveNodeExecutable(
+        '/opt/homebrew/Cellar/node/25.2.1/bin/node',
+        '/missing::/opt/homebrew/bin/:/usr/local/bin',
+        'darwin',
+        installed('/opt/homebrew/bin/node', '/usr/local/bin/node'),
+      ),
+    ).toBe('/opt/homebrew/bin/node')
+  })
+
+  test('skips relative PATH entries, which the spawn would resolve from another cwd', () => {
+    expect(
+      broker.resolveNodeExecutable(
+        '/gone/node',
+        '.:bin:/usr/local/bin',
+        'linux',
+        installed('./node', 'bin/node', '/usr/local/bin/node'),
+      ),
+    ).toBe('/usr/local/bin/node')
+  })
+
+  test('looks for node.exe in semicolon-separated Windows PATH entries', () => {
+    expect(
+      broker.resolveNodeExecutable(
+        'C:\\old\\node.exe',
+        'C:\\Windows;C:\\Program Files\\nodejs\\',
+        'win32',
+        installed('C:\\Program Files\\nodejs\\node.exe'),
+      ),
+    ).toBe('C:\\Program Files\\nodejs\\node.exe')
+  })
+
+  test('reports null when no node exists anywhere', () => {
+    expect(
+      broker.resolveNodeExecutable('/gone/node', '/usr/bin:/bin', 'linux', installed()),
+    ).toBeNull()
+  })
+})
+
+describe('pathEnvValue', () => {
+  test.each([
+    [{ PATH: '/usr/bin' }, '/usr/bin'],
+    [{ Path: 'C:\\Windows' }, 'C:\\Windows'],
+    [{ HOME: '/home/me' }, ''],
+  ])('reads PATH from %j case-insensitively', (env, expected) => {
+    expect(broker.pathEnvValue(env)).toBe(expected)
   })
 })
