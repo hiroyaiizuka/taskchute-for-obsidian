@@ -170,6 +170,35 @@ let cachedBrokerSource: string | undefined
  * adopting the sessions. A pending-termination retry activates with
  * keepShutdown, because the window that armed the grace may be closing.
  *
+ * Note W: A renderer can vanish without its exit grace arriving: the broker
+ * was frozen, and the frame was still queued behind other writes when the
+ * window closed (LEV-397). So when the last connection attached to a live
+ * session under the current lease closes, the broker arms the same grace
+ * itself. A renderer that is still there reconnects and attaches, which
+ * cancels it, as does a new renderer's lease activation. A connection from
+ * an older lease never arms it: its renderer is already replaced. Nor does
+ * it keep the grace from arming when the current renderer's connection
+ * closes first. A connection takes the lease of the last
+ * frame it carried under the current lease, so a client that rotates its
+ * lease in place (a hot reload adopting it) activates it on its data
+ * connection. A stale
+ * schedule request is acknowledged so an old renderer can finish tearing
+ * down, but never re-arms the current renderer's deadline.
+ *
+ * Note X: Renderer clients destroy their socket when a frame exceeds 1MB;
+ * keep the serialized 'attached' frame well under that with headroom for
+ * interleaved data frames and the envelope.
+ *
+ * Note Y: A numeric PID can be reused, so nothing short of proof counts as a
+ * process having exited or as ours to signal. EPERM/EACCES from kill(0)
+ * proves the PID exists but cannot be inspected or signalled: unknown, never
+ * exit. A ps snapshot that omits a PID kill(0) just proved alive is unknown
+ * too. A torn owner record cannot authorize signalling, so only that
+ * untrusted identity is dropped and the session fails closed instead of
+ * hanging. A parse failure is null, so pidOwnershipState keeps shutdown
+ * unconfirmed. On Windows the ChildProcess fallback must not bypass the
+ * birth-time check: the PID may already belong to another process.
+ *
  * LEV-379: ps and lsof answer in seconds on a busy Mac, longer right after
  * wake, and the broker serves every terminal from one event loop. So when a
  * session ends or is force-stopped, the evidence a decision about its
@@ -212,11 +241,10 @@ const sessionGuardProgram = inflateProgram(${JSON.stringify(gzipBase64(TERMINAL_
 const descriptorPath = process.env.TASKCHUTE_BROKER_DESCRIPTOR;
 const token = process.env.TASKCHUTE_BROKER_TOKEN;
 const idleTtlMs = Number(process.env.TASKCHUTE_BROKER_TTL_MS || 1800000);
+const exitGraceMs = Number(process.env.TASKCHUTE_BROKER_EXIT_GRACE_MS) || 60000;
 const replayLimit = 200 * 1024;
 const frameLimit = 1024 * 1024;
-// Renderer clients destroy their socket when a frame exceeds 1MB; keep the
-// serialized 'attached' frame well under that with headroom for interleaved
-// data frames and the envelope.
+// Note X (buildTerminalBrokerSource).
 const attachedFrameBudget = 700 * 1024;
 const clientBufferLimit = 4 * 1024 * 1024;
 const stuckMsRaw = Number(process.env.TASKCHUTE_BROKER_STUCK_MS);
@@ -275,6 +303,21 @@ function cancelDeferredShutdown() {
   if (!deferredShutdownTimer) return;
   global.clearTimeout(deferredShutdownTimer);
   deferredShutdownTimer = null;
+}
+function armDeferredShutdown(graceMs) {
+  cancelDeferredShutdown();
+  deferredShutdownTimer = global.setTimeout(() => {
+    deferredShutdownTimer = null;
+    // Note D (buildTerminalBrokerSource).
+    for (const active of sessions.values()) {
+      if (!active.completed) {
+        active.stopRequested = true;
+        requestGuardStop(active, true);
+      }
+    }
+    shutdown(false);
+  }, graceMs);
+  deferredShutdownTimer.unref();
 }
 function rendererLeaseOf(message) {
   const token = (
@@ -551,8 +594,7 @@ function pidLivenessState(pid) {
     return 'alive';
   } catch (error) {
     if (error && error.code === 'ESRCH') return 'dead';
-    // EPERM/EACCES proves that the numeric PID exists but cannot safely be
-    // inspected or signalled by this broker. Never mistake that for exit.
+    // Note Y (buildTerminalBrokerSource).
     return 'unknown';
   }
 }
@@ -661,9 +703,7 @@ function markOwnerTrackingFailure(session, corruption) {
     session.ownershipTrackingFailed = true;
     for (const [pid, identity] of session.ownedPids.entries()) {
       if (identity && identity.kind === 'unknown') {
-        // A torn record cannot authorize signalling a reusable numeric PID.
-        // Drop only that untrusted identity so the session can fail closed
-        // instead of hanging forever.
+        // Note Y (buildTerminalBrokerSource).
         session.ownedPids.delete(pid);
       }
     }
@@ -829,8 +869,7 @@ function pidOwnershipState(pid, identity, snapshot, probes) {
       actualStart = Date.parse(value);
     } else if (snapshot) {
       entry = snapshot.get(pid);
-      // kill(0) already proved the numeric PID still exists. A transient ps
-      // omission is therefore unknown, never proof of process exit.
+      // Note Y (buildTerminalBrokerSource).
       if (!entry) return 'unknown';
       actualStart = entry.startedAt;
     } else {
@@ -966,8 +1005,7 @@ function scanOwnedPids(session, providedSnapshot, probes) {
     const pid = entry && entry.pid;
     if (!pid || seen.has(pid)) continue;
     seen.add(pid);
-    // A parse failure is represented as null. pidOwnershipState then keeps
-    // shutdown unconfirmed instead of trusting a reusable numeric PID.
+    // Note Y (buildTerminalBrokerSource).
     const existing = session.ownedPids.get(pid);
     if (!existing || existing.kind === 'snapshot') {
       session.ownedPids.set(pid, posixSnapshotIdentity(entry));
@@ -1311,8 +1349,7 @@ function signalTree(session, signal, providedSnapshot, probes) {
       session.ownedPids.delete(pid);
     } else if (rootOwnership === 'match') {
       if (process.platform === 'win32') {
-        // Do not let the ChildProcess fallback bypass birth-time validation:
-        // on Windows the numeric PID may already belong to another process.
+        // Note Y (buildTerminalBrokerSource).
         if (
         !runWindowsTaskkill(pid, signal === 'SIGKILL')
         ) {
@@ -1952,26 +1989,8 @@ function handle(socket, message) {
       send(socket, { type: 'error', message: 'Invalid shutdown grace' });
       return;
     }
-    if (!rendererLeaseIsCurrent(message)) {
-      // ACK stale requests so an old renderer can finish tearing down, but
-      // never let its delayed control socket re-arm the current renderer's
-      // deadline.
-      send(socket, { type: 'shutdown-scheduled' });
-      return;
-    }
-    cancelDeferredShutdown();
-    deferredShutdownTimer = global.setTimeout(() => {
-      deferredShutdownTimer = null;
-      // Note D (buildTerminalBrokerSource).
-      for (const active of sessions.values()) {
-        if (!active.completed) {
-          active.stopRequested = true;
-          requestGuardStop(active, true);
-        }
-      }
-      shutdown(false);
-    }, graceMs);
-    deferredShutdownTimer.unref();
+    // Note W (buildTerminalBrokerSource).
+    if (rendererLeaseIsCurrent(message)) armDeferredShutdown(graceMs);
     send(socket, { type: 'shutdown-scheduled' });
     return;
   }
@@ -2143,6 +2162,8 @@ const server = net.createServer(socket => {
             cancelDeferredShutdown();
           }
           handle(socket, message);
+          // Note W (buildTerminalBrokerSource).
+          if (message.rendererLeaseToken && rendererLeaseIsCurrent(message)) socket.lease = message;
         } catch (_) { socket.destroy(); return; }
       }
       newline = buffer.indexOf('\n');
@@ -2152,10 +2173,17 @@ const server = net.createServer(socket => {
     global.clearTimeout(authTimer);
     if (authenticated) clients.delete(socket);
     shutdownWaiters.delete(socket);
+    let left = false;
+    let attached = false;
     for (const session of sessions.values()) {
-      session.clients.delete(socket);
+      if (session.clients.delete(socket) && !session.completed) left = true;
+      if (!session.completed && Array.from(session.clients).some(c => rendererLeaseIsCurrent(c.lease))) attached = true;
       session.terminationClients.delete(socket);
       releasePressure(session, socket);
+    }
+    // Note W (buildTerminalBrokerSource).
+    if (left && !attached && !deferredShutdownTimer && rendererLeaseIsCurrent(socket.lease)) {
+      armDeferredShutdown(exitGraceMs);
     }
     scheduleIdle();
   });

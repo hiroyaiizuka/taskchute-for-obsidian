@@ -300,6 +300,11 @@ export interface TerminalBrokerClientOptions {
   locateNode?(env: Record<string, string | undefined>): string[]
   /** Test/embedding override for the renderer crash-reconnect window. */
   idleTtlMs?: number
+  /**
+   * How long the broker waits for a renderer to come back after the last
+   * connection of the current lease closes (Note W in the broker source).
+   */
+  exitGraceMs?: number
   /** Deterministic renderer-lease override used by lifecycle tests. */
   rendererLeaseToken?: string
   rendererLeaseOwnerId?: string
@@ -321,6 +326,8 @@ const BROKER_SHUTDOWN_TIMEOUT_MS = 2_500
 const BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS = 2_500
 const BROKER_DEFERRED_SHUTDOWN_MIN_MS = 100
 const BROKER_DEFERRED_SHUTDOWN_MAX_MS = 120_000
+/** Matches the app-exit grace the window asks for (AI_TASK_TERMINAL_SHUTDOWN_GRACE_MS). */
+const BROKER_EXIT_GRACE_MS = 60_000
 const BROKER_SESSION_ACK_TIMEOUT_MS = 5_000
 const BROKER_UNAVAILABLE_TERMINATION_TIMEOUT_MS = 2_500
 const BROKER_UNAVAILABLE_RECOVERY_BASE_MS = 250
@@ -374,6 +381,24 @@ interface RendererLeaseIdentity {
   token: string
   ownerId: string
   generation: number
+}
+
+/**
+ * A request made under a lease that rotated before it reached the connection.
+ * Not a transport failure: the connection is fine (LEV-397).
+ */
+class RendererLeaseChangedError extends Error {
+  constructor() {
+    super('Terminal broker renderer lease changed before the request was sent')
+    this.name = 'RendererLeaseChangedError'
+  }
+}
+
+function sameRendererLease(
+  a: RendererLeaseIdentity,
+  b: RendererLeaseIdentity,
+): boolean {
+  return a.token === b.token && a.ownerId === b.ownerId && a.generation === b.generation
 }
 
 function isValidBrokerSessionId(sessionId: string): boolean {
@@ -618,6 +643,18 @@ export class TerminalSessionBrokerClient {
    * owner intentionally released the transport.
    */
   private transportGeneration = 0
+  /** The newest size asked for each session, to resend after a lease rotation. */
+  private readonly latestResizes = new Map<string, { cols: number; rows: number }>()
+  /**
+   * Lease activations sent on the data connection, in the order the broker
+   * answers them. One that timed out keeps its place, with no one waiting,
+   * until its late answer arrives, so that answer is not taken for a newer
+   * activation's. Entries for an earlier connection are dropped.
+   */
+  private dataLeaseActivations: Array<{
+    socket: NodeSocketLike
+    answer: (() => void) | null
+  }> = []
   private rendererLeaseToken: string
   private rendererLeaseOwnerId: string
   private rendererLeaseGeneration: number
@@ -698,14 +735,17 @@ export class TerminalSessionBrokerClient {
         this.lastAuthenticatedDescriptor ??
         this.readDescriptor()
       if (target) {
+        const timeoutMs =
+          this.options.deferredShutdownTimeoutMs ??
+          BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS
         try {
+          if (await this.activateLeaseOnDataTransport(target, identity, timeoutMs)) return
           await this.requestAuthenticatedDeferredShutdown(
             target,
             { op: 'activate-renderer-lease' },
             'renderer-lease-activated',
             identity,
-            this.options.deferredShutdownTimeoutMs ??
-              BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS,
+            timeoutMs,
           )
           return
         } catch (error) {
@@ -715,6 +755,61 @@ export class TerminalSessionBrokerClient {
       await wait(BROKER_RENDERER_LEASE_ACTIVATION_RETRY_MS)
     } while (Date.now() < deadline)
     throw lastError
+  }
+
+  /**
+   * Activate the lease on the data connection when there is one. The broker
+   * knows a connection's lease from the frames it carried and arms the exit
+   * grace when the last connection of the current lease closes (Note W in
+   * the broker source). On this connection the activation is one step with
+   * moving the connection to the lease, and it is always read before the
+   * connection's close, so a window that closes before the broker answers
+   * still leaves a connection of the current lease behind. Overlapping
+   * activations also arrive in the order they were made. False when there is
+   * no verified data connection to that broker.
+   */
+  private async activateLeaseOnDataTransport(
+    target: BrokerDescriptor,
+    identity: RendererLeaseIdentity,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    const socket = this.socket
+    if (!socket || socket.destroyed || !descriptorsEqual(this.descriptor, target)) return false
+    const frame: BrokerClientMessage = {
+      token: target.token,
+      rendererLeaseToken: identity.token,
+      rendererLeaseOwnerId: identity.ownerId,
+      rendererLeaseGeneration: identity.generation,
+      op: 'activate-renderer-lease',
+    }
+    const entry: { socket: NodeSocketLike; answer: (() => void) | null } = {
+      socket,
+      answer: null,
+    }
+    const activated = new Promise<void>((resolve) => {
+      entry.answer = resolve
+    })
+    this.dataLeaseActivations = this.dataLeaseActivations.filter(
+      (pending) => pending.socket === socket,
+    )
+    this.dataLeaseActivations.push(entry)
+    let timer: StableTimeoutId | null = null
+    try {
+      socket.write(`${JSON.stringify(frame)}\n`)
+      await Promise.race([
+        activated,
+        new Promise<never>((_resolve, reject) => {
+          timer = stableTimeoutSource.setTimeout(
+            () => reject(new Error('Terminal broker renderer lease activation timed out')),
+            timeoutMs,
+          )
+        }),
+      ])
+      return true
+    } finally {
+      if (timer !== null) stableTimeoutSource.clearTimeout(timer)
+      entry.answer = null
+    }
   }
 
   private captureRendererLeaseIdentity(
@@ -809,13 +904,25 @@ export class TerminalSessionBrokerClient {
         this.sessionRecord(sessionId).descriptor = descriptor
         this.armSessionAck(sessionId, ackEpoch)
       },
-      (error: unknown) =>
+      (error: unknown) => {
+        if (
+          error instanceof RendererLeaseChangedError &&
+          this.callbacks.get(sessionId) === callbacks &&
+          this.pendingSessionAcks.get(sessionId)?.epoch === ackEpoch
+        ) {
+          // Superseded, not failed: the connection is fine and the session
+          // healthy. Attach again under the lease this client holds now.
+          this.clearSessionAck(sessionId)
+          this.attach(sessionId, callbacks)
+          return
+        }
         this.handleSessionRequestFailure(
           sessionId,
           ackEpoch,
           'attach',
           error,
-        ),
+        )
+      },
     )
   }
 
@@ -832,6 +939,13 @@ export class TerminalSessionBrokerClient {
     // must never resurrect an empty broker after the real session vanished.
     void this.send({ op: 'input', sessionId, data }, false).catch((error) => {
       this.options.log?.('warn', '[TerminalBroker] Input failed', error)
+      if (error instanceof RendererLeaseChangedError) {
+        // The connection stays, so no reattach will report it later. Report
+        // this input now, outside the once-per-outage bookkeeping.
+        const callbacks = this.callbacks.get(sessionId)
+        if (callbacks) this.reportInputDropped(callbacks)
+        return
+      }
       // Not reported at once: a reconnect is usually underway. It is reported
       // once when the session reattaches or is written off.
       const pending = this.unavailableSessions.get(sessionId)
@@ -851,6 +965,10 @@ export class TerminalSessionBrokerClient {
     record.inputLost = false
     if (record.inputDropNotified) return
     record.inputDropNotified = true
+    this.reportInputDropped(callbacks)
+  }
+
+  private reportInputDropped(callbacks: TerminalBrokerSessionCallbacks): void {
     try {
       callbacks.onInputDropped?.()
     } catch (error) {
@@ -870,6 +988,7 @@ export class TerminalSessionBrokerClient {
   /** Drop every per-session record once the session is over for this client. */
   private forgetSession(sessionId: string): void {
     this.sessionRecords.delete(sessionId)
+    this.latestResizes.delete(sessionId)
     this.explicitlyStoppedSessionIds.delete(sessionId)
   }
 
@@ -878,6 +997,15 @@ export class TerminalSessionBrokerClient {
     cols: number,
     rows: number,
   ): void {
+    this.requestResize(sessionId, cols, rows, false)
+  }
+
+  private requestResize(
+    sessionId: string,
+    cols: number,
+    rows: number,
+    claimLease: boolean,
+  ): void {
     if (
       this.closing ||
       this.unavailableSessions.has(sessionId) ||
@@ -885,6 +1013,8 @@ export class TerminalSessionBrokerClient {
     ) {
       return
     }
+    const request = { cols, rows }
+    this.latestResizes.set(sessionId, request)
     void this.send(
       {
         op: 'resize',
@@ -893,10 +1023,25 @@ export class TerminalSessionBrokerClient {
         rows,
       },
       false,
-    ).catch(() => undefined)
+      claimLease,
+    ).catch((error: unknown) => {
+      // Superseded by a lease rotation, not lost with the connection: no
+      // reattach will replay it. Ask again under the lease held now, unless a
+      // newer size was asked for meanwhile (that one resends itself).
+      if (
+        error instanceof RendererLeaseChangedError &&
+        this.latestResizes.get(sessionId) === request
+      ) {
+        this.requestResize(sessionId, cols, rows, true)
+      }
+    })
   }
 
   stop(sessionId: string, force: boolean): void {
+    this.requestStop(sessionId, force, false)
+  }
+
+  private requestStop(sessionId: string, force: boolean, claimLease: boolean): void {
     if (this.closing || !isValidBrokerSessionId(sessionId)) return
     this.explicitlyStoppedSessionIds.add(sessionId)
     if (this.unavailableSessions.has(sessionId)) {
@@ -907,7 +1052,13 @@ export class TerminalSessionBrokerClient {
       this.scheduleUnavailableRecovery(true)
       return
     }
-    void this.send({ op: 'stop', sessionId, force }, false).catch((error) => {
+    void this.send({ op: 'stop', sessionId, force }, false, claimLease).catch((error) => {
+      if (error instanceof RendererLeaseChangedError) {
+        // Superseded, not failed: ask for the same stop under the lease this
+        // client holds now, never escalating it to a forced termination.
+        if (this.callbacks.has(sessionId)) this.requestStop(sessionId, force, true)
+        return
+      }
       this.options.log?.('warn', '[TerminalBroker] Stop failed', error)
       const pending = this.pendingSessionAcks.get(sessionId)
       if (pending) {
@@ -954,22 +1105,10 @@ export class TerminalSessionBrokerClient {
       rendererLeaseOwnerId,
       rendererLeaseGeneration,
     )
-    // Also queue it on the verified data transport, which the window's
-    // detach flushes before closing. A frozen broker answers no proof, so the
-    // control connection below never gets to send it; the queued frame is
-    // what that broker reads on resume, after the window is gone. The broker
-    // checks the lease the same way on either connection.
-    if (this.socket && !this.socket.destroyed && descriptorsEqual(this.descriptor, target)) {
-      const frame: BrokerClientMessage = {
-        token: target.token,
-        rendererLeaseToken: identity.token,
-        rendererLeaseOwnerId: identity.ownerId,
-        rendererLeaseGeneration: identity.generation,
-        op: 'schedule-shutdown',
-        graceMs: normalizedGraceMs,
-      }
-      this.socket.write(`${JSON.stringify(frame)}\n`)
-    }
+    // Only on this control connection. A broker that never gets it (frozen
+    // while the window closes) arms the same grace itself when the window's
+    // data connection closes (Note W in the broker source), so a second copy
+    // on the data connection, which could arrive after a cancel, is not sent.
     await this.requestAuthenticatedDeferredShutdown(
       target,
       { op: 'schedule-shutdown', graceMs: normalizedGraceMs },
@@ -1105,6 +1244,14 @@ export class TerminalSessionBrokerClient {
   private async send(
     message: BrokerClientCommand,
     allowBrokerStart = true,
+    /**
+     * Activate the lease on this connection first. A request resent after a
+     * lease rotation can reach a fresh connection before the activation sent
+     * on a control connection: the broker would refuse it as stale and drop
+     * the connection. Written in front of it on the same connection, the
+     * activation is always read first (LEV-397).
+     */
+    claimLease = false,
   ): Promise<BrokerDescriptor> {
     if (this.closing) {
       throw new Error('Terminal broker client is shutting down')
@@ -1123,6 +1270,13 @@ export class TerminalSessionBrokerClient {
     if (!descriptor || socket.destroyed || socket !== this.socket) {
       throw new Error('Terminal broker is disconnected')
     }
+    // The lease rotated while this request waited. Its activation may
+    // already be on this connection, and the broker drops a connection that
+    // sends a stale frame after it (LEV-397), taking every attached terminal
+    // with it. The request stays the old renderer's, so fail it here instead.
+    if (!sameRendererLease(rendererLeaseIdentity, this.captureRendererLeaseIdentity())) {
+      throw new RendererLeaseChangedError()
+    }
     const frame = JSON.stringify({
       ...message,
       token: descriptor.token,
@@ -1132,6 +1286,19 @@ export class TerminalSessionBrokerClient {
     })
     if (frame.length > MAX_CLIENT_FRAME_BYTES) {
       throw new Error('Terminal broker request exceeds the IPC limit')
+    }
+    if (claimLease) {
+      const activation: BrokerClientMessage = {
+        token: descriptor.token,
+        rendererLeaseToken: rendererLeaseIdentity.token,
+        rendererLeaseOwnerId: rendererLeaseIdentity.ownerId,
+        rendererLeaseGeneration: rendererLeaseIdentity.generation,
+        op: 'activate-renderer-lease',
+        keepShutdown: true,
+      }
+      // Its answer is read in turn with no one waiting for it.
+      this.dataLeaseActivations.push({ socket, answer: null })
+      socket.write(`${JSON.stringify(activation)}\n`)
     }
     socket.write(`${frame}\n`)
     return descriptor
@@ -1411,6 +1578,17 @@ export class TerminalSessionBrokerClient {
     if (message.type === 'shutdown-ack') {
       return
     }
+    if (message.type === 'renderer-lease-activated') {
+      // Answers arrive in the order the activations were written.
+      while (
+        this.dataLeaseActivations.length > 0 &&
+        this.dataLeaseActivations[0].socket !== this.socket
+      ) {
+        this.dataLeaseActivations.shift()
+      }
+      this.dataLeaseActivations.shift()?.answer?.()
+      return
+    }
     if (!('sessionId' in message)) return
     const sessionId = message.sessionId
     if (typeof sessionId !== 'string') return
@@ -1597,6 +1775,13 @@ export class TerminalSessionBrokerClient {
               5_000,
               this.options.idleTtlMs ??
                 BROKER_RENDERER_RECONNECT_TTL_MS,
+            )),
+            TASKCHUTE_BROKER_EXIT_GRACE_MS: String(Math.min(
+              BROKER_DEFERRED_SHUTDOWN_MAX_MS,
+              Math.max(
+                BROKER_DEFERRED_SHUTDOWN_MIN_MS,
+                this.options.exitGraceMs ?? BROKER_EXIT_GRACE_MS,
+              ),
             )),
           },
           stdio: 'ignore',

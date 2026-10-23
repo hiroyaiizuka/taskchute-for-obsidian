@@ -529,6 +529,7 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
     const connectionLost = deferred<void>()
     let output = ''
     let pid: number | undefined
+    let inputDropped = 0
     client.start(
       sessionId,
       readyShell(marker),
@@ -548,6 +549,9 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
         onExit: (outcome) => exited.resolve(outcome),
         onUnavailable: () => unavailable.resolve(),
         onConnectionLost: () => connectionLost.resolve(),
+        onInputDropped: () => {
+          inputDropped += 1
+        },
       },
     )
     return {
@@ -558,7 +562,18 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       connectionLost: connectionLost.promise,
       output: () => output,
       pid: () => pid,
+      inputDropped: () => inputDropped,
     }
+  }
+
+  /** Block until the process is stopped (ps state T), so nothing it does can race a write. */
+  function waitUntilStoppedSync(pid: number): void {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      const state = execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim()
+      if (state.startsWith('T')) return
+    }
+    throw new Error(`process ${String(pid)} did not stop`)
   }
 
   function brokerPidOf(descriptorPath: string): number {
@@ -1295,6 +1310,7 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       identity,
       ...lease,
       deferredShutdownTimeoutMs: 300,
+      exitGraceMs: 2_000,
     })
     const pids: Array<number | undefined> = []
     let brokerPid: number | undefined
@@ -1308,7 +1324,8 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
 
       // The broker is frozen through the window's exit: the control
       // connection cannot get the exit grace past the proof, and the window
-      // detaches right after asking.
+      // detaches right after asking. The broker arms the grace itself when it
+      // sees the window's data connection gone (LEV-397).
       process.kill(brokerPid, 'SIGSTOP')
       await expect(
         client.scheduleShutdownAfterGrace(
@@ -1336,6 +1353,605 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
           // Already gone.
         }
       }
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  /** A window whose broker it spawned waits `exitGraceMs` for it to return. */
+  function lev397Client(unique: string, generation = 1, extra: Partial<TerminalBrokerClientOptions> = {}) {
+    const identity = `broker-${unique}`
+    const lease = {
+      rendererLeaseToken: `lev397-lease-${String(generation)}`,
+      rendererLeaseOwnerId: 'lev397-owner',
+      rendererLeaseGeneration: generation,
+    }
+    const client = new TerminalSessionBrokerClient({
+      identity,
+      ...lease,
+      connectTimeoutMs: 300,
+      deferredShutdownTimeoutMs: 300,
+      exitGraceMs: 1_000,
+      ...extra,
+    })
+    return { client, lease, descriptorPath: getTerminalBrokerDescriptorPath(identity) }
+  }
+
+  test('a window that closes with writes queued to a frozen broker still gets its exit grace (LEV-397)', async () => {
+    const unique = `lev397-backlog-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, lease, descriptorPath } = lev397Client(unique)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(client, 'session-backlog', 'BACKLOG_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // Frozen, the broker reads nothing, so typing fills the socket until
+      // writes queue in this process.
+      process.kill(brokerPid, 'SIGSTOP')
+      const socket = (client as unknown as { socket: { writableLength: number } | null }).socket
+      const chunk = 'x'.repeat(128 * 1024)
+      for (let i = 0; i < 128 && (socket?.writableLength ?? 0) < 1024 * 1024; i += 1) {
+        client.write('session-backlog', chunk)
+        await sleep(5)
+      }
+      expect(socket?.writableLength ?? 0).toBeGreaterThan(0)
+
+      // The window closes: its exit grace cannot get past the proof, and the
+      // queued writes are dropped with the connection.
+      await expect(
+        client.scheduleShutdownAfterGrace(
+          1_000,
+          lease.rendererLeaseToken,
+          lease.rendererLeaseOwnerId,
+          lease.rendererLeaseGeneration,
+        ),
+      ).rejects.toThrow()
+      client.detach()
+      process.kill(brokerPid, 'SIGCONT')
+
+      // Not the 30-minute idle timeout: the grace, then shutdown.
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(sessionPid),
+        'the resumed broker shuts down at the end of the exit grace',
+        30_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a quit canceled while the broker was frozen does not stop it once it resumes (LEV-397)', async () => {
+    const unique = `lev397-cancel-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, lease, descriptorPath } = lev397Client(unique)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(client, 'session-cancel', 'CANCEL_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // Quit is asked and then canceled while the broker is frozen. Neither
+      // request gets past the proof.
+      process.kill(brokerPid, 'SIGSTOP')
+      const identity = [lease.rendererLeaseToken, lease.rendererLeaseOwnerId, lease.rendererLeaseGeneration] as const
+      await expect(client.scheduleShutdownAfterGrace(1_000, ...identity)).rejects.toThrow()
+      await expect(client.cancelDeferredShutdown(...identity)).rejects.toThrow()
+      process.kill(brokerPid, 'SIGCONT')
+
+      // The window stays. Nothing it queued may arm the grace after the
+      // cancel: the broker and the session outlive it.
+      await sleep(3_000)
+      expect(isAlive(brokerPid)).toBe(true)
+      expect(isAlive(sessionPid)).toBe(true)
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a window that loses its connection and reattaches keeps its sessions (LEV-397)', async () => {
+    const unique = `lev397-reconnect-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(client, 'session-reconnect', 'RECONNECT_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // The connection drops while the window lives. The broker arms the
+      // grace; the window's reconnect attaches and cancels it.
+      ;(client as unknown as { socket: { destroy(): void } | null }).socket?.destroy()
+      await sleep(3_000)
+      expect(isAlive(brokerPid)).toBe(true)
+      expect(isAlive(sessionPid)).toBe(true)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a connection from a replaced window closing does not arm the exit grace (LEV-397)', async () => {
+    const unique = `lev397-stale-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client: older, descriptorPath } = lev397Client(unique, 1)
+    const { client: current, lease } = lev397Client(unique, 2)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(older, 'session-stale', 'STALE_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // A new window takes the lease but has not attached yet when the old
+      // window's connection goes.
+      await current.setRendererLeaseToken(lease.rendererLeaseToken, lease.rendererLeaseOwnerId, lease.rendererLeaseGeneration)
+      older.detach()
+
+      await sleep(3_000)
+      expect(isAlive(brokerPid)).toBe(true)
+      expect(isAlive(sessionPid)).toBe(true)
+    } finally {
+      await current.shutdown().catch(() => undefined)
+      await older.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a client that rotates its lease in place still gets the exit grace when its window closes (LEV-397)', async () => {
+    const unique = `lev397-rotate-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(client, 'session-rotate', 'ROTATE_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // A hot reload adopts this client and rotates its lease; the data
+      // connection stays as it is.
+      const rotated = { token: 'lev397-lease-rotated', ownerId: 'lev397-owner', generation: 2 }
+      await client.setRendererLeaseToken(rotated.token, rotated.ownerId, rotated.generation)
+      await sleep(200)
+
+      // Then the window closes while the broker is frozen.
+      process.kill(brokerPid, 'SIGSTOP')
+      await expect(
+        client.scheduleShutdownAfterGrace(1_000, rotated.token, rotated.ownerId, rotated.generation),
+      ).rejects.toThrow()
+      client.detach()
+      process.kill(brokerPid, 'SIGCONT')
+
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(sessionPid),
+        'the resumed broker shuts down at the end of the exit grace',
+        30_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('the current window closing before a replaced one still arms the exit grace (LEV-397)', async () => {
+    const unique = `lev397-order-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client: older, descriptorPath } = lev397Client(unique, 1)
+    const { client: current, lease } = lev397Client(unique, 2)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(older, 'session-order', 'ORDER_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // The new window takes the lease and attaches; the old window's
+      // connection is still attached too.
+      await current.setRendererLeaseToken(lease.rendererLeaseToken, lease.rendererLeaseOwnerId, lease.rendererLeaseGeneration)
+      const reattached = deferred<void>()
+      current.attach('session-order', {
+        onAttached: () => reattached.resolve(),
+        onData: () => undefined,
+        onExit: () => undefined,
+      })
+      await withTimeout(reattached.promise)
+
+      // The new window closes first, without its exit grace arriving, then
+      // the old one.
+      current.detach()
+      await sleep(200)
+      older.detach()
+
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(sessionPid),
+        'the broker shuts down at the end of the exit grace',
+        30_000,
+      )
+    } finally {
+      await current.shutdown().catch(() => undefined)
+      await older.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a window that closes before the broker answers its lease activation still gets the exit grace (LEV-397)', async () => {
+    const unique = `lev397-unanswered-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1, { rendererLeaseActivationRetryWindowMs: 400 })
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(client, 'session-unanswered', 'UNANSWERED_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // A hot reload rotates the lease, and the broker is frozen just before
+      // the activation is written, so it cannot answer. The window then
+      // closes: neither the activation nor the exit grace is acknowledged.
+      // Only the activation frame waits for the freeze; a control
+      // connection's proof exchange goes through first.
+      const frozen = deferred<void>()
+      const freezeOnActivation = <T extends { write(data: string): boolean }>(socket: T): T => {
+        const write = socket.write.bind(socket)
+        socket.write = (data: string) => {
+          if (data.includes('"op":"activate-renderer-lease"') && brokerPid !== undefined) {
+            process.kill(brokerPid, 'SIGSTOP')
+            waitUntilStoppedSync(brokerPid)
+            const written = write(data)
+            frozen.resolve()
+            return written
+          }
+          return write(data)
+        }
+        return socket
+      }
+      const dataSocket = (client as unknown as { socket: { write(data: string): boolean } | null }).socket
+      if (dataSocket) freezeOnActivation(dataSocket)
+      // The client loads net when it connects; wrap the sockets it makes.
+      const netModule = jest.requireActual<{ createConnection: (...args: unknown[]) => Socket }>('net')
+      const createConnection = netModule.createConnection
+      netModule.createConnection = (...args: unknown[]) => freezeOnActivation(createConnection(...args))
+      const rotated = { token: 'lev397-lease-unanswered', ownerId: 'lev397-owner', generation: 2 }
+      let activation: Promise<void>
+      try {
+        activation = client.setRendererLeaseToken(rotated.token, rotated.ownerId, rotated.generation)
+        await withTimeout(frozen.promise)
+      } finally {
+        netModule.createConnection = createConnection
+      }
+      await expect(
+        client.scheduleShutdownAfterGrace(1_000, rotated.token, rotated.ownerId, rotated.generation),
+      ).rejects.toThrow()
+      client.detach()
+      await expect(activation).rejects.toThrow()
+      process.kill(brokerPid, 'SIGCONT')
+
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(sessionPid),
+        'the resumed broker shuts down at the end of the exit grace',
+        30_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('overlapping lease activations keep the data connection (LEV-397)', async () => {
+    const unique = `lev397-overlap-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-overlap', 'OVERLAP_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      const socketOf = () => (client as unknown as { socket: { destroyed: boolean } | null }).socket
+      const before = socketOf()
+      await Promise.all([
+        client.setRendererLeaseToken('lev397-lease-overlap-2', 'lev397-owner', 2),
+        client.setRendererLeaseToken('lev397-lease-overlap-3', 'lev397-owner', 3),
+      ])
+      await sleep(500)
+
+      // The broker took both, in order, on the same connection.
+      expect(socketOf()).toBe(before)
+      expect(before?.destroyed).toBe(false)
+      client.write('session-overlap', 'after-overlap\n')
+      await waitUntil(() => session.output().includes('ECHO:after-overlap'), 'the terminal still takes input', 10_000)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('input queued just before a lease rotation does not cost the connection (LEV-397)', async () => {
+    const unique = `lev397-queued-input-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-queued', 'QUEUED_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      const socketOf = () => (client as unknown as { socket: { destroyed: boolean } | null }).socket
+      const before = socketOf()
+      // The input is still on its way to the connection when the lease
+      // rotates; the activation is written first.
+      client.write('session-queued', 'typed-before-rotation\n')
+      await client.setRendererLeaseToken('lev397-lease-queued-2', 'lev397-owner', 2)
+      await sleep(500)
+      // That input is dropped, and the user is told at once.
+      expect(session.inputDropped()).toBe(1)
+
+      // So is the next one dropped this way: no outage ever re-arms it.
+      client.write('session-queued', 'typed-before-second-rotation\n')
+      await client.setRendererLeaseToken('lev397-lease-queued-3', 'lev397-owner', 3)
+      await sleep(500)
+      expect(session.inputDropped()).toBe(2)
+      expect(session.output()).not.toContain('ECHO:typed-before')
+
+      // The connection and its terminal survive, and take input again.
+      expect(socketOf()).toBe(before)
+      expect(before?.destroyed).toBe(false)
+      client.write('session-queued', 'after-rotation\n')
+      await waitUntil(() => session.output().includes('ECHO:after-rotation'), 'the terminal still takes input', 10_000)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('an attach queued just before a lease rotation attaches under the new lease (LEV-397)', async () => {
+    const unique = `lev397-queued-attach-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-queued-attach', 'QUEUED_ATTACH_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      // A hot reload's view attaches to the session as the lease rotates.
+      const reattached = deferred<void>()
+      let unavailable = false
+      let output = ''
+      client.attach('session-queued-attach', {
+        onAttached: () => reattached.resolve(),
+        onData: (data) => {
+          output += data
+        },
+        onExit: () => undefined,
+        onUnavailable: () => {
+          unavailable = true
+        },
+      })
+      await client.setRendererLeaseToken('lev397-lease-queued-attach-2', 'lev397-owner', 2)
+      await withTimeout(reattached.promise)
+      await sleep(500)
+
+      // Not written off: the session lives and takes input.
+      expect(unavailable).toBe(false)
+      expect(isAlive(sessionPid)).toBe(true)
+      client.write('session-queued-attach', 'after-attach\n')
+      await waitUntil(() => output.includes('ECHO:after-attach'), 'the attached terminal takes input', 10_000)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a stop queued just before a lease rotation stays a graceful stop (LEV-397)', async () => {
+    const unique = `lev397-queued-stop-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-queued-stop', 'QUEUED_STOP_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      let unavailable = false
+      void session.unavailable.then(() => {
+        unavailable = true
+      })
+      client.stop('session-queued-stop', false)
+      await client.setRendererLeaseToken('lev397-lease-queued-stop-2', 'lev397-owner', 2)
+
+      // It ends as the stop the user asked for, not as a forced termination
+      // of an unavailable session.
+      const outcome = (await withTimeout(session.exited)) as { status: string }
+      expect(outcome.status).toBe('stopped')
+      expect(unavailable).toBe(false)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a resize queued just before a lease rotation is resent with the newest size (LEV-397)', async () => {
+    const unique = `lev397-queued-resize-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-queued-resize', 'QUEUED_RESIZE_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      // Record what reaches the data connection.
+      const socket = (client as unknown as { socket: { write(data: string): boolean } | null }).socket!
+      const write = socket.write.bind(socket)
+      const resizes: Array<{ cols: number; rows: number; rendererLeaseGeneration: number }> = []
+      socket.write = (data: string) => {
+        for (const line of data.split('\n')) {
+          if (line.includes('"op":"resize"')) resizes.push(JSON.parse(line) as (typeof resizes)[number])
+        }
+        return write(data)
+      }
+
+      // Two sizes are on their way when the lease rotates.
+      client.resize('session-queued-resize', 100, 30)
+      client.resize('session-queued-resize', 120, 40)
+      await client.setRendererLeaseToken('lev397-lease-queued-resize-2', 'lev397-owner', 2)
+      await sleep(500)
+
+      // Only the newest size is resent, once, under the new lease.
+      expect(resizes).toEqual([expect.objectContaining({ cols: 120, rows: 40, rendererLeaseGeneration: 2 })])
+      expect(isAlive(sessionPid)).toBe(true)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  /** Hold every lease activation sent on a control connection for `delayMs`. */
+  function delayControlActivation(client: TerminalSessionBrokerClient, delayMs: number): void {
+    const internal = client as unknown as {
+      requestAuthenticatedDeferredShutdown: (...args: unknown[]) => Promise<void>
+    }
+    const original = internal.requestAuthenticatedDeferredShutdown.bind(client)
+    internal.requestAuthenticatedDeferredShutdown = async (...args: unknown[]) => {
+      if ((args[1] as { op?: unknown } | undefined)?.op === 'activate-renderer-lease') await sleep(delayMs)
+      return Reflect.apply(original, client, args)
+    }
+  }
+
+  test('a stop resent on a fresh connection after a lease rotation still reaches the broker (LEV-397)', async () => {
+    const unique = `lev397-reconnect-stop-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-reconnect-stop', 'RECONNECT_STOP_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+      let unavailable = false
+      void session.unavailable.then(() => {
+        unavailable = true
+      })
+
+      // The connection is gone when the stop is asked, so the stop opens a
+      // new one; the lease rotates meanwhile, and its activation on a control
+      // connection is slow. The new connection is ready first.
+      delayControlActivation(client, 1_500)
+      ;(client as unknown as { socket: { destroy(): void } | null }).socket?.destroy()
+      client.stop('session-reconnect-stop', false)
+      const activation = client.setRendererLeaseToken('lev397-lease-reconnect-stop-2', 'lev397-owner', 2)
+
+      const outcome = (await withTimeout(session.exited)) as { status: string }
+      expect(outcome.status).toBe('stopped')
+      expect(unavailable).toBe(false)
+      await activation.catch(() => undefined)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a resize resent on a fresh connection after a lease rotation keeps the connection (LEV-397)', async () => {
+    const unique = `lev397-reconnect-resize-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    const netModule = jest.requireActual<{ createConnection: (...args: unknown[]) => Socket }>('net')
+    const createConnection = netModule.createConnection
+    try {
+      const session = startSession(client, 'session-reconnect-resize', 'RECONNECT_RESIZE_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      // Record what goes out on every connection made from here on.
+      const opened: Array<{ socket: Socket; frames: Array<{ op: string; rendererLeaseGeneration?: number; cols?: number }> }> = []
+      netModule.createConnection = (...args: unknown[]) => {
+        const socket = createConnection(...args)
+        const record = { socket, frames: [] as (typeof opened)[number]['frames'] }
+        opened.push(record)
+        const write = socket.write.bind(socket)
+        ;(socket as unknown as { write(data: string): boolean }).write = (data: string) => {
+          for (const line of data.split('\n')) {
+            if (line.startsWith('{')) record.frames.push(JSON.parse(line) as (typeof record.frames)[number])
+          }
+          return write(data)
+        }
+        return socket
+      }
+
+      delayControlActivation(client, 1_500)
+      ;(client as unknown as { socket: { destroy(): void } | null }).socket?.destroy()
+      client.resize('session-reconnect-resize', 132, 43)
+      const activation = client.setRendererLeaseToken('lev397-lease-reconnect-resize-2', 'lev397-owner', 2)
+      await sleep(1_000)
+
+      // The data connection the resize opened: the new size went out under
+      // the new lease, and the broker kept the connection.
+      const data = opened.find((record) => record.frames.some((frame) => frame.op === 'resize'))
+      expect(data).toBeDefined()
+      const resent = data!.frames.filter((frame) => frame.op === 'resize')
+      expect(resent).toEqual([expect.objectContaining({ cols: 132, rendererLeaseGeneration: 2 })])
+      expect(data!.socket.destroyed).toBe(false)
+      expect(isAlive(sessionPid)).toBe(true)
+      await activation.catch(() => undefined)
+    } finally {
+      netModule.createConnection = createConnection
       await client.shutdown().catch(() => undefined)
       cleanup(descriptorPath, pids)
     }
