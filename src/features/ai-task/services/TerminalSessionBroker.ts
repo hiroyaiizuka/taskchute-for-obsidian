@@ -383,6 +383,13 @@ interface RendererLeaseIdentity {
   generation: number
 }
 
+function sameRendererLease(
+  a: RendererLeaseIdentity,
+  b: RendererLeaseIdentity,
+): boolean {
+  return a.token === b.token && a.ownerId === b.ownerId && a.generation === b.generation
+}
+
 function isValidBrokerSessionId(sessionId: string): boolean {
   return BROKER_SESSION_ID_PATTERN.test(sessionId)
 }
@@ -1185,6 +1192,13 @@ export class TerminalSessionBrokerClient {
     const descriptor = this.descriptor
     if (!descriptor || socket.destroyed || socket !== this.socket) {
       throw new Error('Terminal broker is disconnected')
+    }
+    // The lease rotated while this request waited. Its activation may
+    // already be on this connection, and the broker drops a connection that
+    // sends a stale frame after it (LEV-397), taking every attached terminal
+    // with it. The request stays the old renderer's, so fail it here instead.
+    if (!sameRendererLease(rendererLeaseIdentity, this.captureRendererLeaseIdentity())) {
+      throw new Error('Terminal broker renderer lease changed before the request was sent')
     }
     const frame = JSON.stringify({
       ...message,

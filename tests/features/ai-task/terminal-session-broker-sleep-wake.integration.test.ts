@@ -1710,4 +1710,34 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       cleanup(descriptorPath, pids)
     }
   })
+
+  test('input queued just before a lease rotation does not cost the connection (LEV-397)', async () => {
+    const unique = `lev397-queued-input-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-queued', 'QUEUED_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      const socketOf = () => (client as unknown as { socket: { destroyed: boolean } | null }).socket
+      const before = socketOf()
+      // The input is still on its way to the connection when the lease
+      // rotates; the activation is written first.
+      client.write('session-queued', 'typed-before-rotation\n')
+      await client.setRendererLeaseToken('lev397-lease-queued-2', 'lev397-owner', 2)
+      await sleep(500)
+
+      // The connection and its terminal survive, and take input again.
+      expect(socketOf()).toBe(before)
+      expect(before?.destroyed).toBe(false)
+      client.write('session-queued', 'after-rotation\n')
+      await waitUntil(() => session.output().includes('ECHO:after-rotation'), 'the terminal still takes input', 10_000)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
 })
