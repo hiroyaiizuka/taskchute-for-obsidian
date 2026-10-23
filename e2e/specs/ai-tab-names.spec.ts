@@ -94,6 +94,9 @@ test("an AI task's tab shows the task name, and a + terminal is named after what
   // A quiet login shell: no first-run wizard, a prompt that is easy to wait for.
   fs.writeFileSync(path.join(home!, ".zshrc"), "PROMPT='e2e$ '\n")
   fs.writeFileSync(path.join(home!, ".bashrc"), "PS1='e2e$ '\n")
+  // bash starts as a login shell (-i -l), which reads ~/.bash_profile, not
+  // ~/.bashrc; without it the system's /etc/bash.bashrc prompt stays.
+  fs.writeFileSync(path.join(home!, ".bash_profile"), "PS1='e2e$ '\n")
   await enableAiTasks(page, writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed"))
   const taskPath = await createAiTask(page)
   await openTaskChute(page)

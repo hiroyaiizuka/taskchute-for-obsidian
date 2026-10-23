@@ -8440,6 +8440,16 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   margin-top: 0;
 }
 
+/* Squeezed to nothing, it must not scroll either. Otherwise it keeps a
+   scrollbar for the list it clips, and where scrollbars take room (Linux,
+   Windows) the list inside is 12px narrower than the pane's frame. Nothing
+   on screen changes either way: at zero height the box clips both the list
+   and its scrollbar (checked pixel for pixel, LEV-399). Only measurements of
+   the hidden list, such as the e2e frame check, see the difference. */
+.taskchute-view-root--ai-pane-expanded .task-list-container {
+  overflow-y: hidden;
+}
+
 /* Terminal body: xterm renders its own scrollback and padding, so the body
    itself must not scroll or pad. Its own stacking context keeps xterm's
    layer z-indexes (up to 11) inside the terminal, under the sidebar's
