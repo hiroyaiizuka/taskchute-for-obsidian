@@ -1754,4 +1754,73 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       cleanup(descriptorPath, pids)
     }
   })
+
+  test('an attach queued just before a lease rotation attaches under the new lease (LEV-397)', async () => {
+    const unique = `lev397-queued-attach-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-queued-attach', 'QUEUED_ATTACH_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      // A hot reload's view attaches to the session as the lease rotates.
+      const reattached = deferred<void>()
+      let unavailable = false
+      let output = ''
+      client.attach('session-queued-attach', {
+        onAttached: () => reattached.resolve(),
+        onData: (data) => {
+          output += data
+        },
+        onExit: () => undefined,
+        onUnavailable: () => {
+          unavailable = true
+        },
+      })
+      await client.setRendererLeaseToken('lev397-lease-queued-attach-2', 'lev397-owner', 2)
+      await withTimeout(reattached.promise)
+      await sleep(500)
+
+      // Not written off: the session lives and takes input.
+      expect(unavailable).toBe(false)
+      expect(isAlive(sessionPid)).toBe(true)
+      client.write('session-queued-attach', 'after-attach\n')
+      await waitUntil(() => output.includes('ECHO:after-attach'), 'the attached terminal takes input', 10_000)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a stop queued just before a lease rotation stays a graceful stop (LEV-397)', async () => {
+    const unique = `lev397-queued-stop-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    try {
+      const session = startSession(client, 'session-queued-stop', 'QUEUED_STOP_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      pids.push(brokerPidOf(descriptorPath))
+
+      let unavailable = false
+      void session.unavailable.then(() => {
+        unavailable = true
+      })
+      client.stop('session-queued-stop', false)
+      await client.setRendererLeaseToken('lev397-lease-queued-stop-2', 'lev397-owner', 2)
+
+      // It ends as the stop the user asked for, not as a forced termination
+      // of an unavailable session.
+      const outcome = (await withTimeout(session.exited)) as { status: string }
+      expect(outcome.status).toBe('stopped')
+      expect(unavailable).toBe(false)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
 })

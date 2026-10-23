@@ -902,13 +902,25 @@ export class TerminalSessionBrokerClient {
         this.sessionRecord(sessionId).descriptor = descriptor
         this.armSessionAck(sessionId, ackEpoch)
       },
-      (error: unknown) =>
+      (error: unknown) => {
+        if (
+          error instanceof RendererLeaseChangedError &&
+          this.callbacks.get(sessionId) === callbacks &&
+          this.pendingSessionAcks.get(sessionId)?.epoch === ackEpoch
+        ) {
+          // Superseded, not failed: the connection is fine and the session
+          // healthy. Attach again under the lease this client holds now.
+          this.clearSessionAck(sessionId)
+          this.attach(sessionId, callbacks)
+          return
+        }
         this.handleSessionRequestFailure(
           sessionId,
           ackEpoch,
           'attach',
           error,
-        ),
+        )
+      },
     )
   }
 
@@ -1012,6 +1024,12 @@ export class TerminalSessionBrokerClient {
       return
     }
     void this.send({ op: 'stop', sessionId, force }, false).catch((error) => {
+      if (error instanceof RendererLeaseChangedError) {
+        // Superseded, not failed: ask for the same stop under the lease this
+        // client holds now, never escalating it to a forced termination.
+        if (this.callbacks.has(sessionId)) this.stop(sessionId, force)
+        return
+      }
       this.options.log?.('warn', '[TerminalBroker] Stop failed', error)
       const pending = this.pendingSessionAcks.get(sessionId)
       if (pending) {
