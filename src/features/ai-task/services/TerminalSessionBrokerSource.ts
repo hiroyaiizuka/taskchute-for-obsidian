@@ -176,7 +176,12 @@ let cachedBrokerSource: string | undefined
  * session under the current lease closes, the broker arms the same grace
  * itself. A renderer that is still there reconnects and attaches, which
  * cancels it, as does a new renderer's lease activation. A connection from
- * an older lease never arms it: its renderer is already replaced. A stale
+ * an older lease never arms it: its renderer is already replaced. Nor does
+ * it keep the grace from arming when the current renderer's connection
+ * closes first. A connection takes the lease of the last
+ * frame it carried under the current lease, so a client that rotates its
+ * lease in place (a hot reload adopting it) repeats the activation on its
+ * data connection, with keepShutdown. A stale
  * schedule request is acknowledged so an old renderer can finish tearing
  * down, but never re-arms the current renderer's deadline.
  *
@@ -2155,9 +2160,10 @@ const server = net.createServer(socket => {
           }
           if (message.op === 'spawn' || message.op === 'attach') {
             cancelDeferredShutdown();
-            socket.lease = message;
           }
           handle(socket, message);
+          // Note W (buildTerminalBrokerSource).
+          if (message.rendererLeaseToken && rendererLeaseIsCurrent(message)) socket.lease = message;
         } catch (_) { socket.destroy(); return; }
       }
       newline = buffer.indexOf('\n');
@@ -2171,7 +2177,7 @@ const server = net.createServer(socket => {
     let attached = false;
     for (const session of sessions.values()) {
       if (session.clients.delete(socket) && !session.completed) left = true;
-      if (!session.completed && session.clients.size > 0) attached = true;
+      if (!session.completed && Array.from(session.clients).some(c => rendererLeaseIsCurrent(c.lease))) attached = true;
       session.terminationClients.delete(socket);
       releasePressure(session, socket);
     }

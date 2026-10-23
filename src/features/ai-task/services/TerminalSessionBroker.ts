@@ -714,6 +714,7 @@ export class TerminalSessionBrokerClient {
             this.options.deferredShutdownTimeoutMs ??
               BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS,
           )
+          this.moveDataTransportToLease(target, identity)
           return
         } catch (error) {
           lastError = error
@@ -722,6 +723,29 @@ export class TerminalSessionBrokerClient {
       await wait(BROKER_RENDERER_LEASE_ACTIVATION_RETRY_MS)
     } while (Date.now() < deadline)
     throw lastError
+  }
+
+  /**
+   * The broker arms the exit grace when the last connection of the current
+   * lease closes, and knows a connection's lease from the frames it carried
+   * (Note W in the broker source). Tell it this data connection now belongs
+   * to the lease just activated, without cancelling a grace already armed.
+   */
+  private moveDataTransportToLease(
+    target: BrokerDescriptor,
+    identity: RendererLeaseIdentity,
+  ): void {
+    const socket = this.socket
+    if (!socket || socket.destroyed || !descriptorsEqual(this.descriptor, target)) return
+    const frame: BrokerClientMessage = {
+      token: target.token,
+      rendererLeaseToken: identity.token,
+      rendererLeaseOwnerId: identity.ownerId,
+      rendererLeaseGeneration: identity.generation,
+      op: 'activate-renderer-lease',
+      keepShutdown: true,
+    }
+    socket.write(`${JSON.stringify(frame)}\n`)
   }
 
   private captureRendererLeaseIdentity(

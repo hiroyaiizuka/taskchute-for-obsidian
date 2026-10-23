@@ -1510,4 +1510,92 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       cleanup(descriptorPath, pids)
     }
   })
+
+  test('a client that rotates its lease in place still gets the exit grace when its window closes (LEV-397)', async () => {
+    const unique = `lev397-rotate-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(client, 'session-rotate', 'ROTATE_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // A hot reload adopts this client and rotates its lease; the data
+      // connection stays as it is.
+      const rotated = { token: 'lev397-lease-rotated', ownerId: 'lev397-owner', generation: 2 }
+      await client.setRendererLeaseToken(rotated.token, rotated.ownerId, rotated.generation)
+      await sleep(200)
+
+      // Then the window closes while the broker is frozen.
+      process.kill(brokerPid, 'SIGSTOP')
+      await expect(
+        client.scheduleShutdownAfterGrace(1_000, rotated.token, rotated.ownerId, rotated.generation),
+      ).rejects.toThrow()
+      client.detach()
+      process.kill(brokerPid, 'SIGCONT')
+
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(sessionPid),
+        'the resumed broker shuts down at the end of the exit grace',
+        30_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('the current window closing before a replaced one still arms the exit grace (LEV-397)', async () => {
+    const unique = `lev397-order-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client: older, descriptorPath } = lev397Client(unique, 1)
+    const { client: current, lease } = lev397Client(unique, 2)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(older, 'session-order', 'ORDER_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // The new window takes the lease and attaches; the old window's
+      // connection is still attached too.
+      await current.setRendererLeaseToken(lease.rendererLeaseToken, lease.rendererLeaseOwnerId, lease.rendererLeaseGeneration)
+      const reattached = deferred<void>()
+      current.attach('session-order', {
+        onAttached: () => reattached.resolve(),
+        onData: () => undefined,
+        onExit: () => undefined,
+      })
+      await withTimeout(reattached.promise)
+
+      // The new window closes first, without its exit grace arriving, then
+      // the old one.
+      current.detach()
+      await sleep(200)
+      older.detach()
+
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(sessionPid),
+        'the broker shuts down at the end of the exit grace',
+        30_000,
+      )
+    } finally {
+      await current.shutdown().catch(() => undefined)
+      await older.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
 })
