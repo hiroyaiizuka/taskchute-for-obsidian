@@ -1,6 +1,7 @@
 import { execFileSync, spawn, type ChildProcess } from 'child_process'
 import {
   existsSync,
+  mkdirSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -51,6 +52,8 @@ interface FakeBroker {
   ops: string[]
   /** Drop every connected client, as a broker restart would. */
   dropClients(): void
+  /** Start answering terminations from now on. */
+  answerTerminate(answer: 'missing'): void
 }
 
 /**
@@ -58,9 +61,10 @@ interface FakeBroker {
  * answers attach only when asked to.
  */
 async function startFakeBroker(
-  options: { answerAttach?: boolean; answerTerminate?: 'missing' } = {},
+  options: { answerAttach?: boolean; answerTerminate?: 'missing'; answerActivation?: boolean } = {},
 ): Promise<FakeBroker> {
   const ops: string[] = []
+  const answers = { terminate: options.answerTerminate }
   const sockets = new Set<Socket>()
   const server = createServer((socket) => {
     answerBrokerProof(socket, TOKEN)
@@ -78,7 +82,10 @@ async function startFakeBroker(
         }
         buffer = buffer.slice(newline + 1)
         ops.push(`${message.op}:${message.sessionId ?? ''}`)
-        if (message.op === 'terminate-unavailable' && options.answerTerminate === 'missing') {
+        if (message.op === 'activate-renderer-lease' && options.answerActivation) {
+          socket.write(`${JSON.stringify({ type: 'renderer-lease-activated' })}\n`)
+        }
+        if (message.op === 'terminate-unavailable' && answers.terminate === 'missing') {
           socket.write(`${JSON.stringify({ type: 'missing', sessionId: message.sessionId })}\n`)
         }
         if (message.op === 'spawn' || (message.op === 'attach' && options.answerAttach)) {
@@ -106,6 +113,9 @@ async function startFakeBroker(
     ops,
     dropClients: () => {
       for (const socket of sockets) socket.destroy()
+    },
+    answerTerminate: (answer) => {
+      answers.terminate = answer
     },
   }
 }
@@ -489,6 +499,201 @@ describePosix('TerminalSessionBroker after an unconfirmed session (LEV-377)', ()
       expect(orphan.counts.unavailable).toBe(1)
     } finally {
       client.detach()
+      if (existsSync(descriptorPath)) unlinkSync(descriptorPath)
+      await new Promise((resolve) => fake.server.close(resolve))
+    }
+  })
+})
+
+/** The pending-termination state of a client, which has no public view. */
+function orphanInternals(client: TerminalSessionBrokerClient) {
+  return client as unknown as {
+    orphanedSessions: Map<string, unknown>
+    cleanUpOrphanedSessions(): Promise<void>
+    stopOrphanCleanup(): void
+  }
+}
+
+function pendingOf(client: TerminalSessionBrokerClient): string[] {
+  return Array.from(orphanInternals(client).orphanedSessions.keys()).sort()
+}
+
+function savedIds(store: string): string[] {
+  return (JSON.parse(readFileSync(store, 'utf8')) as Array<{ sessionId: string }>)
+    .map((record) => record.sessionId)
+    .sort()
+}
+
+/** What another client does after saving its own change. */
+function announceSaved(descriptorPath: string): void {
+  window.dispatchEvent(
+    new CustomEvent('taskchute-plus:broker-orphans-saved', { detail: descriptorPath }),
+  )
+}
+
+describePosix('pending terminations shared by the clients of one window (LEV-398)', () => {
+  jest.setTimeout(30_000)
+  const HOUR_MS = 60 * 60 * 1_000
+
+  test('one that could not be saved survives another client\'s save, and is saved by the next round', async () => {
+    const fake = await startFakeBroker({ answerActivation: true })
+    const identity = `lev398-unsaved-${process.pid}-${Date.now()}-${Math.random()}`
+    const descriptorPath = writeDescriptor(identity, fake.port, process.pid)
+    const store = orphanStorePath(descriptorPath)
+    const client = fastClient(identity, {
+      unavailableConfirmationGiveUpMs: 300,
+      orphanCleanupIntervalMs: HOUR_MS,
+      deferredShutdownTimeoutMs: 200,
+    })
+    try {
+      // A directory where the file goes: the save fails.
+      mkdirSync(store)
+      const stuck = recordingCallbacks()
+      client.attach('session-unsaved', stuck.callbacks)
+      await withTimeout(stuck.unavailable.promise, 5_000)
+      expect(pendingOf(client)).toEqual(['session-unsaved'])
+      rmSync(store, { recursive: true })
+
+      // Another client saves its own record. The file does not list this
+      // client's session, but nobody confirmed it.
+      writeFileSync(
+        store,
+        JSON.stringify([{ sessionId: 'session-elsewhere', pid: process.pid, port: fake.port }]),
+        { mode: 0o600 },
+      )
+      announceSaved(descriptorPath)
+      expect(pendingOf(client)).toEqual(['session-elsewhere', 'session-unsaved'])
+
+      await orphanInternals(client).cleanUpOrphanedSessions()
+      expect(savedIds(store)).toEqual(['session-elsewhere', 'session-unsaved'])
+    } finally {
+      client.detach()
+      orphanInternals(client).stopOrphanCleanup()
+      rmSync(store, { recursive: true, force: true })
+      if (existsSync(descriptorPath)) unlinkSync(descriptorPath)
+      await new Promise((resolve) => fake.server.close(resolve))
+    }
+  })
+
+  test('records of one broker read at different times are all forgotten once it answers', async () => {
+    const fake = await startFakeBroker({ answerActivation: true, answerTerminate: 'missing' })
+    const identity = `lev398-reread-${process.pid}-${Date.now()}-${Math.random()}`
+    const descriptorPath = writeDescriptor(identity, fake.port, process.pid)
+    const store = orphanStorePath(descriptorPath)
+    const record = (sessionId: string) => ({ sessionId, pid: process.pid, port: fake.port })
+    writeFileSync(store, JSON.stringify([record('session-read-first')]), { mode: 0o600 })
+    const client = fastClient(identity, {
+      orphanCleanupIntervalMs: HOUR_MS,
+      deferredShutdownTimeoutMs: 1_000,
+      unavailableTerminationTimeoutMs: 1_000,
+    })
+    try {
+      // Read again later: the same broker, as a different object.
+      writeFileSync(
+        store,
+        JSON.stringify([record('session-read-first'), record('session-read-later')]),
+        { mode: 0o600 },
+      )
+      announceSaved(descriptorPath)
+      expect(pendingOf(client)).toEqual(['session-read-first', 'session-read-later'])
+
+      await orphanInternals(client).cleanUpOrphanedSessions()
+      expect(fake.ops).toEqual(expect.arrayContaining([
+        'terminate-unavailable:session-read-first',
+        'terminate-unavailable:session-read-later',
+      ]))
+      expect(pendingOf(client)).toEqual([])
+      expect(existsSync(store)).toBe(false)
+    } finally {
+      client.detach()
+      orphanInternals(client).stopOrphanCleanup()
+      rmSync(store, { force: true })
+      if (existsSync(descriptorPath)) unlinkSync(descriptorPath)
+      await new Promise((resolve) => fake.server.close(resolve))
+    }
+  })
+
+  test('a reload hands the older client\'s retries to the new client, and the older one stops following the file', async () => {
+    const fake = await startFakeBroker({ answerActivation: true })
+    const identity = `lev398-handover-${process.pid}-${Date.now()}-${Math.random()}`
+    const descriptorPath = writeDescriptor(identity, fake.port, process.pid)
+    const store = orphanStorePath(descriptorPath)
+    const options = { unavailableConfirmationGiveUpMs: 300, orphanCleanupIntervalMs: HOUR_MS }
+    // The client a terminal handle keeps across the reload.
+    const older = fastClient(identity, options)
+    let newer: TerminalSessionBrokerClient | null = null
+    let latest: TerminalSessionBrokerClient | null = null
+    const giveUp = async (sessionId: string): Promise<void> => {
+      const stuck = recordingCallbacks()
+      older.attach(sessionId, stuck.callbacks)
+      await withTimeout(stuck.unavailable.promise, 5_000)
+    }
+    try {
+      // Given up on before the reload, and not saved.
+      mkdirSync(store)
+      await giveUp('session-before-reload')
+      expect(pendingOf(older)).toEqual(['session-before-reload'])
+      rmSync(store, { recursive: true })
+
+      newer = fastClient(identity, options)
+      expect(pendingOf(older)).toEqual([])
+      expect(pendingOf(newer)).toEqual(['session-before-reload'])
+      // The new client saved what the older one could not.
+      expect(savedIds(store)).toEqual(['session-before-reload'])
+
+      // Only the new client follows the file now.
+      writeFileSync(
+        store,
+        JSON.stringify([
+          { sessionId: 'session-before-reload', pid: process.pid, port: fake.port },
+          { sessionId: 'session-saved-elsewhere', pid: process.pid, port: fake.port },
+        ]),
+        { mode: 0o600 },
+      )
+      announceSaved(descriptorPath)
+      expect(pendingOf(older)).toEqual([])
+      expect(pendingOf(newer)).toEqual(['session-before-reload', 'session-saved-elsewhere'])
+
+      // A session the older client gives up on later goes to the new one.
+      await giveUp('session-after-reload')
+      expect(pendingOf(older)).toEqual([])
+      expect(pendingOf(newer)).toContain('session-after-reload')
+      expect(savedIds(store)).toContain('session-after-reload')
+
+      // With no newer client left, the older one retries it itself, also
+      // when it cannot save it.
+      newer.detach()
+      orphanInternals(newer).stopOrphanCleanup()
+      rmSync(store, { force: true })
+      mkdirSync(store)
+      await giveUp('session-alone')
+      expect(pendingOf(older)).toEqual(['session-alone'])
+      rmSync(store, { recursive: true })
+
+      // It follows the window again: the next client takes it over, and
+      // saves it.
+      latest = fastClient(identity, {
+        ...options,
+        deferredShutdownTimeoutMs: 1_000,
+        unavailableTerminationTimeoutMs: 1_000,
+      })
+      expect(pendingOf(older)).toEqual([])
+      expect(pendingOf(latest)).toEqual(['session-alone'])
+      expect(savedIds(store)).toEqual(['session-alone'])
+
+      // Once the broker answers for it, no client retries it.
+      fake.answerTerminate('missing')
+      await orphanInternals(latest).cleanUpOrphanedSessions()
+      expect(pendingOf(latest)).toEqual([])
+      expect(pendingOf(older)).toEqual([])
+      expect(existsSync(store)).toBe(false)
+    } finally {
+      for (const client of [older, newer, latest]) {
+        if (!client) continue
+        client.detach()
+        orphanInternals(client).stopOrphanCleanup()
+      }
+      rmSync(store, { recursive: true, force: true })
       if (existsSync(descriptorPath)) unlinkSync(descriptorPath)
       await new Promise((resolve) => fake.server.close(resolve))
     }
@@ -1953,6 +2158,60 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
     } finally {
       netModule.createConnection = createConnection
       await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+  test('a pending-termination retry during a lease rotation still queued on the data connection does not cost the exit grace (LEV-398)', async () => {
+    const unique = `lev398-retry-rotate-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique, 1, {
+      rendererLeaseActivationRetryWindowMs: 400,
+      orphanCleanupIntervalMs: 60 * 60 * 1_000,
+    })
+    const store = orphanStorePath(descriptorPath)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(client, 'session-retry-rotate', 'RETRY_ROTATE_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // Lease activations on the data connection stay queued, as behind a
+      // backlog of writes to a broker that is not reading.
+      const dataSocket = (client as unknown as { socket: { write(data: string): boolean } | null }).socket
+      if (!dataSocket) throw new Error('no data connection')
+      const write = dataSocket.write.bind(dataSocket)
+      dataSocket.write = (data: string) =>
+        data.includes('"op":"activate-renderer-lease"') ? true : write(data)
+
+      // A hot reload rotates the lease, and a pending termination for this
+      // broker is retried meanwhile.
+      const rotation = client
+        .setRendererLeaseToken('lev398-lease-rotated', 'lev397-owner', 2)
+        .catch(() => undefined)
+      const { port } = JSON.parse(readFileSync(descriptorPath, 'utf8')) as { port: number }
+      writeFileSync(
+        store,
+        JSON.stringify([{ sessionId: 'session-ghost', pid: brokerPid, port }]),
+        { mode: 0o600 },
+      )
+      announceSaved(descriptorPath)
+      await orphanInternals(client).cleanUpOrphanedSessions()
+      await rotation
+
+      // The window closes; the queued writes go with the connection. The
+      // broker still knows that connection's lease as the current one.
+      client.detach()
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(sessionPid),
+        'the broker shuts down at the end of the exit grace',
+        30_000,
+      )
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      rmSync(store, { force: true })
       cleanup(descriptorPath, pids)
     }
   })
