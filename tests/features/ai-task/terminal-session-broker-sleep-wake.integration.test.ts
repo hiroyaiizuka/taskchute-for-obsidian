@@ -1295,6 +1295,7 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
       identity,
       ...lease,
       deferredShutdownTimeoutMs: 300,
+      exitGraceMs: 2_000,
     })
     const pids: Array<number | undefined> = []
     let brokerPid: number | undefined
@@ -1308,7 +1309,8 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
 
       // The broker is frozen through the window's exit: the control
       // connection cannot get the exit grace past the proof, and the window
-      // detaches right after asking.
+      // detaches right after asking. The broker arms the grace itself when it
+      // sees the window's data connection gone (LEV-397).
       process.kill(brokerPid, 'SIGSTOP')
       await expect(
         client.scheduleShutdownAfterGrace(
@@ -1337,6 +1339,174 @@ describePosix('real broker interrupted by SIGKILL / SIGSTOP (LEV-377)', () => {
         }
       }
       await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  /** A window whose broker it spawned waits `exitGraceMs` for it to return. */
+  function lev397Client(unique: string, generation = 1, extra: Partial<TerminalBrokerClientOptions> = {}) {
+    const identity = `broker-${unique}`
+    const lease = {
+      rendererLeaseToken: `lev397-lease-${String(generation)}`,
+      rendererLeaseOwnerId: 'lev397-owner',
+      rendererLeaseGeneration: generation,
+    }
+    const client = new TerminalSessionBrokerClient({
+      identity,
+      ...lease,
+      connectTimeoutMs: 300,
+      deferredShutdownTimeoutMs: 300,
+      exitGraceMs: 1_000,
+      ...extra,
+    })
+    return { client, lease, descriptorPath: getTerminalBrokerDescriptorPath(identity) }
+  }
+
+  test('a window that closes with writes queued to a frozen broker still gets its exit grace (LEV-397)', async () => {
+    const unique = `lev397-backlog-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, lease, descriptorPath } = lev397Client(unique)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(client, 'session-backlog', 'BACKLOG_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // Frozen, the broker reads nothing, so typing fills the socket until
+      // writes queue in this process.
+      process.kill(brokerPid, 'SIGSTOP')
+      const socket = (client as unknown as { socket: { writableLength: number } | null }).socket
+      const chunk = 'x'.repeat(128 * 1024)
+      for (let i = 0; i < 128 && (socket?.writableLength ?? 0) < 1024 * 1024; i += 1) {
+        client.write('session-backlog', chunk)
+        await sleep(5)
+      }
+      expect(socket?.writableLength ?? 0).toBeGreaterThan(0)
+
+      // The window closes: its exit grace cannot get past the proof, and the
+      // queued writes are dropped with the connection.
+      await expect(
+        client.scheduleShutdownAfterGrace(
+          1_000,
+          lease.rendererLeaseToken,
+          lease.rendererLeaseOwnerId,
+          lease.rendererLeaseGeneration,
+        ),
+      ).rejects.toThrow()
+      client.detach()
+      process.kill(brokerPid, 'SIGCONT')
+
+      // Not the 30-minute idle timeout: the grace, then shutdown.
+      await waitUntil(
+        () => !isAlive(brokerPid) && !isAlive(sessionPid),
+        'the resumed broker shuts down at the end of the exit grace',
+        30_000,
+      )
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a quit canceled while the broker was frozen does not stop it once it resumes (LEV-397)', async () => {
+    const unique = `lev397-cancel-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, lease, descriptorPath } = lev397Client(unique)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(client, 'session-cancel', 'CANCEL_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // Quit is asked and then canceled while the broker is frozen. Neither
+      // request gets past the proof.
+      process.kill(brokerPid, 'SIGSTOP')
+      const identity = [lease.rendererLeaseToken, lease.rendererLeaseOwnerId, lease.rendererLeaseGeneration] as const
+      await expect(client.scheduleShutdownAfterGrace(1_000, ...identity)).rejects.toThrow()
+      await expect(client.cancelDeferredShutdown(...identity)).rejects.toThrow()
+      process.kill(brokerPid, 'SIGCONT')
+
+      // The window stays. Nothing it queued may arm the grace after the
+      // cancel: the broker and the session outlive it.
+      await sleep(3_000)
+      expect(isAlive(brokerPid)).toBe(true)
+      expect(isAlive(sessionPid)).toBe(true)
+    } finally {
+      if (brokerPid !== undefined) {
+        try {
+          process.kill(brokerPid, 'SIGCONT')
+        } catch {
+          // Already gone.
+        }
+      }
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a window that loses its connection and reattaches keeps its sessions (LEV-397)', async () => {
+    const unique = `lev397-reconnect-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client, descriptorPath } = lev397Client(unique)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(client, 'session-reconnect', 'RECONNECT_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // The connection drops while the window lives. The broker arms the
+      // grace; the window's reconnect attaches and cancels it.
+      ;(client as unknown as { socket: { destroy(): void } | null }).socket?.destroy()
+      await sleep(3_000)
+      expect(isAlive(brokerPid)).toBe(true)
+      expect(isAlive(sessionPid)).toBe(true)
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      cleanup(descriptorPath, pids)
+    }
+  })
+
+  test('a connection from a replaced window closing does not arm the exit grace (LEV-397)', async () => {
+    const unique = `lev397-stale-${process.pid}-${Date.now()}-${Math.random()}`
+    const { client: older, descriptorPath } = lev397Client(unique, 1)
+    const { client: current, lease } = lev397Client(unique, 2)
+    const pids: Array<number | undefined> = []
+    let brokerPid: number | undefined
+    try {
+      const session = startSession(older, 'session-stale', 'STALE_READY', unique)
+      const sessionPid = await withTimeout(session.attached)
+      pids.push(sessionPid)
+      await withTimeout(session.ready)
+      brokerPid = brokerPidOf(descriptorPath)
+      pids.push(brokerPid)
+
+      // A new window takes the lease but has not attached yet when the old
+      // window's connection goes.
+      await current.setRendererLeaseToken(lease.rendererLeaseToken, lease.rendererLeaseOwnerId, lease.rendererLeaseGeneration)
+      older.detach()
+
+      await sleep(3_000)
+      expect(isAlive(brokerPid)).toBe(true)
+      expect(isAlive(sessionPid)).toBe(true)
+    } finally {
+      await current.shutdown().catch(() => undefined)
+      await older.shutdown().catch(() => undefined)
       cleanup(descriptorPath, pids)
     }
   })

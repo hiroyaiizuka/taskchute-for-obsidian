@@ -300,6 +300,11 @@ export interface TerminalBrokerClientOptions {
   locateNode?(env: Record<string, string | undefined>): string[]
   /** Test/embedding override for the renderer crash-reconnect window. */
   idleTtlMs?: number
+  /**
+   * How long the broker waits for a renderer to come back after the last
+   * connection of the current lease closes (Note W in the broker source).
+   */
+  exitGraceMs?: number
   /** Deterministic renderer-lease override used by lifecycle tests. */
   rendererLeaseToken?: string
   rendererLeaseOwnerId?: string
@@ -321,6 +326,8 @@ const BROKER_SHUTDOWN_TIMEOUT_MS = 2_500
 const BROKER_DEFERRED_SHUTDOWN_TIMEOUT_MS = 2_500
 const BROKER_DEFERRED_SHUTDOWN_MIN_MS = 100
 const BROKER_DEFERRED_SHUTDOWN_MAX_MS = 120_000
+/** Matches the app-exit grace the window asks for (AI_TASK_TERMINAL_SHUTDOWN_GRACE_MS). */
+const BROKER_EXIT_GRACE_MS = 60_000
 const BROKER_SESSION_ACK_TIMEOUT_MS = 5_000
 const BROKER_UNAVAILABLE_TERMINATION_TIMEOUT_MS = 2_500
 const BROKER_UNAVAILABLE_RECOVERY_BASE_MS = 250
@@ -954,22 +961,10 @@ export class TerminalSessionBrokerClient {
       rendererLeaseOwnerId,
       rendererLeaseGeneration,
     )
-    // Also queue it on the verified data transport, which the window's
-    // detach flushes before closing. A frozen broker answers no proof, so the
-    // control connection below never gets to send it; the queued frame is
-    // what that broker reads on resume, after the window is gone. The broker
-    // checks the lease the same way on either connection.
-    if (this.socket && !this.socket.destroyed && descriptorsEqual(this.descriptor, target)) {
-      const frame: BrokerClientMessage = {
-        token: target.token,
-        rendererLeaseToken: identity.token,
-        rendererLeaseOwnerId: identity.ownerId,
-        rendererLeaseGeneration: identity.generation,
-        op: 'schedule-shutdown',
-        graceMs: normalizedGraceMs,
-      }
-      this.socket.write(`${JSON.stringify(frame)}\n`)
-    }
+    // Only on this control connection. A broker that never gets it (frozen
+    // while the window closes) arms the same grace itself when the window's
+    // data connection closes (Note W in the broker source), so a second copy
+    // on the data connection, which could arrive after a cancel, is not sent.
     await this.requestAuthenticatedDeferredShutdown(
       target,
       { op: 'schedule-shutdown', graceMs: normalizedGraceMs },
@@ -1597,6 +1592,13 @@ export class TerminalSessionBrokerClient {
               5_000,
               this.options.idleTtlMs ??
                 BROKER_RENDERER_RECONNECT_TTL_MS,
+            )),
+            TASKCHUTE_BROKER_EXIT_GRACE_MS: String(Math.min(
+              BROKER_DEFERRED_SHUTDOWN_MAX_MS,
+              Math.max(
+                BROKER_DEFERRED_SHUTDOWN_MIN_MS,
+                this.options.exitGraceMs ?? BROKER_EXIT_GRACE_MS,
+              ),
             )),
           },
           stdio: 'ignore',
