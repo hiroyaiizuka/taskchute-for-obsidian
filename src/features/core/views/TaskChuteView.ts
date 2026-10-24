@@ -1403,17 +1403,17 @@ export class TaskChuteView
     const frontmatter = inst.task?.frontmatter
     if (!frontmatter || readAiTaskConfig(frontmatter) === null) return false
     if (readObsidianTaskLinkConfig(frontmatter) !== null) return false
-    if (inst.task.isRoutine !== true && frontmatter['isRoutine'] !== true) {
-      return false
+    // A task that is not a routine is in today's list only on its own day
+    // (LEV-395), so its start time alone decides.
+    if (inst.task.isRoutine === true || frontmatter['isRoutine'] === true) {
+      const rule = RoutineService.parseFrontmatter(frontmatter)
+      const targetDate =
+        typeof frontmatter['target_date'] === 'string' &&
+        frontmatter['target_date'] !== frontmatter['routine_start']
+          ? frontmatter['target_date']
+          : undefined
+      if (!RoutineService.isDue(dateKey, rule, targetDate)) return false
     }
-
-    const rule = RoutineService.parseFrontmatter(frontmatter)
-    const targetDate =
-      typeof frontmatter['target_date'] === 'string' &&
-      frontmatter['target_date'] !== frontmatter['routine_start']
-        ? frontmatter['target_date']
-        : undefined
-    if (!RoutineService.isDue(dateKey, rule, targetDate)) return false
 
     const scheduledTime = normalizeReminderTime(
       getScheduledTime(frontmatter) ?? inst.task.scheduledTime,

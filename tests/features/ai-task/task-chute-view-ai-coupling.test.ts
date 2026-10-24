@@ -2238,6 +2238,36 @@ describe('TaskChuteView Ambient AI routine bridge', () => {
     expect(inst.state).toBe('running')
   })
 
+  test('starts an AI task that is not a routine once its start time has come (LEV-395)', async () => {
+    const { manager, view, execution } = setUp()
+    prepareAmbientView(view)
+    manager.startRun.mockResolvedValueOnce(makeRecord())
+    const inst = makeAmbientInstance({
+      isRoutine: false,
+      routine_type: undefined,
+      routine_enabled: undefined,
+      target_date: '2026-07-15',
+    })
+    inst.task.isRoutine = false
+    execution.startInstance.mockImplementationOnce(async (target) => {
+      target.state = 'running'
+      target.startTime = new Date(2026, 6, 15, 8, 0, 5)
+      target.originalSlotKey = 'none'
+      target.slotKey = '8:00-12:00'
+      return true
+    })
+    view.taskInstances = [inst]
+
+    const early = await view.runDueAmbientAiTasks([TASK_PATH], new Date(2026, 6, 15, 7, 59, 59))
+    expect(early).toEqual({ satisfiedPaths: [], startedRuns: [] })
+    expect(execution.startInstance).not.toHaveBeenCalled()
+
+    const due = await view.runDueAmbientAiTasks([TASK_PATH], dueAt)
+    expect(due.satisfiedPaths).toEqual([TASK_PATH])
+    expect(execution.startInstance).toHaveBeenCalledWith(inst)
+    expect(manager.startRun).toHaveBeenCalledTimes(1)
+  })
+
   test('does not start before the scheduled time', async () => {
     const { manager, view, execution } = setUp()
     prepareAmbientView(view)
