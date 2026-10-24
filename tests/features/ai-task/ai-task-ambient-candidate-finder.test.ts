@@ -23,8 +23,16 @@ function folder(path: string, children: unknown[] = []): {
 
 function createApp(
   frontmatterByPath: Record<string, Record<string, unknown> | Error>,
+  createdAtByPath: Record<string, Date> = {},
 ): App {
-  const files = Object.keys(frontmatterByPath).map(file)
+  const files = Object.keys(frontmatterByPath).map((path) => {
+    const candidate = file(path)
+    const created = createdAtByPath[path]
+    if (created) {
+      candidate.stat = { ctime: created.getTime(), mtime: created.getTime(), size: 0 }
+    }
+    return candidate
+  })
   const root = folder('TaskChute/Task', files)
   return {
     vault: {
@@ -102,7 +110,6 @@ describe('AiTaskAmbientCandidateFinder', () => {
 
   test.each([
     ['human task', { ai_task: false }],
-    ['non-routine AI task', { isRoutine: false }],
     ['disabled routine', { routine_enabled: false }],
     ['missing time', { scheduled_time: undefined }],
     ['malformed time', { scheduled_time: '8' }],
@@ -188,6 +195,40 @@ describe('AiTaskAmbientCandidateFinder', () => {
         new Date(2026, 6, 15, 12, 0),
       ).map((candidate) => candidate.identity),
     ).toEqual(['taskId:moved-id'])
+  })
+
+  test('finds an AI task that is not a routine on its own day, after its start time (LEV-395)', () => {
+    const oneOff = (overrides: Record<string, unknown>) => ({
+      taskId: overrides.taskId,
+      ai_task: true,
+      ai_task_host: 'claude',
+      scheduled_time: '08:00',
+      ...overrides,
+    })
+    const app = createApp(
+      {
+        'TaskChute/Task/Today.md': oneOff({ taskId: 'today-id', target_date: '2026-07-15' }),
+        'TaskChute/Task/Tomorrow.md': oneOff({ taskId: 'tomorrow-id', target_date: '2026-07-16' }),
+        'TaskChute/Task/MadeToday.md': oneOff({ taskId: 'made-today-id' }),
+        'TaskChute/Task/MadeYesterday.md': oneOff({ taskId: 'made-yesterday-id' }),
+        'TaskChute/Task/Later.md': oneOff({ taskId: 'later-id', target_date: '2026-07-15', scheduled_time: '13:00' }),
+        'TaskChute/Task/Unlinked.md': oneOff({ taskId: 'no-time-id', target_date: '2026-07-15', scheduled_time: undefined }),
+      },
+      {
+        'TaskChute/Task/MadeToday.md': new Date(2026, 6, 15, 7, 0),
+        'TaskChute/Task/MadeYesterday.md': new Date(2026, 6, 14, 7, 0),
+      },
+    )
+
+    // Its target date, or else the day its note was made, as the task list shows it.
+    expect(
+      findAiTaskAmbientCandidates(app, 'TaskChute/Task', new Date(2026, 6, 15, 12, 0))
+        .map((candidate) => candidate.identity)
+        .sort(),
+    ).toEqual(['taskId:made-today-id', 'taskId:today-id'])
+    expect(
+      findAiTaskAmbientCandidates(app, 'TaskChute/Task', new Date(2026, 6, 15, 7, 59)),
+    ).toEqual([])
   })
 
   test('deduplicates copied task IDs and isolates broken metadata entries', () => {
