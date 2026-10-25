@@ -4,6 +4,7 @@ import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { type Browser, type Page, chromium } from "@playwright/test"
+import { shutDownAiRuntime } from "./broker"
 import { PLUGIN_ID, REPO_ROOT, pluginArtifactsDir } from "./paths"
 
 export type ObsidianLanguage = "en" | "ja"
@@ -226,7 +227,10 @@ async function launchOnce(options: LaunchOptions): Promise<ObsidianSession> {
   process.once("exit", onExit)
 
   let browser: Browser | undefined
+  let page: Page | undefined
   const close = async () => {
+    // The broker runs outside Obsidian's process group; ask it to exit first.
+    if (page) await shutDownAiRuntime(page)
     await browser?.close().catch(() => undefined)
     killGroup(child)
     process.removeListener("exit", onExit)
@@ -234,7 +238,7 @@ async function launchOnce(options: LaunchOptions): Promise<ObsidianSession> {
 
   try {
     browser = await connect(port)
-    const page = await findVaultWindow(browser, vaultDir)
+    page = await findVaultWindow(browser, vaultDir)
 
     // Neither setting can be passed on the command line. Obsidian reads the
     // UI language from localStorage (getLanguage() returns it), and trusting
