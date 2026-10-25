@@ -1,4 +1,4 @@
-import { TASK_FOLDER, aiRuns, enableAiTasks, openTaskChute, rowState, taskRow } from "../../helpers/aiTask"
+import { PLUGIN_ID, TASK_FOLDER, aiRuns, enableAiTasks, openTaskChute, rowState, taskRow } from "../../helpers/aiTask"
 import { expect, test } from "../fixtures"
 import { FAKE_CLAUDE_BANNER, createNotes, waitForTerminalOutput, writeSwitchableFakeClaude } from "../helpers"
 
@@ -29,6 +29,17 @@ test("ai-ambient-start", async ({ obsidian, recorder }, testInfo) => {
 
   const fake = writeSwitchableFakeClaude(testInfo.outputPath("bin"))
   await enableAiTasks(page, fake.file, "terminal")
+  // The scheduler is already running and checks every minute. Until the first
+  // chapter, its checks find nothing, so no task starts during setup.
+  await page.evaluate((id) => {
+    const plugin = window.app.plugins.plugins[id] as {
+      aiTaskAmbientScheduler: { options: { findCandidates: (now: Date) => unknown } }
+    }
+    const options = plugin.aiTaskAmbientScheduler.options
+    const find = options.findCandidates
+    const w = window as unknown as { ambientReady?: boolean }
+    options.findCandidates = (now) => (w.ambientReady ? find(now) : [])
+  }, PLUGIN_ID)
   await createNotes(page, {
     [oneOffPath]: note([`target_date: "${today}"`, `scheduled_time: "${due}"`], "今日のニュースを要約してください。"),
     [laterPath]: note([`target_date: "${today}"`, `scheduled_time: "${later}"`], "今日の作業をまとめてください。"),
@@ -53,6 +64,9 @@ test("ai-ambient-start", async ({ obsidian, recorder }, testInfo) => {
   const oneOff = taskRow(page, oneOffPath)
   const laterRow = taskRow(page, laterPath)
   const routine = taskRow(page, routinePath)
+  // A check during setup starts nothing.
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")))
+  await page.waitForTimeout(1_000)
   await expect.poll(() => rowState(oneOff)).toBe("idle")
   await expect.poll(() => rowState(laterRow)).toBe("idle")
   await expect.poll(() => rowState(routine)).toBe("idle")
@@ -69,6 +83,9 @@ test("ai-ambient-start", async ({ obsidian, recorder }, testInfo) => {
   await recorder.chapter("① 自動実行の確認が走る", {
     sub: "開始時刻を過ぎた 2 つが、ルーチンでなくても自動で始まる",
     say: "自動実行の確認は、1 分ごとに走ります。録画では待ち時間を省くため、画面のフォーカスで確認させます。開始時刻を過ぎた 2 つが、ルーチンでなくても自動で始まります。",
+  })
+  await page.evaluate(() => {
+    ;(window as unknown as { ambientReady?: boolean }).ambientReady = true
   })
   await checkNow()
   await expect.poll(() => rowState(oneOff), { timeout: 30_000 }).toBe("running")
