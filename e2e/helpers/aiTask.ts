@@ -36,6 +36,18 @@ export function writeFakeClaude(dir: string, behaviour: FakeClaudeBehaviour): st
 }
 
 /**
+ * Writes a stand-in CLI as a Node script that runs on every OS: macOS and
+ * Linux run it through its shebang (the Node running the tests), and Windows
+ * runs a `.js` CLI path through node.exe. `source` is the script's body.
+ */
+export function writeNodeCli(dir: string, name: string, source: string): string {
+  fs.mkdirSync(dir, { recursive: true })
+  const file = path.join(dir, `${name}.js`)
+  fs.writeFileSync(file, `#!${process.execPath}\n${source}\n`, { mode: 0o755 })
+  return file
+}
+
+/**
  * Turns the AI task feature on in the running plugin: settings first, then a
  * stubbed active license, then the plugin's own license-change listeners,
  * which build the AiTaskManager (syncAiTaskManagerToLicense) and tell open

@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { TASK_FOLDER, enableAiTasks, openTaskChute, rowState, taskRow, todayKey } from "../helpers/aiTask"
+import { TASK_FOLDER, enableAiTasks, openTaskChute, rowState, taskRow, todayKey, writeNodeCli } from "../helpers/aiTask"
 
 // LEV-390: a task note's working folder is a request. A folder this device
 // has not approved is asked about when the user starts the task with ▶, and
@@ -10,10 +10,16 @@ import { TASK_FOLDER, enableAiTasks, openTaskChute, rowState, taskRow, todayKey 
 
 /** A stand-in CLI that records the folder each run starts in, one per line. */
 function writeCwdRecorder(dir: string): { bin: string; cwdFile: string } {
-  fs.mkdirSync(dir, { recursive: true })
-  const bin = path.join(dir, "claude")
   const cwdFile = path.join(dir, "cwd.txt")
-  fs.writeFileSync(bin, `#!/bin/sh\npwd -P >> '${cwdFile}'\nexec sleep 60\n`, { mode: 0o755 })
+  const bin = writeNodeCli(
+    dir,
+    "claude",
+    [
+      `const fs = require("node:fs")`,
+      `fs.appendFileSync(${JSON.stringify(cwdFile)}, fs.realpathSync(process.cwd()) + "\\n")`,
+      `setTimeout(() => {}, 60_000)`,
+    ].join("\n"),
+  )
   return { bin, cwdFile }
 }
 
@@ -75,7 +81,8 @@ test("a working folder this device has not approved is asked about on ▶, once"
   await taskRow(page, first).locator(".play-stop-button").click()
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText('Allow the working folder of "Repo cleanup" on this device?')
-  await expect(dialog).toContainText(outside)
+  // The dialog writes the folder with "/" on Windows too.
+  await expect(dialog).toContainText(outside.split(path.sep).join("/"))
   await dialog.getByRole("button", { name: "Cancel" }).click()
   await expect(dialog).toHaveCount(0)
   await expect.poll(() => rowState(taskRow(page, first))).toBe("idle")

@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey } from "../helpers/aiTask"
+import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeNodeCli } from "../helpers/aiTask"
 
 // LEV-386: a task note can come from anyone who can write to a synced vault,
 // so what it says is a request. Only what the task settings can choose
@@ -11,13 +11,15 @@ import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey
 
 /** A stand-in CLI that appends the arguments of each run as one line. */
 function writeArgvRecorder(dir: string): { bin: string; argvFile: string } {
-  fs.mkdirSync(dir, { recursive: true })
-  const bin = path.join(dir, "claude")
   const argvFile = path.join(dir, "argv.txt")
-  fs.writeFileSync(
-    bin,
-    `#!/bin/sh\n{ for a in "$@"; do printf '%s\\037' "$a"; done; printf '\\n'; } >> '${argvFile}'\nexec sleep 60\n`,
-    { mode: 0o755 },
+  const bin = writeNodeCli(
+    dir,
+    "claude",
+    [
+      `const line = process.argv.slice(2).map((a) => a + "\\u001f").join("") + "\\n"`,
+      `require("node:fs").appendFileSync(${JSON.stringify(argvFile)}, line)`,
+      `setTimeout(() => {}, 60_000)`,
+    ].join("\n"),
   )
   return { bin, argvFile }
 }
