@@ -36,15 +36,20 @@ export function writeFakeClaude(dir: string, behaviour: FakeClaudeBehaviour): st
 }
 
 /**
- * Writes a stand-in CLI as a Node script that runs on every OS: macOS and
- * Linux run it through its shebang (the Node running the tests), and Windows
- * runs a `.js` CLI path through node.exe. `source` is the script's body.
+ * Writes a stand-in CLI as a Node script that runs on every OS. Windows runs
+ * a `.js` CLI path through node.exe. macOS and Linux get a small sh launcher
+ * that runs it with the Node running the tests; a shebang would break on a
+ * Node path with spaces. `source` is the script's body.
  */
 export function writeNodeCli(dir: string, name: string, source: string): string {
   fs.mkdirSync(dir, { recursive: true })
-  const file = path.join(dir, `${name}.js`)
-  fs.writeFileSync(file, `#!${process.execPath}\n${source}\n`, { mode: 0o755 })
-  return file
+  const script = path.join(dir, `${name}.js`)
+  fs.writeFileSync(script, `${source}\n`)
+  if (process.platform === "win32") return script
+  const quote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
+  const launcher = path.join(dir, name)
+  fs.writeFileSync(launcher, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`, { mode: 0o755 })
+  return launcher
 }
 
 /**
