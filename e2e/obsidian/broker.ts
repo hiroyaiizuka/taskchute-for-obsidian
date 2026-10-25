@@ -9,21 +9,28 @@ const SHUTDOWN_TIMEOUT_MS = 10_000
 
 /**
  * Shut the AI runtime down the way quitting Obsidian does: running AI tasks
- * stop and the broker is asked to exit. Does nothing when AI tasks are off.
+ * stop and the broker is asked to exit. Covers managers still shutting down
+ * after AI tasks were switched off. Does nothing when AI tasks were never on.
+ *
+ * The time limit is kept here, not in the window, so a hung window cannot
+ * keep the caller from killing Obsidian.
  */
 export async function shutDownAiRuntime(page: Page): Promise<void> {
-  await page
-    .evaluate(
-      async ([id, timeoutMs]) => {
-        const plugin = window.app.plugins.plugins[id] as { aiTaskManager?: { disposeAndWait(): Promise<void> } } | undefined
-        const manager = plugin?.aiTaskManager
-        if (!manager) return
-        await Promise.race([
-          manager.disposeAndWait().catch(() => undefined),
-          new Promise((resolve) => setTimeout(resolve, timeoutMs)),
-        ])
-      },
-      [PLUGIN_ID, SHUTDOWN_TIMEOUT_MS] as const,
-    )
+  const shutdown = page
+    .evaluate(async (id) => {
+      type Manager = { disposeAndWait(): Promise<void> }
+      const plugin = window.app.plugins.plugins[id] as
+        | { aiTaskManager?: Manager; aiTaskManagersPendingDisposal?: Set<Manager> }
+        | undefined
+      const managers = new Set<Manager>(plugin?.aiTaskManagersPendingDisposal ?? [])
+      if (plugin?.aiTaskManager) managers.add(plugin.aiTaskManager)
+      await Promise.allSettled(Array.from(managers, (manager) => manager.disposeAndWait()))
+    }, PLUGIN_ID)
     .catch(() => undefined)
+  let timer: NodeJS.Timeout | undefined
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)
+  })
+  await Promise.race([shutdown, deadline])
+  clearTimeout(timer)
 }
