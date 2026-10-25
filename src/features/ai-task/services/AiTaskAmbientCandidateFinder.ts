@@ -1,4 +1,4 @@
-import type { App } from 'obsidian'
+import type { App, TFile } from 'obsidian'
 
 import { RoutineService } from '@/features/routine/services/RoutineService'
 import { extractTaskIdFromFrontmatter } from '@/services/TaskIdManager'
@@ -31,7 +31,27 @@ function resolveMovedTargetDate(frontmatter: Record<string, unknown>): string | 
 }
 
 /**
- * Scan only the configured TaskChute task folder for due Ambient AI routines.
+ * Whether a task that is not a routine belongs to this day, by the rule the
+ * task list shows it with (TaskLoaderService.shouldShowNonRoutineTask): its
+ * target_date, or else the day its note was made.
+ */
+function isNonRoutineTaskOfDay(
+  file: TFile,
+  frontmatter: Record<string, unknown>,
+  dateKey: string,
+): boolean {
+  const targetDate = frontmatter['target_date']
+  if (typeof targetDate === 'string' && targetDate.trim()) {
+    return targetDate.trim() === dateKey
+  }
+  const created = file.stat?.ctime ?? file.stat?.mtime
+  if (typeof created !== 'number' || !Number.isFinite(created)) return false
+  return formatAiTaskAmbientDateKey(new Date(created)) === dateKey
+}
+
+/**
+ * Scan only the configured TaskChute task folder for AI tasks whose start
+ * time has come today: routines due today, and other tasks of today (LEV-395).
  * The metadata cache is sufficient; task notes are never read or modified.
  */
 export function findAiTaskAmbientCandidates(
@@ -59,8 +79,12 @@ export function findAiTaskAmbientCandidates(
       if (!readAiTaskConfig(frontmatter)) continue
       if (readObsidianTaskLinkConfig(frontmatter)) continue
 
-      const rule = RoutineService.parseFrontmatter(frontmatter)
-      if (!RoutineService.isDue(dateKey, rule, resolveMovedTargetDate(frontmatter))) {
+      if (frontmatter['isRoutine'] === true) {
+        const rule = RoutineService.parseFrontmatter(frontmatter)
+        if (!RoutineService.isDue(dateKey, rule, resolveMovedTargetDate(frontmatter))) {
+          continue
+        }
+      } else if (!isNonRoutineTaskOfDay(file, frontmatter, dateKey)) {
         continue
       }
 
