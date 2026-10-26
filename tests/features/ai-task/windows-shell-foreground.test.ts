@@ -13,6 +13,9 @@ describe('programNameFromWindowsCommandLine', () => {
     ['C:\\WINDOWS\\system32\\cmd.exe /d /s /c ""C:\\Program Files\\nodejs\\npm.cmd" run build"', 'npm'],
     ['"C:\\Program Files\\Git\\cmd\\git.exe" log', 'git'],
     ['C:\\WINDOWS\\system32\\PING.EXE -n 9 127.0.0.1', 'PING'],
+    // No /s and one quoted path: cmd keeps the quotes.
+    ['cmd.exe /c "C:\\Program Files\\Example\\server.exe"', 'server'],
+    ['cmd /c "title E2E title&& ping -n 9 127.0.0.1 >nul"', 'title'],
   ])('%s → %s', (commandLine, name) => {
     expect(programNameFromWindowsCommandLine(commandLine)).toBe(name)
   })
@@ -29,13 +32,14 @@ describe('parseWindowsForeground', () => {
   })
 
   test('pid and command line: that program runs', () => {
-    expect(parseWindowsForeground('4242\t"C:\\Program Files\\Git\\cmd\\git.exe" log\n')).toEqual({
-      program: { pid: 4242, name: 'git' },
+    expect(parseWindowsForeground('4242\t1700000000000\t"C:\\Program Files\\Git\\cmd\\git.exe" log\n')).toEqual({
+      program: { pid: 4242, name: 'git', startedAt: 1700000000000 },
     })
   })
 
   test('a broken line cannot be told', () => {
-    expect(parseWindowsForeground('not-a-pid\tgit\n')).toBeNull()
+    expect(parseWindowsForeground('not-a-pid\t1700000000000\tgit\n')).toBeNull()
+    expect(parseWindowsForeground('4242\tgit\n')).toBeNull()
   })
 })
 
@@ -43,7 +47,7 @@ describe('createWindowsShellForegroundProbe', () => {
   test('answers per session, and "cannot tell" while the sidecar is missing', async () => {
     const files: Record<string, string> = {
       'a.log': '\n',
-      'b.log': '7\tC:\\WINDOWS\\system32\\PING.EXE\n',
+      'b.log': '7\t1700000000000\tC:\\WINDOWS\\system32\\PING.EXE\n',
     }
     const probe = createWindowsShellForegroundProbe({
       readForeground: async (path) => files[path] ?? null,
@@ -55,7 +59,10 @@ describe('createWindowsShellForegroundProbe', () => {
     // The host refreshes the file every second: the answer is as of a moment ago.
     const observedAt = 10_000 - WINDOWS_FOREGROUND_STALENESS_MS
     expect(answers.get('a.log')).toEqual({ program: null, observedAt })
-    expect(answers.get('b.log')).toEqual({ program: { pid: 7, name: 'PING' }, observedAt })
+    expect(answers.get('b.log')).toEqual({
+      program: { pid: 7, name: 'PING', startedAt: 1700000000000 },
+      observedAt,
+    })
     expect(answers.get('c.log')).toBeNull()
   })
 })

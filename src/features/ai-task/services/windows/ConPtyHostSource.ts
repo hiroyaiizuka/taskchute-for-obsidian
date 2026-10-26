@@ -639,7 +639,8 @@ namespace TaskChute
         /**
          * Writes what runs in the foreground of the session to a sidecar file
          * (<transcript>.fg), for the tab name of a + terminal: an empty line
-         * while the shell is at its prompt, else "<pid>\t<command line>" of
+         * while the shell is at its prompt, else "<pid>\t<started>\t<command
+         * line>" (started: ms since the Unix epoch) of
          * the newest process the shell started. Windows has no foreground
          * process group, so the shell's newest child stands for it, as the
          * job leader does in ps on macOS. The file is rewritten only when the
@@ -734,7 +735,7 @@ namespace TaskChute
 
                 string text = foreground == 0
                     ? ""
-                    : foreground.ToString() + "\t" + OneLine(CommandLine(foreground));
+                    : foreground.ToString() + "\t" + UnixMilliseconds(newest).ToString() + "\t" + OneLine(CommandLine(foreground));
                 lock (this)
                 {
                     if (stopped.WaitOne(0) || text == written)
@@ -753,6 +754,12 @@ namespace TaskChute
                     }
                     written = text;
                 }
+            }
+
+            // FILETIME (100 ns since 1601) to ms since 1970, the plugin's clock.
+            private static long UnixMilliseconds(long fileTime)
+            {
+                return (fileTime - 116444736000000000L) / 10000L;
             }
 
             private static string OneLine(string text)

@@ -102,7 +102,17 @@ export class ShellTitleTracker {
     const observedAt = Math.min(sample.observedAt ?? probeStartedAt, probeStartedAt)
     if (state.title !== undefined && state.titleAt < observedAt) {
       const program = sample.program
-      if (program === null || (state.titleOwner !== undefined && state.titleOwner !== program.pid)) {
+      if (
+        program !== null &&
+        state.titleOwner !== undefined &&
+        state.titleOwner !== program.pid &&
+        program.startedAt !== undefined &&
+        state.titleAt >= program.startedAt
+      ) {
+        // The title came after this program started: its own, though it
+        // arrived while the last answer still showed the one before.
+        state.titleOwner = program.pid
+      } else if (program === null || (state.titleOwner !== undefined && state.titleOwner !== program.pid)) {
         // Back at the prompt, or another program now: the title went with its program.
         state.title = undefined
         state.titleOwner = undefined

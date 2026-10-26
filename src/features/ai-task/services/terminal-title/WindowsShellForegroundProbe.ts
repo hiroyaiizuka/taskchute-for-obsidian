@@ -5,7 +5,8 @@ import { programNameFromWindowsCommandLine, type ShellForegroundSample } from '.
  * The Windows counterpart of the ps-based probe. The ConPTY host writes what
  * runs in each session's foreground to `<transcript>.fg` (see
  * ForegroundWatcher in ConPtyHostSource): an empty line at the prompt, else
- * `<pid>\t<command line>`. A missing or unreadable file means "cannot tell".
+ * `<pid>\t<started, ms since the epoch>\t<command line>`. A missing or
+ * unreadable file means "cannot tell".
  */
 export interface WindowsShellForegroundProbeIo {
   /** The sidecar's text, or null while it is unavailable. */
@@ -22,11 +23,14 @@ export const WINDOWS_FOREGROUND_STALENESS_MS = 1500
 export function parseWindowsForeground(text: string): ShellForegroundSample | null {
   const line = text.replace(/\r?\n$/u, '')
   if (line.length === 0) return { program: null }
-  const tab = line.indexOf('\t')
-  const pid = Number(tab < 0 ? line : line.slice(0, tab))
-  if (!Number.isSafeInteger(pid) || pid <= 0) return null
-  const commandLine = tab < 0 ? '' : line.slice(tab + 1)
-  return { program: { pid, name: programNameFromWindowsCommandLine(commandLine) } }
+  const [pidText = '', startedText = '', ...rest] = line.split('\t')
+  const pid = Number(pidText)
+  const startedAt = Number(startedText)
+  if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(startedAt) || startedAt <= 0) {
+    return null
+  }
+  const name = programNameFromWindowsCommandLine(rest.join('\t'))
+  return { program: { pid, name, startedAt } }
 }
 
 export function createWindowsShellForegroundProbe(

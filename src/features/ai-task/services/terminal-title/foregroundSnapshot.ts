@@ -23,6 +23,8 @@
 export interface ForegroundProgram {
   pid: number
   name: string | undefined
+  /** When it started (ms since the epoch), where the probe can tell (Windows). */
+  startedAt?: number
 }
 
 /** `program` is null while the shell is at its prompt. */
@@ -121,13 +123,22 @@ export function programNameFromArgs(args: string): string | undefined {
  */
 export function programNameFromWindowsCommandLine(commandLine: string): string | undefined {
   const tokens = windowsTokens(commandLine)
-  // cmd.exe /c runs the rest of the line, and /s takes off the quotes around
-  // it: `cmd.exe /d /s /c ""C:\\Program Files\\nodejs\\npm.cmd" run build"`.
-  const command = /\s\/[ck]\s+(.*)$/iu.exec(commandLine)
+  // cmd.exe /c runs the rest of the line. Like cmd, take off the quotes
+  // around it — `cmd.exe /d /s /c ""C:\\…\\npm.cmd" run build"` — unless
+  // there is no /s and they are the only pair, around one path:
+  // `cmd.exe /c "C:\\Program Files\\Example\\server.exe"` keeps them.
+  const command = /^(.*?)\s\/[ck]\s+(.*)$/iu.exec(commandLine)
   if (tokens[0] !== undefined && basename(tokens[0]).toLowerCase() === 'cmd' && command) {
-    const rest = command[1].trim()
-    const unwrapped = rest.length >= 2 && rest.startsWith('"') && rest.endsWith('"') ? rest.slice(1, -1) : rest
-    return programNameFromTokens(windowsTokens(unwrapped))
+    const switches = command[1]
+    const rest = command[2].trim()
+    const wrapped = rest.length >= 2 && rest.startsWith('"') && rest.endsWith('"')
+    // cmd also checks the quoted words name a file; a path with no & | < >
+    // stands in for that.
+    const onePath =
+      !/\s\/s(?:\s|$)/iu.test(switches) &&
+      (rest.match(/"/gu) ?? []).length === 2 &&
+      /^"[^"&|<>]*[\\/][^"&|<>]*"$/u.test(rest)
+    return programNameFromTokens(windowsTokens(wrapped && !onePath ? rest.slice(1, -1) : rest))
   }
   return programNameFromTokens(tokens)
 }
