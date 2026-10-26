@@ -82,6 +82,40 @@ describe('ConPTY host environment', () => {
     expect(CONPTY_HOST_CSHARP).toContain('ClearHostEnvironment();')
   })
 
+  test('names the shell that takes over after the CLI, read before the CLI starts', () => {
+    const env = buildConPtyHostEnv({
+      commandLine: '"C:\\claude.exe"',
+      cols: 80,
+      rows: 24,
+      transcriptPath: 'C:\\Temp/taskchute-run.log',
+      thenShellCommandLine: '"C:\\pwsh.exe" "-NoLogo"',
+    })
+
+    expect(env.TASKCHUTE_CONPTY_THEN_SHELL).toBe('"C:\\pwsh.exe" "-NoLogo"')
+    // Taken (and cleared) with the rest, so the CLI never sees it.
+    const source = CONPTY_HOST_CSHARP
+    expect(source.indexOf('TakeEnvironment("THEN_SHELL")')).toBeLessThan(source.indexOf('ClearHostEnvironment();'))
+  })
+
+  test('starts no shell once the terminal was closed, and reports a shell that cannot start as a host failure', () => {
+    const source = CONPTY_HOST_CSHARP
+    // Terminate() marks the console under the same lock Spawn() starts a process in.
+    expect(source).toMatch(/public void Terminate\(\)\s*\{\s*lock \(sync\)\s*\{\s*terminated = true;/)
+    expect(source).toMatch(/public bool Spawn\(string commandLine\)\s*\{\s*lock \(sync\)\s*\{\s*if \(terminated\)\s*\{\s*return false;/)
+    expect(source).toContain('if (handoffFailed || !GetExitCodeProcess(console.Process, out exitCode))')
+    // The tab-name watcher follows the shell that took over, and stops after it.
+    expect(source).toMatch(/Process = process\.hProcess;\s*ProcessId = process\.dwProcessId;/)
+    expect(source).toMatch(/int current = console\.ProcessId;\s*if \(current != shellPid\)/)
+    expect(source.indexOf('foreground.Stop();')).toBeGreaterThan(source.indexOf('console.Spawn(thenShell)'))
+  })
+
+  test('lets Ctrl+C reach the CLI even when the host was started with it ignored', () => {
+    const source = CONPTY_HOST_CSHARP
+    const restore = source.indexOf('SetConsoleCtrlHandler(IntPtr.Zero, false);')
+    expect(restore).toBeGreaterThan(source.indexOf('private static int RunSession('))
+    expect(restore).toBeLessThan(source.indexOf('PseudoConsole.Start(commandLine, cols, rows)'))
+  })
+
   test('probe mode carries no session', () => {
     expect(buildConPtyHostEnv({ probe: true })).toEqual({
       [CONPTY_HOST_SOURCE_ENV]: getEncodedConPtyHostSource(),

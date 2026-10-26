@@ -60,7 +60,7 @@ function writeSessions(home: string, vault: string) {
   )
 }
 
-/** A stand-in Claude CLI that records the arguments it was started with. */
+/** A stand-in Claude CLI that records the arguments it was started with, then waits. */
 function writeArgvRecorder(dir: string): { bin: string; argvFile: string } {
   const argvFile = path.join(dir, "argv.txt")
   const bin = writeNodeCli(
@@ -134,6 +134,30 @@ test("resumes a session in a new terminal tab with the CLI's resume arguments", 
     return plugin.aiTaskManager.getRuns().map((run) => ({ host: run.host, taskPath: run.taskPath, taskName: run.taskName, cwd: run.cwd }))
   }, PLUGIN_ID)
   expect(runs).toEqual([{ host: "shell", taskPath: "", taskName: "👑 引っ越しの準備", cwd: vault }])
+
+  // Ctrl+C ends the CLI; the terminal stays, now a shell (exec "$SHELL" -i -l
+  // on macOS and Linux, PowerShell on Windows). `exit` ends it.
+  const run = (await resumedRunId(page, "👑 引っ越しの準備"))!
+  const status = () =>
+    page.evaluate(
+      ([id, runId]) =>
+        (window.app.plugins.plugins[id] as { aiTaskManager: { getRun(runId: string): { status: string } | undefined } })
+          .aiTaskManager.getRun(runId)?.status ?? null,
+      [PLUGIN_ID, run] as const,
+    )
+  const type = (data: string) =>
+    page.evaluate(
+      ([id, runId, input]) =>
+        (window.app.plugins.plugins[id] as { aiTaskManager: { sendTerminalInput(runId: string, data: string): void } })
+          .aiTaskManager.sendTerminalInput(runId, input),
+      [PLUGIN_ID, run, data] as const,
+    )
+  await type("\u0003")
+  await page.waitForTimeout(3_000)
+  expect(await status()).toBe("running")
+  // A CLI that ignored Ctrl+C would still be running here, and not end on `exit`.
+  await type("exit\r")
+  await expect.poll(status, { timeout: 20_000 }).not.toBe("running")
 })
 
 /** An AI task note for today, ready to start from its row. */
