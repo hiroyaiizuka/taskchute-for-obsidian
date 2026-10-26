@@ -1,6 +1,6 @@
 import fs from "node:fs"
 import path from "node:path"
-import type { Locator, Page } from "@playwright/test"
+import { test, type Locator, type Page } from "@playwright/test"
 
 // Helpers for the AI task specs. The plugin internals they reach (license
 // manager, AI task manager, settings) are not public API, so they are typed
@@ -22,17 +22,22 @@ export type FakeClaudeBehaviour =
  * without an error `result` line to "succeeded"; that is all it has to fake.
  */
 export function writeFakeClaude(dir: string, behaviour: FakeClaudeBehaviour): string {
-  fs.mkdirSync(dir, { recursive: true })
-  const file = path.join(dir, `claude-${behaviour}`)
   const init = `{"type":"system","subtype":"init","session_id":"e2e-session","model":"fake"}`
   const result = `{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"e2e-session"}`
-  const body =
+  const source =
     behaviour === "runs-until-killed"
-      ? `echo '${init}'\nexec sleep 600\n`
+      ? `console.log(${JSON.stringify(init)})\nsetTimeout(() => {}, 600_000)`
       : // Long enough for the test to see the run (and both timers) running.
-        `echo '${init}'\nsleep 3\necho '${result}'\nexit 0\n`
-  fs.writeFileSync(file, `#!/bin/sh\n${body}`, { mode: 0o755 })
-  return file
+        `console.log(${JSON.stringify(init)})\nsetTimeout(() => { console.log(${JSON.stringify(result)}); process.exit(0) }, 3_000)`
+  return writeNodeCli(dir, `claude-${behaviour}`, source)
+}
+
+/**
+ * Skips the running test on Windows. Terminals there run on ConPTY without
+ * the broker, so the plugin has no "+" shell terminals and no broker to test.
+ */
+export function skipWithoutBroker(): void {
+  test.skip(process.platform === "win32", "Windows terminals run without the broker")
 }
 
 /**

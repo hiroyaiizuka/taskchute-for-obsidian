@@ -53,6 +53,13 @@ test("an existing AI task without execution-mode arguments is unchanged after op
       ["---", "tags:", "  - task", `target_date: "${today}"`, "ai_task: true", "ai_task_host: claude", "---", "", "## Prompt", "", "Summarize the notes.", ""].join("\n"),
     ] as const,
   )
+  // The list reads tasks from Obsidian's index once, when it opens.
+  await page.waitForFunction((p) => {
+    const app = window.app as unknown as {
+      metadataCache: { getCache(path: string): { frontmatter?: unknown } | null }
+    }
+    return !!app.metadataCache.getCache(p)?.frontmatter
+  }, taskPath)
   await openTaskChute(page)
   const before = frontmatterOf(readNote(vaultDir, taskPath))
 

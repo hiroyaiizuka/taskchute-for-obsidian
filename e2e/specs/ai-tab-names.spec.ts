@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeFakeClaude } from "../helpers/aiTask"
+import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeFakeClaude, skipWithoutBroker } from "../helpers/aiTask"
 
 // LEV-376: a tab says what it holds. An AI task's tab carries the task's name
 // (the same as its sidebar row); a + terminal says "Terminal" until a program
@@ -90,6 +90,7 @@ async function typeInto(page: Page, runId: string, data: string): Promise<void> 
 }
 
 test("an AI task's tab shows the task name, and a + terminal is named after what runs in it", async ({ obsidian, home }, testInfo) => {
+  skipWithoutBroker()
   const { page } = obsidian
   // A quiet login shell: no first-run wizard, a prompt that is easy to wait for.
   fs.writeFileSync(path.join(home!, ".zshrc"), "PROMPT='e2e$ '\n")

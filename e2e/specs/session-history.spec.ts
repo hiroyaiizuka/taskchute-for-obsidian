@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeFakeClaude } from "../helpers/aiTask"
+import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeFakeClaude, writeNodeCli, skipWithoutBroker } from "../helpers/aiTask"
 
 // LEV-320: past agent sessions of the vault's folder, listed in the AI pane
 // and resumed in a new terminal tab. Obsidian gets a home folder of its own,
@@ -62,10 +62,15 @@ function writeSessions(home: string, vault: string) {
 
 /** A stand-in Claude CLI that records the arguments it was started with. */
 function writeArgvRecorder(dir: string): { bin: string; argvFile: string } {
-  fs.mkdirSync(dir, { recursive: true })
-  const bin = path.join(dir, "claude")
   const argvFile = path.join(dir, "argv.txt")
-  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argvFile}'\nexec sleep 60\n`, { mode: 0o755 })
+  const bin = writeNodeCli(
+    dir,
+    "claude",
+    [
+      `require("node:fs").writeFileSync(${JSON.stringify(argvFile)}, process.argv.slice(2).map((a) => a + "\\n").join(""))`,
+      `setTimeout(() => {}, 60_000)`,
+    ].join("\n"),
+  )
   return { bin, argvFile }
 }
 
@@ -263,6 +268,7 @@ async function childRunIds(page: Page, parentRunId: string): Promise<string[]> {
 // and a + terminal opened beside it keep running, and the task's row stays so
 // they can be shown again; the row goes with the last of them.
 test("closing a task's own tab keeps the tabs opened beside it, and its row", async ({ obsidian, home }, testInfo) => {
+  skipWithoutBroker()
   const { page } = obsidian
   const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
   writeSessions(home!, vault)
@@ -322,6 +328,7 @@ test("closing a task's own tab keeps the tabs opened beside it, and its row", as
 // — the task's own, a session resumed beside it and a + terminal — and the
 // row with them. Cancel and Escape leave everything as it was.
 test("the row's × asks first, then closes every tab of the row", async ({ obsidian, home }, testInfo) => {
+  skipWithoutBroker()
   const { page } = obsidian
   const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
   writeSessions(home!, vault)
@@ -427,6 +434,7 @@ test("closing the task on screen shows the next task's terminal at once", async 
 // switches the pane to that task; the terminals must keep a row of their own
 // to come back to (and to close), not run on with no way back.
 test("terminals opened with no task keep a row of their own once a task starts", async ({ obsidian, home }, testInfo) => {
+  skipWithoutBroker()
   const { page } = obsidian
   const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
   writeSessions(home!, vault)
