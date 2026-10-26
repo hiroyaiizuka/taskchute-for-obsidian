@@ -33,9 +33,12 @@ export function writeFakeClaude(dir: string, behaviour: FakeClaudeBehaviour): st
 }
 
 /**
- * Skips the running test on Windows. Terminals there run on ConPTY without
- * the broker, so the plugin has no "+" shell terminals and no broker to test.
+ * Whether the pane offers + (and split) shell terminals. Windows terminals
+ * run on ConPTY without the broker and host AI runs only.
  */
+export const SHELL_TERMINALS = process.platform !== "win32"
+
+/** Skips the running test on Windows, where there is no broker to test. */
 export function skipWithoutBroker(): void {
   test.skip(process.platform === "win32", "Windows terminals run without the broker")
 }
