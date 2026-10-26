@@ -198,6 +198,9 @@ namespace TaskChute
         private static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
 
         [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetConsoleCtrlHandler(IntPtr handlerRoutine, bool add);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
 
         [DllImport("kernel32.dll", SetLastError = true)]
@@ -271,6 +274,11 @@ namespace TaskChute
 
         private static int RunSession(IntPtr control, string commandLine, short cols, short rows, string transcriptPath, string thenShell)
         {
+            // Ctrl+C in the terminal must reach the CLI (and the shell after
+            // it). A process started in a new process group ignores Ctrl+C and
+            // hands that on to its children; this restores normal handling
+            // for the processes started below, which inherit it.
+            SetConsoleCtrlHandler(IntPtr.Zero, false);
             FileStream transcript = OpenTranscript(transcriptPath);
             PseudoConsole console;
             try

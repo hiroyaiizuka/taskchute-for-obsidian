@@ -105,6 +105,13 @@ describe('ConPTY host environment', () => {
     expect(source).toContain('if (handoffFailed || !GetExitCodeProcess(console.Process, out exitCode))')
   })
 
+  test('lets Ctrl+C reach the CLI even when the host was started with it ignored', () => {
+    const source = CONPTY_HOST_CSHARP
+    const restore = source.indexOf('SetConsoleCtrlHandler(IntPtr.Zero, false);')
+    expect(restore).toBeGreaterThan(source.indexOf('private static int RunSession('))
+    expect(restore).toBeLessThan(source.indexOf('PseudoConsole.Start(commandLine, cols, rows)'))
+  })
+
   test('probe mode carries no session', () => {
     expect(buildConPtyHostEnv({ probe: true })).toEqual({
       [CONPTY_HOST_SOURCE_ENV]: getEncodedConPtyHostSource(),
