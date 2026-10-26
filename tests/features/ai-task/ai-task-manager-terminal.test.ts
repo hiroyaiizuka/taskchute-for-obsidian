@@ -630,7 +630,7 @@ describe('AiTaskManager runtime terminal capability', () => {
     expect(record.mode).toBe('headless')
   })
 
-  test('keeps shell sessions unavailable where terminals host AI runs only', () => {
+  test('keeps shell sessions unavailable where the terminal turns them off', () => {
     const harness = createTerminalHarness({ supported: true })
     const terminal = terminalDepsOf(harness)
     terminal.getShellPath = () => 'C:\\Windows\\System32\\cmd.exe'
@@ -639,6 +639,25 @@ describe('AiTaskManager runtime terminal capability', () => {
     expect(harness.manager.supportsShellSessions()).toBe(false)
     expect(() => harness.manager.startShellSession()).toThrow(AiShellUnavailableError)
     expect(harness.terminal.runs).toHaveLength(0)
+  })
+
+  test('offers shell sessions on Windows once the ConPTY probe has proven the terminal', async () => {
+    const harness = createTerminalHarness({ supported: false, runMode: 'headless' })
+    let supported = false
+    harness.isSupported.mockImplementation(() => supported)
+    const ensureSupported = jest.fn(async () => {
+      supported = true
+    })
+    const terminal = terminalDepsOf(harness)
+    terminal.getShellPath = () => 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
+    terminal.ensureSupported = ensureSupported
+
+    expect(harness.manager.supportsShellSessions()).toBe(false)
+    // Asked whatever the run mode, as + is on macOS.
+    await harness.manager.settleShellSessionSupport()
+
+    expect(ensureSupported).toHaveBeenCalledTimes(1)
+    expect(harness.manager.supportsShellSessions()).toBe(true)
   })
 
   test('offers shell sessions where the terminal can host a login shell', () => {

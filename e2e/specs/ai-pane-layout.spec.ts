@@ -200,12 +200,9 @@ test("the pane's controls share the tab row, the pane is framed like the task li
   const toggleClosed = await box(page, ".ai-run-pane__sidebar-toggle")
   expect(toggleClosed.left).toBeGreaterThanOrEqual(collapse.right)
   expect((await box(page, ".ai-run-pane__panel .ai-run-pane__tabs")).left).toBeGreaterThanOrEqual(toggleClosed.right)
-  // Windows terminals run without the broker, so they have no split button.
-  if (process.platform !== "win32") {
-    expect((await box(page, ".ai-run-pane__split")).right).toBeLessThanOrEqual(
-      (await box(page, ".ai-run-pane__expand")).left,
-    )
-  }
+  expect((await box(page, ".ai-run-pane__split")).right).toBeLessThanOrEqual(
+    (await box(page, ".ai-run-pane__expand")).left,
+  )
 
   // Collapsed, with the sidebar back: the tab row and the sidebar's toolbar
   // stay, still framed like the task list, and the terminal goes. The frame's
@@ -220,4 +217,20 @@ test("the pane's controls share the tab row, the pane is framed like the task li
   await expectFramedLikeTaskList(page)
   expect(await bottomLineColor(page, ".ai-run-pane__panel .ai-run-pane__tabstrip")).toBe("rgba(0, 0, 0, 0)")
   expect(await bottomLineColor(page, ".ai-run-pane__sidebar-toolbar")).toBe("rgba(0, 0, 0, 0)")
+
+  // Opened again, split puts a new shell (PowerShell on Windows) in a second
+  // panel, beside the resumed session.
+  await page.locator(".ai-run-pane__collapse").click()
+  await page.locator(".ai-run-pane__split").first().click()
+  await expect(page.locator(".ai-run-pane__panel")).toHaveCount(2)
+  await expect
+    .poll(() =>
+      page.evaluate((id) => {
+        const plugin = window.app.plugins.plugins[id] as {
+          aiTaskManager: { getRuns(): Array<{ status: string }> }
+        }
+        return plugin.aiTaskManager.getRuns().map((run) => run.status)
+      }, PLUGIN_ID),
+    )
+    .toEqual(["running", "running"])
 })
