@@ -691,7 +691,7 @@ describe('TerminalDispatcher over the ConPTY transport', () => {
     }
   }
 
-  test('launches the CLI directly even for shell-backed requests', () => {
+  test('launches the CLI directly, and asks for a shell after it only for shell-backed requests', () => {
     const run = startConPtyRun({
       binaryPath: 'C:\\nodejs\\node.exe',
       binaryArgsPrefix: ['C:\\npm\\claude\\cli.js'],
@@ -709,7 +709,12 @@ describe('TerminalDispatcher over the ConPTY transport', () => {
       rows: 30,
       cols: 100,
       transcriptPath: '/tmp/transcript.txt',
+      // Like exec "$SHELL" -i -l on macOS: PowerShell takes over once the CLI exits.
+      thenShell: true,
     })
+
+    const plain = startConPtyRun({ launchInShell: false })
+    expect(plain.gateway.ptyMock.mock.calls[0][0]).not.toHaveProperty('thenShell')
   })
 
   test('spawns the host with a control pipe, a closed stdin, and its env over the session env', () => {

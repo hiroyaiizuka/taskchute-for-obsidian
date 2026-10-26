@@ -60,7 +60,7 @@ function writeSessions(home: string, vault: string) {
   )
 }
 
-/** A stand-in Claude CLI that records the arguments it was started with. */
+/** A stand-in Claude CLI that records the arguments it was started with, then exits. */
 function writeArgvRecorder(dir: string): { bin: string; argvFile: string } {
   const argvFile = path.join(dir, "argv.txt")
   const bin = writeNodeCli(
@@ -68,7 +68,6 @@ function writeArgvRecorder(dir: string): { bin: string; argvFile: string } {
     "claude",
     [
       `require("node:fs").writeFileSync(${JSON.stringify(argvFile)}, process.argv.slice(2).map((a) => a + "\\n").join(""))`,
-      `setTimeout(() => {}, 60_000)`,
     ].join("\n"),
   )
   return { bin, argvFile }
@@ -134,6 +133,26 @@ test("resumes a session in a new terminal tab with the CLI's resume arguments", 
     return plugin.aiTaskManager.getRuns().map((run) => ({ host: run.host, taskPath: run.taskPath, taskName: run.taskName, cwd: run.cwd }))
   }, PLUGIN_ID)
   expect(runs).toEqual([{ host: "shell", taskPath: "", taskName: "👑 引っ越しの準備", cwd: vault }])
+
+  // The CLI has exited; the terminal stays, now a shell (exec "$SHELL" -i -l
+  // on macOS and Linux, PowerShell on Windows). `exit` ends it.
+  const run = (await resumedRunId(page, "👑 引っ越しの準備"))!
+  const status = () =>
+    page.evaluate(
+      ([id, runId]) =>
+        (window.app.plugins.plugins[id] as { aiTaskManager: { getRun(runId: string): { status: string } | undefined } })
+          .aiTaskManager.getRun(runId)?.status ?? null,
+      [PLUGIN_ID, run] as const,
+    )
+  await page.waitForTimeout(3_000)
+  expect(await status()).toBe("running")
+  await page.evaluate(
+    ([id, runId]) =>
+      (window.app.plugins.plugins[id] as { aiTaskManager: { sendTerminalInput(runId: string, data: string): void } })
+        .aiTaskManager.sendTerminalInput(runId, "exit\r"),
+    [PLUGIN_ID, run] as const,
+  )
+  await expect.poll(status, { timeout: 20_000 }).not.toBe("running")
 })
 
 /** An AI task note for today, ready to start from its row. */

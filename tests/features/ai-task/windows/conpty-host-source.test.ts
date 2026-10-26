@@ -82,6 +82,21 @@ describe('ConPTY host environment', () => {
     expect(CONPTY_HOST_CSHARP).toContain('ClearHostEnvironment();')
   })
 
+  test('names the shell that takes over after the CLI, read before the CLI starts', () => {
+    const env = buildConPtyHostEnv({
+      commandLine: '"C:\\claude.exe"',
+      cols: 80,
+      rows: 24,
+      transcriptPath: 'C:\\Temp/taskchute-run.log',
+      thenShellCommandLine: '"C:\\pwsh.exe" "-NoLogo"',
+    })
+
+    expect(env.TASKCHUTE_CONPTY_THEN_SHELL).toBe('"C:\\pwsh.exe" "-NoLogo"')
+    // Taken (and cleared) with the rest, so the CLI never sees it.
+    const source = CONPTY_HOST_CSHARP
+    expect(source.indexOf('TakeEnvironment("THEN_SHELL")')).toBeLessThan(source.indexOf('ClearHostEnvironment();'))
+  })
+
   test('probe mode carries no session', () => {
     expect(buildConPtyHostEnv({ probe: true })).toEqual({
       [CONPTY_HOST_SOURCE_ENV]: getEncodedConPtyHostSource(),

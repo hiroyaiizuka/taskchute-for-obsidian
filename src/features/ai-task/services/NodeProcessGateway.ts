@@ -34,7 +34,7 @@ import {
   parseWindowsBuildNumber,
 } from './windows/ConPtyHostSource'
 import { buildWindowsCommandLine } from './windows/WindowsCommandLine'
-import { resolveWindowsInteractiveShell } from './windows/WindowsInteractiveShell'
+import { resolveWindowsInteractiveShell, WINDOWS_SHELL_ARGS } from './windows/WindowsInteractiveShell'
 
 // Ambient declarations for the Electron renderer runtime (no @types/node in
 // the src build). These shadow nothing at runtime; they only inform tsc.
@@ -110,6 +110,11 @@ export interface PtyCommandRequest {
   cols: number
   /** File the PTY session transcript is recorded to */
   transcriptPath: string
+  /**
+   * Windows: once the CLI exits, PowerShell takes over the same terminal
+   * (the POSIX bootstrap does this with `exec "$SHELL" -i -l`).
+   */
+  thenShell?: boolean
 }
 
 /** A spawnable command + argv produced by buildPtyCommand */
@@ -1790,6 +1795,14 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
           cols,
           rows,
           transcriptPath: request.transcriptPath,
+          ...(request.thenShell
+            ? {
+                thenShellCommandLine: buildWindowsCommandLine(
+                  this.getWindowsInteractiveShellPath(),
+                  [...WINDOWS_SHELL_ARGS],
+                ),
+              }
+            : {}),
         }),
       }
     }

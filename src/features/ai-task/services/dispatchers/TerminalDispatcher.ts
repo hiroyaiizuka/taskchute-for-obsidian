@@ -25,8 +25,11 @@
  * the CLI itself sits in `script`'s own session and dies via the PTY SIGHUP
  * raised when the wrapper exits (see the gateway's spawn comment).
  *
- * Windows (`conpty` transport): no login shell, so the session ends with the
- * CLI; keys and resizes go as frames on the control pipe.
+ * Windows (`conpty` transport): no login shell to start from. The CLI runs
+ * directly (its argv never passes through PowerShell, whose 5.1 mangles
+ * quotes in native arguments), and for launchInShell runs the ConPTY host
+ * starts PowerShell in the same terminal once it exits; keys and resizes go
+ * as frames on the control pipe.
  */
 
 import { TERMINAL_EXIT_SENTINEL } from '../NodeProcessGateway'
@@ -213,6 +216,8 @@ export class TerminalDispatcher implements AiTerminalDispatcher {
       rows: request.rows,
       cols: request.cols,
       transcriptPath: request.transcriptPath,
+      // Windows has no bootstrap shell: the ConPTY host starts one after the CLI.
+      ...(request.launchInShell && conpty ? { thenShell: true } : {}),
     })
 
     const terminalEnv = buildTerminalEnv({

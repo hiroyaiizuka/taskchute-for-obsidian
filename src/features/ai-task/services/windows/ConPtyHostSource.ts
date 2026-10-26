@@ -234,6 +234,7 @@ namespace TaskChute
             string cols = TakeEnvironment("COLS");
             string rows = TakeEnvironment("ROWS");
             string transcriptPath = TakeEnvironment("TRANSCRIPT");
+            string thenShell = TakeEnvironment("THEN_SHELL");
             ClearHostEnvironment();
             try
             {
@@ -259,7 +260,8 @@ namespace TaskChute
                     commandLine,
                     ParseDimension(cols, 80),
                     ParseDimension(rows, 24),
-                    transcriptPath);
+                    transcriptPath,
+                    thenShell);
             }
             catch (Exception error)
             {
@@ -267,7 +269,7 @@ namespace TaskChute
             }
         }
 
-        private static int RunSession(IntPtr control, string commandLine, short cols, short rows, string transcriptPath)
+        private static int RunSession(IntPtr control, string commandLine, short cols, short rows, string transcriptPath, string thenShell)
         {
             FileStream transcript = OpenTranscript(transcriptPath);
             PseudoConsole console;
@@ -287,6 +289,21 @@ namespace TaskChute
             StartBackground(controlPump.Run);
 
             WaitForSingleObject(console.Process, INFINITE);
+            // Like the POSIX bootstrap's exec "$SHELL" -i -l: once the CLI
+            // exits, a shell takes over the same terminal, and the session
+            // ends with it. A shell that cannot start ends it now.
+            if (!string.IsNullOrEmpty(thenShell))
+            {
+                try
+                {
+                    console.Spawn(thenShell);
+                    WaitForSingleObject(console.Process, INFINITE);
+                }
+                catch (Exception error)
+                {
+                    WriteText(GetStdHandle(STD_ERROR_HANDLE), "TaskChute ConPTY host: " + error.Message + "\r\n");
+                }
+            }
             uint exitCode;
             if (!GetExitCodeProcess(console.Process, out exitCode))
             {
@@ -397,6 +414,29 @@ namespace TaskChute
                 console.OutputRead = outputRead;
                 console.job = CreateKillOnCloseJob();
 
+                try
+                {
+                    console.Spawn(commandLine);
+                    return console;
+                }
+                catch
+                {
+                    // Close our ends first: undrained output blocks ClosePseudoConsole on older builds.
+                    CloseHandle(inputWrite);
+                    CloseHandle(outputRead);
+                    console.Close();
+                    console.ReleaseJob();
+                    throw;
+                }
+            }
+
+            /**
+             * Start a process attached to this pseudo console. The first one is
+             * the CLI; a terminal that keeps going after it starts the shell
+             * here once it exits (RunSession).
+             */
+            public void Spawn(string commandLine)
+            {
                 IntPtr attributes = IntPtr.Zero;
                 try
                 {
@@ -409,7 +449,7 @@ namespace TaskChute
                         attributes = IntPtr.Zero;
                         throw LastError("InitializeProcThreadAttributeList");
                     }
-                    if (!UpdateProcThreadAttribute(attributes, 0, new IntPtr(PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE), handle, new IntPtr(IntPtr.Size), IntPtr.Zero, IntPtr.Zero))
+                    if (!UpdateProcThreadAttribute(attributes, 0, new IntPtr(PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE), Handle, new IntPtr(IntPtr.Size), IntPtr.Zero, IntPtr.Zero))
                     {
                         throw LastError("UpdateProcThreadAttribute");
                     }
@@ -427,24 +467,19 @@ namespace TaskChute
                         throw LastError("CreateProcess");
                     }
                     // Assign while suspended so every descendant starts in the job.
-                    if (console.job != IntPtr.Zero && !AssignProcessToJobObject(console.job, process.hProcess))
+                    if (job != IntPtr.Zero && !AssignProcessToJobObject(job, process.hProcess))
                     {
-                        CloseHandle(console.job);
-                        console.job = IntPtr.Zero;
+                        CloseHandle(job);
+                        job = IntPtr.Zero;
                     }
                     ResumeThread(process.hThread);
                     CloseHandle(process.hThread);
-                    console.Process = process.hProcess;
-                    return console;
-                }
-                catch
-                {
-                    // Close our ends first: undrained output blocks ClosePseudoConsole on older builds.
-                    CloseHandle(inputWrite);
-                    CloseHandle(outputRead);
-                    console.Close();
-                    console.ReleaseJob();
-                    throw;
+                    IntPtr previous = Process;
+                    Process = process.hProcess;
+                    if (previous != IntPtr.Zero)
+                    {
+                        CloseHandle(previous);
+                    }
                 }
                 finally
                 {
@@ -915,6 +950,8 @@ export interface ConPtyHostSessionOptions {
   cols: number
   rows: number
   transcriptPath: string
+  /** The shell that takes over once the CLI exits; absent: the session ends with it. */
+  thenShellCommandLine?: string
 }
 
 export function buildConPtyHostEnv(
@@ -932,6 +969,9 @@ export function buildConPtyHostEnv(
   env[`${CONPTY_HOST_ENV_PREFIX}COLS`] = String(options.cols)
   env[`${CONPTY_HOST_ENV_PREFIX}ROWS`] = String(options.rows)
   env[`${CONPTY_HOST_ENV_PREFIX}TRANSCRIPT`] = options.transcriptPath
+  if (options.thenShellCommandLine !== undefined) {
+    env[`${CONPTY_HOST_ENV_PREFIX}THEN_SHELL`] = options.thenShellCommandLine
+  }
   return env
 }
 
