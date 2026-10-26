@@ -31,6 +31,7 @@ import {
 import type { SpawnProcessRequest } from './NodeProcessGateway'
 import { listNodeExecutableCandidates } from './NodeExecutableLocator'
 import { buildTerminalBrokerSource } from './TerminalSessionBrokerSource'
+import { programPipeLoader } from './broker-source/ProgramPipeLoaderSource'
 import {
   sleepWithStableTimer,
   stableTimeoutSource,
@@ -117,6 +118,11 @@ interface NodeCryptoModuleLike {
 }
 
 interface NodeChildProcessLike {
+  /** Present when stdin is a pipe (the Windows launch). */
+  stdin?: {
+    on(event: 'error', listener: (error: unknown) => void): void
+    end(data: string): void
+  } | null
   unref(): void
   on(event: 'error', listener: (error: unknown) => void): void
   on(
@@ -133,7 +139,7 @@ interface NodeChildProcessModuleLike {
       detached: boolean
       windowsHide: boolean
       env: Record<string, string | undefined>
-      stdio: 'ignore'
+      stdio: 'ignore' | ['pipe', 'ignore', 'ignore']
     },
   ): NodeChildProcessLike
 }
@@ -262,6 +268,8 @@ export interface TerminalBrokerClientOptions {
   identity: string
   /** Read lazily after BinaryLocator has merged the login-shell PATH. */
   getEnv?(): Record<string, string | undefined>
+  /** Test override for process.platform. */
+  platform?: string
   log?(level: 'warn' | 'debug', ...args: unknown[]): void
   connectTimeoutMs?: number
   startupTimeoutMs?: number
@@ -1855,11 +1863,14 @@ export class TerminalSessionBrokerClient {
     }
     const token = loadCrypto().randomBytes(32).toString('hex')
     const env = this.options.getEnv?.() ?? { ...process.env }
+    // Windows caps a command line at 32,767 characters, so the program goes
+    // through stdin behind a short loader there (ProgramPipeLoaderSource).
+    const piped = (this.options.platform ?? process.platform) === 'win32'
     let child: NodeChildProcessLike
     try {
       child = loadChildProcess().spawn(
         nodePath,
-        ['-e', buildTerminalBrokerSource()],
+        ['-e', piped ? programPipeLoader(0) : buildTerminalBrokerSource()],
         {
           detached: true,
           windowsHide: true,
@@ -1880,9 +1891,14 @@ export class TerminalSessionBrokerClient {
               ),
             )),
           },
-          stdio: 'ignore',
+          stdio: piped ? ['pipe', 'ignore', 'ignore'] : 'ignore',
         },
       )
+      if (piped && child.stdin) {
+        // A node that dies before reading reports through 'exit' below.
+        child.stdin.on('error', () => undefined)
+        child.stdin.end(buildTerminalBrokerSource())
+      }
     } catch (error) {
       launch.failure = {
         missing: errorCode(error) === 'ENOENT',

@@ -108,7 +108,12 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     await client.shutdown()
   })
 
-  test('a second renderer client attaches to the same live process and can type', async () => {
+  // The Windows launch hands the broker its program through stdin behind a
+  // short loader (ProgramPipeLoaderSource); it must behave the same.
+  test.each([
+    ['-e', undefined],
+    ['stdin loader', 'win32'],
+  ])('a second renderer client attaches to the same live process and can type (%s)', async (_launch, platform) => {
     const unique = `${process.pid}-${Date.now()}-${Math.random()}`
     const identity = `broker-integration-${unique}`
     const sessionId = `session-${process.pid}-${Date.now()}`
@@ -130,6 +135,7 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     }
     const firstClient = new TerminalSessionBrokerClient({
       identity,
+      platform,
       log: (level, ...args) => logs.push(`${level}:${args.map(String).join(' ')}`),
     })
 
