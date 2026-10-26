@@ -34,6 +34,7 @@ import { BrokerTerminalDispatcher } from './services/dispatchers/BrokerTerminalD
 import { TerminalSessionBrokerClient } from './services/TerminalSessionBroker'
 import { WorkspaceFileService } from './services/WorkspaceFileService'
 import { createShellForegroundProbe } from './services/terminal-title/ShellForegroundProbe'
+import { createWindowsShellForegroundProbe } from './services/terminal-title/WindowsShellForegroundProbe'
 import { WINDOWS_SHELL_ARGS } from './services/windows/WindowsInteractiveShell'
 import { RecipeService } from '../recipe/services/RecipeService'
 import { RecipeContextProvider } from '../recipe/services/RecipeContextProvider'
@@ -260,9 +261,14 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
             getShellArgs: () => WINDOWS_SHELL_ARGS,
           }
         : { getShellPath: () => gateway.getShellPath() }),
-      // Their tabs are named after the program in the foreground (POSIX `ps`).
+      // Their tabs are named after the program in the foreground: POSIX `ps`,
+      // or what the ConPTY host writes next to the transcript on Windows.
       ...(conpty
-        ? {}
+        ? {
+            probeShellForeground: createWindowsShellForegroundProbe({
+              readForeground: (path) => gateway.readConPtyForeground(path),
+            }),
+          }
         : {
             probeShellForeground: createShellForegroundProbe({
               readTtyPath: (path) => gateway.readPtyTtyPath(path),

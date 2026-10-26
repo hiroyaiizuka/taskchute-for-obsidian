@@ -308,8 +308,8 @@ export interface AiTaskManagerDeps {
     getShellArgs?(): readonly string[]
     /**
      * What runs in the foreground of a live shell session (by transcript
-     * path), for its tab name. Absent where it cannot be told (Windows): the
-     * tab then keeps the latest title a program set.
+     * path), for its tab name. Absent where it cannot be told: the tab then
+     * keeps the latest title a program set.
      */
     probeShellForeground?: ShellForegroundProbe
   }
@@ -460,6 +460,8 @@ export interface AiShellSessionOptions {
 
 interface InternalRun {
   record: AiRunRecord
+  /** The shell a + / split session runs (its own title is not a program's). */
+  shellPath?: string
   handle: AiRunProcessHandle | null
   /** Set alongside handle for terminal runs; carries the write() capability */
   terminalHandle: TerminalRunHandle | null
@@ -1322,6 +1324,7 @@ export class AiTaskManager {
 
     const internal: InternalRun = {
       record,
+      shellPath,
       handle: null,
       terminalHandle: null,
       exited: false,
@@ -2591,7 +2594,12 @@ export class AiTaskManager {
     const record = internal.record
     if (record.host !== 'shell' || internal.exited) return
     const probeAvailable = typeof this.deps.terminal?.probeShellForeground === 'function'
-    const { changed, pollSoon } = this.shellTitles.handleOutput(record, chunk, probeAvailable)
+    const { changed, pollSoon } = this.shellTitles.handleOutput(
+      record,
+      chunk,
+      probeAvailable,
+      internal.shellPath,
+    )
     // A program with a new name is often one that just started. Spinner
     // frames that clean to the same title do not ask again.
     if (pollSoon) this.shellForeground.pollSoon()
