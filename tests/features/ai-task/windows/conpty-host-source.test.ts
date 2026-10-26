@@ -97,6 +97,14 @@ describe('ConPTY host environment', () => {
     expect(source.indexOf('TakeEnvironment("THEN_SHELL")')).toBeLessThan(source.indexOf('ClearHostEnvironment();'))
   })
 
+  test('starts no shell once the terminal was closed, and reports a shell that cannot start as a host failure', () => {
+    const source = CONPTY_HOST_CSHARP
+    // Terminate() marks the console under the same lock Spawn() starts a process in.
+    expect(source).toMatch(/public void Terminate\(\)\s*\{\s*lock \(sync\)\s*\{\s*terminated = true;/)
+    expect(source).toMatch(/public bool Spawn\(string commandLine\)\s*\{\s*lock \(sync\)\s*\{\s*if \(terminated\)\s*\{\s*return false;/)
+    expect(source).toContain('if (handoffFailed || !GetExitCodeProcess(console.Process, out exitCode))')
+  })
+
   test('probe mode carries no session', () => {
     expect(buildConPtyHostEnv({ probe: true })).toEqual({
       [CONPTY_HOST_SOURCE_ENV]: getEncodedConPtyHostSource(),

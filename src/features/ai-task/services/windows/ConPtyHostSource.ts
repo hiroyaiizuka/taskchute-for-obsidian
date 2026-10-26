@@ -291,21 +291,27 @@ namespace TaskChute
             WaitForSingleObject(console.Process, INFINITE);
             // Like the POSIX bootstrap's exec "$SHELL" -i -l: once the CLI
             // exits, a shell takes over the same terminal, and the session
-            // ends with it. A shell that cannot start ends it now.
+            // ends with it. Not after the plugin closed the terminal (the
+            // CLI exited because it was stopped), and a shell that cannot
+            // start ends the session as a host failure, not as the CLI's.
+            bool handoffFailed = false;
             if (!string.IsNullOrEmpty(thenShell))
             {
                 try
                 {
-                    console.Spawn(thenShell);
-                    WaitForSingleObject(console.Process, INFINITE);
+                    if (console.Spawn(thenShell))
+                    {
+                        WaitForSingleObject(console.Process, INFINITE);
+                    }
                 }
                 catch (Exception error)
                 {
+                    handoffFailed = true;
                     WriteText(GetStdHandle(STD_ERROR_HANDLE), "TaskChute ConPTY host: " + error.Message + "\r\n");
                 }
             }
             uint exitCode;
-            if (!GetExitCodeProcess(console.Process, out exitCode))
+            if (handoffFailed || !GetExitCodeProcess(console.Process, out exitCode))
             {
                 exitCode = (uint)HostFailureExitCode;
             }
@@ -375,6 +381,7 @@ namespace TaskChute
             private IntPtr job;
             private readonly object sync = new object();
             private bool closed;
+            private bool terminated;
 
             public static PseudoConsole Start(string commandLine, short cols, short rows)
             {
@@ -433,9 +440,24 @@ namespace TaskChute
             /**
              * Start a process attached to this pseudo console. The first one is
              * the CLI; a terminal that keeps going after it starts the shell
-             * here once it exits (RunSession).
+             * here once it exits (RunSession). False, with nothing started,
+             * once Terminate() has run. Terminate() waits for a start in
+             * progress, so the process it starts is ended with the rest.
              */
-            public void Spawn(string commandLine)
+            public bool Spawn(string commandLine)
+            {
+                lock (sync)
+                {
+                    if (terminated)
+                    {
+                        return false;
+                    }
+                    SpawnLocked(commandLine);
+                    return true;
+                }
+            }
+
+            private void SpawnLocked(string commandLine)
             {
                 IntPtr attributes = IntPtr.Zero;
                 try
@@ -521,6 +543,10 @@ namespace TaskChute
 
             public void Terminate()
             {
+                lock (sync)
+                {
+                    terminated = true;
+                }
                 if (job != IntPtr.Zero && TerminateJobObject(job, 1))
                 {
                     return;
