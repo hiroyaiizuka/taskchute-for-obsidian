@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeFakeClaude, SHELL_TERMINALS } from "../helpers/aiTask"
+import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeFakeClaude } from "../helpers/aiTask"
 
 // LEV-376: a tab says what it holds. An AI task's tab carries the task's name
 // (the same as its sidebar row); a + terminal says "Terminal" until a program
@@ -107,16 +107,18 @@ test("an AI task's tab shows the task name, and a + terminal is named after what
   await expect(taskTab.locator(".ai-run-pane__tab-label")).toHaveAttribute("title", TASK_NAME)
   await expect(page.locator(".ai-run-pane__run .ai-run-pane__run-name").first()).toHaveText(TASK_NAME)
 
-  // Windows has no + terminals; the rest is about them.
-  if (!SHELL_TERMINALS) return
-
   // + opens a shell next to the task's tab: just "Terminal".
   await page.locator(".ai-run-pane__add").first().click()
   await expect.poll(() => shellRunId(page), { timeout: 15_000 }).not.toBeNull()
   const runId = (await shellRunId(page))!
   const shellLabel = page.locator(`.ai-run-pane__tab[data-run-id="${runId}"] .ai-run-pane__tab-label`)
+  // Windows opens PowerShell, whose prompt starts with "PS ".
+  const prompt = process.platform === "win32" ? "PS " : "e2e$"
+  await expect.poll(() => terminalOutput(page, runId), { timeout: 15_000 }).toContain(prompt)
+  // On Windows the tab still shows the title PowerShell sets (its own path):
+  // naming it after the program in it is LEV-402's next step.
+  if (process.platform === "win32") return
   await expect(shellLabel).toHaveText("Terminal")
-  await expect.poll(() => terminalOutput(page, runId), { timeout: 15_000 }).toContain("e2e$")
 
   // A program names itself and keeps running: the tab takes its title.
   await typeInto(page, runId, "printf '\\033]0;E2E title\\007'; sleep 8\r")

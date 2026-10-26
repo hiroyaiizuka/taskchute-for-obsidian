@@ -279,6 +279,34 @@ describe('AiRunPaneController split panels', () => {
       expect(container.querySelector('.ai-run-pane__actions')).not.toBeNull()
     })
 
+    test('draws + and split once the Windows probe proves shell sessions, in their usual places', async () => {
+      let supported = false
+      let settle: () => void = () => undefined
+      Object.assign(manager, {
+        supportsShellSessions: () => supported,
+        settleShellSessionSupport: () =>
+          new Promise<void>((resolve) => {
+            settle = () => {
+              supported = true
+              resolve()
+            }
+          }),
+      })
+      controller.mount(container)
+      manager.emit(createRun())
+      expect(splitButton()).toBeNull()
+
+      settle()
+      await Promise.resolve()
+      await Promise.resolve()
+
+      const add = container.querySelector('.ai-run-pane__add')
+      const actions = container.querySelector('.ai-run-pane__actions')
+      expect(add?.nextElementSibling).toBe(actions)
+      expect(actions?.firstElementChild).toBe(splitButton())
+      expect(container.querySelectorAll('.ai-run-pane__add')).toHaveLength(1)
+    })
+
     test('keeps split local to the panel and expand global in the AI Runs header', () => {
       controller.mount(container)
       manager.emit(createRun())

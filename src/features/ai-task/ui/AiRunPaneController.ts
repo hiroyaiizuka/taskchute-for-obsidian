@@ -193,6 +193,7 @@ export interface AiRunPaneManagerLike {
   supportsSessionResume?(): boolean
   /** Settles supportsSessionResume() (the Windows ConPTY probe). */
   settleSessionResumeSupport?(): Promise<void>
+  settleShellSessionSupport?(): Promise<void>
   /** Resume a past agent session in a new terminal tab. */
   resumeAgentSession?(options: AiSessionResumeOptions): Promise<AiRunRecord>
   /**
@@ -757,6 +758,12 @@ export class AiRunPaneController {
     const primary = this.createPanel(null)
     this.focusPanel(primary)
     this.mountComposer(content)
+    // On Windows, whether + and split can run is known once the ConPTY probe
+    // settles; the panels drawn before then get their controls now.
+    void this.host.manager.settleShellSessionSupport?.().then(() => {
+      if (!this.panelsEl) return
+      for (const panel of this.panels) this.renderShellControls(panel)
+    })
 
     // Restore the per-device expanded preference (not a user toggle: nothing
     // is re-persisted).
@@ -1463,35 +1470,8 @@ export class AiRunPaneController {
       }
     })
 
-    // Both controls only spawn shell sessions.
-    const shellSessionsSupported =
-      this.host.manager.supportsShellSessions?.() !== false
-    if (shellSessionsSupported) {
-      const addLabel = this.host.tv('aiTask.newShell', 'New terminal session')
-      const addButton = tabstrip.createEl('button', {
-        cls: 'ai-run-pane__add',
-        attr: { 'aria-label': addLabel, title: addLabel },
-      })
-      setIcon(addButton, 'plus')
-      addButton.addEventListener('click', (event) => {
-        event.stopPropagation()
-        this.handleNewShell(panel)
-      })
-    }
-
-    const actions = tabstrip.createDiv({ cls: 'ai-run-pane__actions' })
-    if (shellSessionsSupported) {
-      const splitLabel = this.host.tv('aiTask.splitPane', 'Split the run pane')
-      const splitButton = actions.createEl('button', {
-        cls: 'ai-run-pane__split',
-        attr: { 'aria-label': splitLabel, title: splitLabel },
-      })
-      setIcon(splitButton, 'columns-2')
-      splitButton.addEventListener('click', (event) => {
-        event.stopPropagation()
-        this.handleSplit(panel)
-      })
-    }
+    tabstrip.createDiv({ cls: 'ai-run-pane__actions' })
+    this.renderShellControls(panel)
     panel.bodiesEl = el.createDiv({ cls: 'ai-run-pane__bodies' })
 
     const afterIndex = afterPanel ? this.panels.indexOf(afterPanel) : -1
@@ -1503,6 +1483,42 @@ export class AiRunPaneController {
     this.syncTaskWorkspaceVisibility()
     this.refreshPanelsSplitState()
     return panel
+  }
+
+  /**
+   * + and split, where shell sessions can run. Both only spawn shell
+   * sessions. Idempotent: on Windows the answer is known once the ConPTY
+   * probe settles, so mount() calls this again for every panel then.
+   */
+  private renderShellControls(panel: PanelView): void {
+    if (this.host.manager.supportsShellSessions?.() === false) return
+    const tabstrip = panel.tabsEl.parentElement
+    const actions = tabstrip?.querySelector<HTMLElement>(':scope > .ai-run-pane__actions')
+    if (!tabstrip || !actions || tabstrip.querySelector('.ai-run-pane__add')) return
+
+    const addLabel = this.host.tv('aiTask.newShell', 'New terminal session')
+    const addButton = tabstrip.createEl('button', {
+      cls: 'ai-run-pane__add',
+      attr: { 'aria-label': addLabel, title: addLabel },
+    })
+    tabstrip.insertBefore(addButton, actions)
+    setIcon(addButton, 'plus')
+    addButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.handleNewShell(panel)
+    })
+
+    const splitLabel = this.host.tv('aiTask.splitPane', 'Split the run pane')
+    const splitButton = actions.createEl('button', {
+      cls: 'ai-run-pane__split',
+      attr: { 'aria-label': splitLabel, title: splitLabel },
+    })
+    actions.prepend(splitButton)
+    setIcon(splitButton, 'columns-2')
+    splitButton.addEventListener('click', (event) => {
+      event.stopPropagation()
+      this.handleSplit(panel)
+    })
   }
 
   /**

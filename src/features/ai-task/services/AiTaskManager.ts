@@ -291,7 +291,7 @@ export interface AiTaskManagerDeps {
     /** Settles isSupported() (the Windows ConPTY probe). Never rejects. */
     ensureSupported?(): Promise<void>
     getUnavailableReason?(): string | undefined
-    /** False on Windows, where ConPTY hosts AI runs only. Absent = true. */
+    /** False where plain shell sessions cannot run. Absent = true. */
     shellSessionsSupported?: boolean
     windowsPty?: { backend: 'conpty'; buildNumber?: number }
     /** Gateway helper: unique transcript path in the OS temp directory */
@@ -304,6 +304,8 @@ export interface AiTaskManagerDeps {
      * fakes keep working; without it shell sessions are unavailable.
      */
     getShellPath?(): string
+    /** Arguments for that shell. Absent = SHELL_SESSION_ARGS (an interactive login shell). */
+    getShellArgs?(): readonly string[]
     /**
      * What runs in the foreground of a live shell session (by transcript
      * path), for its tab name. Absent where it cannot be told (Windows): the
@@ -1346,7 +1348,7 @@ export class AiTaskManager {
           binaryPath: shellPath,
           prompt: '',
           cwd: internal.cwd,
-          extraArgs: [...SHELL_SESSION_ARGS],
+          extraArgs: [...(terminal.getShellArgs?.() ?? SHELL_SESSION_ARGS)],
           rows: record.rows ?? DEFAULT_TERMINAL_ROWS,
           cols: record.cols ?? DEFAULT_TERMINAL_COLS,
           transcriptPath: record.transcriptPath ?? '',
@@ -1409,6 +1411,11 @@ export class AiTaskManager {
 
   /** Waits for the Windows ConPTY probe, so supportsSessionResume() gives its real answer. */
   async settleSessionResumeSupport(): Promise<void> {
+    await this.ensureTerminalSupportSettled('terminal')
+  }
+
+  /** Waits for the Windows ConPTY probe, so supportsShellSessions() gives its real answer. */
+  async settleShellSessionSupport(): Promise<void> {
     await this.ensureTerminalSupportSettled('terminal')
   }
 

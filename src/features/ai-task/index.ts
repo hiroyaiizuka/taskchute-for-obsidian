@@ -34,6 +34,7 @@ import { BrokerTerminalDispatcher } from './services/dispatchers/BrokerTerminalD
 import { TerminalSessionBrokerClient } from './services/TerminalSessionBroker'
 import { WorkspaceFileService } from './services/WorkspaceFileService'
 import { createShellForegroundProbe } from './services/terminal-title/ShellForegroundProbe'
+import { WINDOWS_SHELL_ARGS } from './services/windows/WindowsInteractiveShell'
 import { RecipeService } from '../recipe/services/RecipeService'
 import { RecipeContextProvider } from '../recipe/services/RecipeContextProvider'
 import { AiRunSessionStateStore } from './services/AiRunSessionStateStore'
@@ -241,7 +242,6 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
         }
       },
       getUnavailableReason: () => gateway.getPtyUnavailableReason(),
-      shellSessionsSupported: !conpty,
       ...(conpty
         ? {
             windowsPty: {
@@ -252,8 +252,14 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
         : {}),
       makeTempFilePath: (prefix: string) => gateway.makeTempFilePath(prefix),
       readAndDeleteFile: (path: string) => gateway.readAndDeleteFile(path),
-      // Plain shell sessions (U2 split panels) spawn the user's login shell.
-      getShellPath: () => gateway.getShellPath(),
+      // Plain shell sessions (+ and split) spawn the user's login shell; on
+      // Windows, PowerShell (see WindowsInteractiveShell).
+      ...(conpty
+        ? {
+            getShellPath: () => gateway.getWindowsInteractiveShellPath(),
+            getShellArgs: () => WINDOWS_SHELL_ARGS,
+          }
+        : { getShellPath: () => gateway.getShellPath() }),
       // Their tabs are named after the program in the foreground (POSIX `ps`).
       ...(conpty
         ? {}

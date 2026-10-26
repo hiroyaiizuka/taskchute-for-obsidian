@@ -34,6 +34,7 @@ import {
   parseWindowsBuildNumber,
 } from './windows/ConPtyHostSource'
 import { buildWindowsCommandLine } from './windows/WindowsCommandLine'
+import { resolveWindowsInteractiveShell } from './windows/WindowsInteractiveShell'
 
 // Ambient declarations for the Electron renderer runtime (no @types/node in
 // the src build). These shadow nothing at runtime; they only inform tsc.
@@ -280,6 +281,7 @@ interface OsModuleLike {
 }
 
 interface FsModuleLike {
+  accessSync(path: string): void
   readFileSync(path: string, encoding: 'utf8'): string
   writeFileSync(path: string, data: string, options: { mode: number; flag: 'wx' }): void
   promises: {
@@ -1374,6 +1376,23 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     // desktops, and a missing fallback shell would make every shell-session
     // spawn fail when $SHELL is unset.
     return '/bin/sh'
+  }
+
+  /**
+   * The shell a + terminal opens on Windows: PowerShell 7 when installed,
+   * otherwise Windows PowerShell (see WindowsInteractiveShell).
+   */
+  getWindowsInteractiveShellPath(): string {
+    return resolveWindowsInteractiveShell(process.env, (path) => {
+      // Not existsSync: a Microsoft Store pwsh.exe is an app execution alias,
+      // which stat (and so existsSync) cannot read, but access can.
+      try {
+        loadFsModule().accessSync(path)
+        return true
+      } catch {
+        return false
+      }
+    })
   }
 
   /** Runtime platform seam used by the cross-platform CLI locator tests. */

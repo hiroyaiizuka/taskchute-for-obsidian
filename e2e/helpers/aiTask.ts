@@ -32,12 +32,6 @@ export function writeFakeClaude(dir: string, behaviour: FakeClaudeBehaviour): st
   return writeNodeCli(dir, `claude-${behaviour}`, source)
 }
 
-/**
- * Whether the pane offers + (and split) shell terminals. Windows terminals
- * run on ConPTY without the broker and host AI runs only.
- */
-export const SHELL_TERMINALS = process.platform !== "win32"
-
 /** Skips the running test on Windows, where there is no broker to test. */
 export function skipWithoutBroker(): void {
   test.skip(process.platform === "win32", "Windows terminals run without the broker")

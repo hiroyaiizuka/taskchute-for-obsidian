@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeFakeClaude, writeNodeCli, SHELL_TERMINALS, skipWithoutBroker } from "../helpers/aiTask"
+import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeFakeClaude, writeNodeCli } from "../helpers/aiTask"
 
 // LEV-320: past agent sessions of the vault's folder, listed in the AI pane
 // and resumed in a new terminal tab. Obsidian gets a home folder of its own,
@@ -289,8 +289,7 @@ test("closing a task's own tab keeps the tabs opened beside it, and its row", as
   await expect(sidebarRow("AI Weekly Review")).toHaveCount(1)
   const journalRunId = (await sidebarRow("AI Weekly Journal").getAttribute("data-run-id"))!
 
-  // AI Weekly Journal, a session resumed beside it, and a + terminal where
-  // the pane has one (not on Windows).
+  // AI Weekly Journal, a session resumed beside it, and a + terminal.
   await sidebarRow("AI Weekly Journal").click()
   await expect.poll(() => tabRunIds(page)).toEqual([journalRunId])
   await openHistory(page)
@@ -298,10 +297,8 @@ test("closing a task's own tab keeps the tabs opened beside it, and its row", as
   await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(1)
   const [resumed] = await childRunIds(page, journalRunId)
   await page.locator(".ai-run-pane__sidebar-history").click()
-  if (SHELL_TERMINALS) {
-    await page.locator(".ai-run-pane__panel:not([hidden]) .ai-run-pane__add").click()
-    await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(2)
-  }
+  await page.locator(".ai-run-pane__panel:not([hidden]) .ai-run-pane__add").click()
+  await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(2)
   const beside = await childRunIds(page, journalRunId)
   await expect.poll(() => tabRunIds(page)).toEqual([journalRunId, ...beside])
 
@@ -354,17 +351,14 @@ test("the row's × asks first, then closes every tab of the row", async ({ obsid
   const journalRunId = (await sidebarRow("AI Weekly Journal").getAttribute("data-run-id"))!
   const reviewRunId = (await sidebarRow("AI Weekly Review").getAttribute("data-run-id"))!
 
-  // AI Weekly Journal, a session resumed beside it, and a + terminal where
-  // the pane has one (not on Windows).
+  // AI Weekly Journal, a session resumed beside it, and a + terminal.
   await sidebarRow("AI Weekly Journal").click()
   await openHistory(page)
   await page.locator(".ai-session-history__row", { hasText: "引っ越しの準備" }).locator(".ai-session-history__resume").click()
   await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(1)
   await page.locator(".ai-run-pane__sidebar-history").click()
-  if (SHELL_TERMINALS) {
-    await page.locator(".ai-run-pane__panel:not([hidden]) .ai-run-pane__add").click()
-    await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(2)
-  }
+  await page.locator(".ai-run-pane__panel:not([hidden]) .ai-run-pane__add").click()
+  await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(2)
   const rowRunIds = [journalRunId, ...(await childRunIds(page, journalRunId))]
   const allRunning = rowRunIds.map(() => "running")
   await expect.poll(() => tabRunIds(page)).toEqual(rowRunIds)
@@ -440,7 +434,6 @@ test("closing the task on screen shows the next task's terminal at once", async 
 // switches the pane to that task; the terminals must keep a row of their own
 // to come back to (and to close), not run on with no way back.
 test("terminals opened with no task keep a row of their own once a task starts", async ({ obsidian, home }, testInfo) => {
-  skipWithoutBroker()
   const { page } = obsidian
   const vault = await page.evaluate(() => (window.app.vault.adapter as unknown as { getBasePath(): string }).getBasePath())
   writeSessions(home!, vault)
