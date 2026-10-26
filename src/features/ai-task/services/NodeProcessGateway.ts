@@ -281,7 +281,7 @@ interface OsModuleLike {
 }
 
 interface FsModuleLike {
-  existsSync(path: string): boolean
+  accessSync(path: string): void
   readFileSync(path: string, encoding: 'utf8'): string
   writeFileSync(path: string, data: string, options: { mode: number; flag: 'wx' }): void
   promises: {
@@ -1384,8 +1384,11 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
    */
   getWindowsInteractiveShellPath(): string {
     return resolveWindowsInteractiveShell(process.env, (path) => {
+      // Not existsSync: a Microsoft Store pwsh.exe is an app execution alias,
+      // which stat (and so existsSync) cannot read, but access can.
       try {
-        return loadFsModule().existsSync(path)
+        loadFsModule().accessSync(path)
+        return true
       } catch {
         return false
       }
