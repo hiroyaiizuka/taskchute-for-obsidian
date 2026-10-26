@@ -7,6 +7,7 @@ import { POSIX_PROCESS_SNAPSHOT_SOURCE } from './broker-source/PosixProcessSnaps
 import {
   gzipBase64,
   INFLATE_PROGRAM_SOURCE,
+  stripCommentLines,
 } from './broker-source/EmbeddedProgramSource'
 import { PROGRAM_PIPE_LOADER_SOURCE } from './broker-source/ProgramPipeLoaderSource'
 
@@ -238,7 +239,7 @@ let cachedBrokerSource: string | undefined
 
 export function buildTerminalBrokerSource(): string {
   if (cachedBrokerSource !== undefined) return cachedBrokerSource
-  cachedBrokerSource = String.raw`
+  cachedBrokerSource = stripCommentLines(String.raw`
 'use strict';
 const net = require('net');
 const fs = require('fs');
@@ -2221,6 +2222,6 @@ startOwnerWatchdog(() => {
 server.on('error', () => shutdown(false));
 process.on('SIGTERM', () => shutdown(false));
 process.on('SIGINT', () => shutdown(false));
-`
+`)
   return cachedBrokerSource
 }

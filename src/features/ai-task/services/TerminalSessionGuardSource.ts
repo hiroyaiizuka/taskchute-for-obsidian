@@ -1,5 +1,6 @@
 import { OWNER_SENTINEL_PROBE_SOURCE } from './broker-source/OwnerSentinelProbeSource'
 import { POSIX_PROCESS_SNAPSHOT_SOURCE } from './broker-source/PosixProcessSnapshotSource'
+import { stripCommentLines } from './broker-source/EmbeddedProgramSource'
 
 /**
  * Per-session supervisor used by the renderer-independent terminal broker.
@@ -9,7 +10,7 @@ import { POSIX_PROCESS_SNAPSHOT_SOURCE } from './broker-source/PosixProcessSnaps
  * guard is still alive and still has the target PID in memory. This closes
  * the otherwise unavoidable spawn-to-owner-record window.
  */
-export const TERMINAL_SESSION_GUARD_SOURCE = String.raw`
+export const TERMINAL_SESSION_GUARD_SOURCE = stripCommentLines(String.raw`
 'use strict';
 const cp = require('child_process');
 const fs = require('fs');
@@ -806,4 +807,4 @@ target.on('close', (code, signal) => {
   }
 });
 process.stdin.resume();
-`
+`)

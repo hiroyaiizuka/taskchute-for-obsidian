@@ -5,6 +5,7 @@ import { OWNER_SENTINEL_PROBE_SOURCE } from '@/features/ai-task/services/broker-
 import { POSIX_PROCESS_SNAPSHOT_SOURCE } from '@/features/ai-task/services/broker-source/PosixProcessSnapshotSource'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
 import { LSTART, LSTART_EPOCH_MS } from './psSnapshots'
+import { stripCommentLines } from '@/features/ai-task/services/broker-source/EmbeddedProgramSource'
 
 /**
  * The watchdog's reap reasoning, exercised as the pure function it now is.
@@ -142,9 +143,9 @@ const classify = (overrides: Record<string, unknown> = {}): Verdict =>
   })
 
 describe('reap plan fragment composition', () => {
-  test('the shipped watchdog program embeds the fragment verbatim', () => {
+  test('the shipped watchdog program embeds the fragment verbatim, comment lines aside', () => {
     expect(TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE).toContain(
-      OWNER_REAP_PLAN_SOURCE,
+      stripCommentLines(OWNER_REAP_PLAN_SOURCE),
     )
   })
 

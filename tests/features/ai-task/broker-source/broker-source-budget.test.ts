@@ -34,14 +34,13 @@ const MAX_ARG_STRLEN = 32 * 4096
  * Because the guard and watchdog reach the broker compressed, roughly 3KB of
  * growth in either of them costs the broker 1KB.
  *
- * The broker sits ~1KB under this budget and ~12KB under the kernel limit
- * (October 2026). It had ~13KB of cushion before the owner-reap logic was split
- * into testable fragments, which cost ~6KB across the three programs — the
- * shared code is spliced into each of them, so deduplicating it saves less than
- * it reads like. LEV-379 and LEV-378 had to move comments out of the broker
- * template into the "Note A…Y" block beside buildTerminalBrokerSource to fit.
- * Anything approaching this budget again should move text out of the templates
- * rather than raise it: comments inside them ship inside argv.
+ * The broker sat ~1KB under this budget (October 2026) until LEV-404 began
+ * dropping whole-line comments from all three programs (stripCommentLines):
+ * it now sits ~16KB under. Before that, LEV-379 and LEV-378 had to move
+ * comments out of the broker template into the "Note A…Z" block beside
+ * buildTerminalBrokerSource to fit; that block still keeps the templates
+ * readable. Anything approaching this budget again should move code, not
+ * comments, rather than raise it: comments no longer ship.
  */
 const PROGRAM_BUDGET = 120_000
 
@@ -93,6 +92,23 @@ describe('compressed program transport', () => {
     expect(buildTerminalBrokerSource().indexOf(INFLATE_PROGRAM_SOURCE)).toBeLessThan(
       buildTerminalBrokerSource().indexOf('inflateProgram('.concat('"')),
     )
+  })
+})
+
+/**
+ * stripCommentLines treats every line that starts with `//` as a comment. That
+ * holds only while no program has a string spanning lines; a backtick or a
+ * trailing backslash would let a `//` line be string content.
+ */
+describe('comment stripping', () => {
+  test.each([
+    ['broker', buildTerminalBrokerSource()],
+    ['session guard', TERMINAL_SESSION_GUARD_SOURCE],
+    ['owner watchdog', TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE],
+  ])('the %s program has no string that spans lines, and ships no comment line', (_name, source) => {
+    expect(source).not.toContain('`')
+    expect(source.split('\n').filter((line) => line.endsWith('\\'))).toEqual([])
+    expect(source.split('\n').filter((line) => /^\s*\/\//u.test(line))).toEqual([])
   })
 })
 

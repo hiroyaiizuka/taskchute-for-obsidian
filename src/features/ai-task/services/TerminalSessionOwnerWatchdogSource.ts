@@ -1,6 +1,7 @@
 import { OWNER_REAP_PLAN_SOURCE } from './broker-source/OwnerReapPlanSource'
 import { OWNER_SENTINEL_PROBE_SOURCE } from './broker-source/OwnerSentinelProbeSource'
 import { POSIX_PROCESS_SNAPSHOT_SOURCE } from './broker-source/PosixProcessSnapshotSource'
+import { stripCommentLines } from './broker-source/EmbeddedProgramSource'
 
 /**
  * Broker-independent process owner watchdog.
@@ -17,7 +18,7 @@ import { POSIX_PROCESS_SNAPSHOT_SOURCE } from './broker-source/PosixProcessSnaps
  * reasoning about ownership lives there, where it can be tested without
  * crashing a broker on a real OS.
  */
-export const TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE = String.raw`
+export const TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE = stripCommentLines(String.raw`
 'use strict';
 const fs = require('fs');
 const cp = require('child_process');
@@ -410,4 +411,4 @@ process.stdin.on('close', finishAfterPipeClose);
 process.stdin.on('error', finishAfterPipeClose);
 process.stdin.resume();
 try { process.stdout.write('READY\n'); } catch (_) { process.exit(70); }
-`
+`)
