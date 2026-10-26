@@ -142,6 +142,67 @@ describe('ShellTitleTracker', () => {
     expect(record.terminalTitle).toBeUndefined()
   })
 
+  test("a title newer than when the answer was last true is kept (Windows' sidecar)", () => {
+    const { tracker, tick, now } = setup()
+    const record = shellRecord()
+    tracker.handleSample(record, { program: null }, now())
+    tick(1000)
+    tracker.handleOutput(record, title('E2E title'), true)
+    tick(200)
+    // The sidecar still says "at the prompt": it was written before cmd started.
+    tracker.handleSample(record, { program: null, observedAt: now() - 1500 }, now())
+    expect(record.terminalTitle).toBe('E2E title')
+    tick(2000)
+    tracker.handleSample(record, { program: { pid: 300, name: 'cmd' }, observedAt: now() - 1500 }, now())
+    expect(record.terminalLabel).toBe('E2E title')
+  })
+
+  test('back to back: a title that came after the next program started is its own', () => {
+    const { tracker, tick, now } = setup()
+    const record = shellRecord()
+    tracker.handleSample(record, { program: { pid: 300, name: 'git' } }, now())
+    // git exits; npm starts and names itself before an answer shows npm.
+    tick(500)
+    const npmStartedAt = now()
+    tick(100)
+    tracker.handleOutput(record, title('npm run build'), true)
+    tick(2000)
+    tracker.handleSample(record, { program: { pid: 400, name: 'npm', startedAt: npmStartedAt } }, now())
+    expect(record.terminalTitle).toBe('npm run build')
+    tick(2000)
+    tracker.handleSample(record, { program: { pid: 400, name: 'npm', startedAt: npmStartedAt } }, now())
+    expect(record.terminalLabel).toBe('npm run build')
+  })
+
+  test('a title from before the next program started still goes with the one before', () => {
+    const { tracker, tick, now } = setup()
+    const record = shellRecord()
+    tracker.handleSample(record, { program: CLAUDE }, now())
+    tick(10)
+    tracker.handleOutput(record, title('ID63 書き直し'), true)
+    tick(500)
+    const vimStartedAt = now()
+    tick(1500)
+    tracker.handleSample(record, { program: { ...VIM, startedAt: vimStartedAt } }, now())
+    expect(record.terminalTitle).toBeUndefined()
+    expect(record.terminalLabel).toBe('vim')
+  })
+
+  test("the shell's own path as a title is no title (PowerShell on Windows)", () => {
+    const { tracker, tick, now } = setup()
+    const record = shellRecord()
+    const pwsh = 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe'
+    tracker.handleOutput(record, title('C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.9.0_x64\\pwsh.exe'), true, pwsh)
+    tracker.handleSample(record, { program: { pid: 300, name: 'ping' } }, now())
+    tick(10)
+    tracker.handleOutput(record, title('C:\\Program Files\\WindowsApps\\Microsoft.PowerShell_7.6.9.0_x64\\pwsh.exe'), true, pwsh)
+    expect(record.terminalTitle).toBeUndefined()
+    expect(record.terminalLabel).toBe('ping')
+    // A title that merely mentions the shell is a program's.
+    tracker.handleOutput(record, title('pwsh.exe tips'), true, pwsh)
+    expect(record.terminalLabel).toBe('pwsh.exe tips')
+  })
+
   test('a program with no title and no meaningful name leaves "Terminal"', () => {
     const { tracker, now } = setup()
     const record = shellRecord()

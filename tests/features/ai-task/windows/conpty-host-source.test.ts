@@ -103,6 +103,10 @@ describe('ConPTY host environment', () => {
     expect(source).toMatch(/public void Terminate\(\)\s*\{\s*lock \(sync\)\s*\{\s*terminated = true;/)
     expect(source).toMatch(/public bool Spawn\(string commandLine\)\s*\{\s*lock \(sync\)\s*\{\s*if \(terminated\)\s*\{\s*return false;/)
     expect(source).toContain('if (handoffFailed || !GetExitCodeProcess(console.Process, out exitCode))')
+    // The tab-name watcher follows the shell that took over, and stops after it.
+    expect(source).toMatch(/Process = process\.hProcess;\s*ProcessId = process\.dwProcessId;/)
+    expect(source).toMatch(/int current = console\.ProcessId;\s*if \(current != shellPid\)/)
+    expect(source.indexOf('foreground.Stop();')).toBeGreaterThan(source.indexOf('console.Spawn(thenShell)'))
   })
 
   test('lets Ctrl+C reach the CLI even when the host was started with it ignored', () => {

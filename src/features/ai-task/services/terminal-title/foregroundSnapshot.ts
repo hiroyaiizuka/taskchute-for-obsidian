@@ -23,11 +23,19 @@
 export interface ForegroundProgram {
   pid: number
   name: string | undefined
+  /** When it started (ms since the epoch), where the probe can tell (Windows). */
+  startedAt?: number
 }
 
 /** `program` is null while the shell is at its prompt. */
 export interface ShellForegroundSample {
   program: ForegroundProgram | null
+  /**
+   * When the answer was last known to be true, if earlier than the probe
+   * (a sidecar the ConPTY host refreshes on its own clock). Titles that
+   * arrived after this are not judged by it.
+   */
+  observedAt?: number
 }
 
 export interface PsRow {
@@ -78,6 +86,7 @@ const LAUNCHERS: ReadonlySet<string> = new Set([
   'node', 'nodejs', 'bun', 'deno', 'npx', 'env', 'exec',
   'python', 'python3', 'ruby', 'perl', 'java',
   'sh', 'bash', 'zsh', 'dash', 'fish', 'ksh', 'mksh', 'tcsh', 'csh',
+  'cmd',
 ])
 
 const SCRIPT_EXTENSION = /\.(?:c?js|mjs|ts|exe|cmd|py|rb|pl)$/iu
@@ -103,7 +112,54 @@ function agentIn(token: string): string | undefined {
  * meaningful is left: the tab then says "Terminal".
  */
 export function programNameFromArgs(args: string): string | undefined {
-  const tokens = args.trim().split(/\s+/u).slice(0, 8)
+  return programNameFromTokens(args.trim().split(/\s+/u))
+}
+
+/**
+ * The same for a Windows command line, as the ConPTY host reads it: quoted
+ * words may hold spaces, paths use backslashes, and `.exe` / `.cmd` / `.bat`
+ * are part of the name (`"C:\\Program Files\\nodejs\\node.exe" …\\cli.js`,
+ * `cmd.exe /d /s /c "claude.cmd"`).
+ */
+export function programNameFromWindowsCommandLine(commandLine: string): string | undefined {
+  const tokens = windowsTokens(commandLine)
+  // cmd.exe /c runs the rest of the line. Like cmd, take off the quotes
+  // around it — `cmd.exe /d /s /c ""C:\\…\\npm.cmd" run build"` — unless
+  // there is no /s and they are the only pair, around one path:
+  // `cmd.exe /c "C:\\Program Files\\Example\\server.exe"` keeps them.
+  const command = /^(.*?)\s\/[ck]\s+(.*)$/iu.exec(commandLine)
+  if (tokens[0] !== undefined && basename(tokens[0]).toLowerCase() === 'cmd' && command) {
+    const switches = command[1]
+    const rest = command[2].trim()
+    const wrapped = rest.length >= 2 && rest.startsWith('"') && rest.endsWith('"')
+    // cmd also checks the quoted words name a file; one path ending in an
+    // executable's extension, with nothing after it, stands in for that.
+    const onePath =
+      !/\s\/s(?:\s|$)/iu.test(switches) &&
+      (rest.match(/"/gu) ?? []).length === 2 &&
+      /^"[^"&|<>]*[\\/][^"&|<>]*\.(?:exe|com|bat|cmd)"$/iu.test(rest)
+    return programNameFromTokens(windowsTokens(wrapped && !onePath ? rest.slice(1, -1) : rest))
+  }
+  return programNameFromTokens(tokens)
+}
+
+function windowsTokens(commandLine: string): string[] {
+  const tokens: string[] = []
+  for (const match of commandLine.matchAll(/(?:"[^"]*"|[^\s"])+/gu)) {
+    const token = match[0]
+      .replace(/"/gu, '')
+      .trim()
+      .replace(/\\/gu, '/')
+      .replace(/\.(?:exe|cmd|bat)$/iu, '')
+      // A switch (`/c`, `/d`) is a flag, like `-c`.
+      .replace(/^\/(?=[^/]*$)/u, '-')
+    if (token.length > 0) tokens.push(token)
+  }
+  return tokens
+}
+
+function programNameFromTokens(allTokens: readonly string[]): string | undefined {
+  const tokens = allTokens.slice(0, 8)
   for (const token of tokens) {
     const agent = agentIn(token)
     if (agent) return agent
@@ -111,7 +167,7 @@ export function programNameFromArgs(args: string): string | undefined {
   for (const [index, token] of tokens.entries()) {
     if (index > 0 && token.startsWith('-')) continue
     const base = basename(token)
-    if (base.length === 0 || LAUNCHERS.has(base) || VERSION_LIKE.test(base)) continue
+    if (base.length === 0 || LAUNCHERS.has(base.toLowerCase()) || VERSION_LIKE.test(base)) continue
     return base
   }
   return undefined

@@ -644,6 +644,11 @@ function getTtySidecarPath(transcriptPath: string): string {
   return `${transcriptPath}.tty`
 }
 
+/** What runs in a ConPTY session's foreground, written by the host (ForegroundWatcher). */
+function getForegroundSidecarPath(transcriptPath: string): string {
+  return `${transcriptPath}.fg`
+}
+
 function isTtyDevicePath(path: string): boolean {
   return path.startsWith('/dev/') && !path.includes('\0') && !/[\r\n]/.test(path)
 }
@@ -1929,6 +1934,16 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     return Promise.resolve(readTtySidecar(transcriptPath))
   }
 
+  /** The ConPTY host's `<transcript>.fg`, or null while it is unavailable. */
+  async readConPtyForeground(transcriptPath: string): Promise<string | null> {
+    if (!isGatewayTempFilePath(transcriptPath)) return null
+    try {
+      return await loadFsModule().promises.readFile(getForegroundSidecarPath(transcriptPath), 'utf8')
+    } catch {
+      return null
+    }
+  }
+
   /**
    * The file is created here, empty, owner-only and exclusively (LEV-388):
    * `script` would create a missing transcript with the umask (often 0644)
@@ -1973,7 +1988,8 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       }
       return await readTranscriptTail(path, size)
     } finally {
-      for (const cleanupPath of [path, getTtySidecarPath(path)]) {
+      const foreground = getForegroundSidecarPath(path)
+      for (const cleanupPath of [path, getTtySidecarPath(path), foreground, `${foreground}.tmp`]) {
         try {
           await fs.unlink(cleanupPath)
         } catch {
