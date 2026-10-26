@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, enableAiTasks, openTaskChute } from "../helpers/aiTask"
+import { PLUGIN_ID, enableAiTasks, openTaskChute, writeNodeCli } from "../helpers/aiTask"
 
 // LEV-314: the AI pane gives the terminal room. By default it takes half of
 // the view under the date row, with a slim header; full screen (⤢) is the
@@ -23,10 +23,7 @@ function prepare(home: string, vault: string, bin: string): string {
       { type: "assistant", cwd: vault, message: { role: "assistant", content: [{ type: "text", text: "読みました。" }] } },
     ].map((line) => JSON.stringify(line)).join("\n") + "\n",
   )
-  fs.mkdirSync(bin, { recursive: true })
-  const claude = path.join(bin, "claude")
-  fs.writeFileSync(claude, "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 })
-  return claude
+  return writeNodeCli(bin, "claude", "setTimeout(() => {}, 60_000)")
 }
 
 /** Heights of the parts that share the view, in CSS pixels. */
@@ -203,9 +200,12 @@ test("the pane's controls share the tab row, the pane is framed like the task li
   const toggleClosed = await box(page, ".ai-run-pane__sidebar-toggle")
   expect(toggleClosed.left).toBeGreaterThanOrEqual(collapse.right)
   expect((await box(page, ".ai-run-pane__panel .ai-run-pane__tabs")).left).toBeGreaterThanOrEqual(toggleClosed.right)
-  expect((await box(page, ".ai-run-pane__split")).right).toBeLessThanOrEqual(
-    (await box(page, ".ai-run-pane__expand")).left,
-  )
+  // Windows terminals run without the broker, so they have no split button.
+  if (process.platform !== "win32") {
+    expect((await box(page, ".ai-run-pane__split")).right).toBeLessThanOrEqual(
+      (await box(page, ".ai-run-pane__expand")).left,
+    )
+  }
 
   // Collapsed, with the sidebar back: the tab row and the sidebar's toolbar
   // stay, still framed like the task list, and the terminal goes. The frame's
