@@ -60,13 +60,23 @@ export class ShellTitleTracker {
 
   constructor(private readonly now: () => number) {}
 
-  handleOutput(record: AiRunRecord, chunk: string, probeAvailable: boolean): ShellOutputResult {
+  /**
+   * `shellPath`: the shell the session runs. A title that is the shell's own
+   * executable path (Windows sets one when PowerShell starts, and again when
+   * a program it ran exits) names the shell, not a program: no title.
+   */
+  handleOutput(
+    record: AiRunRecord,
+    chunk: string,
+    probeAvailable: boolean,
+    shellPath?: string,
+  ): ShellOutputResult {
     const state = this.stateFor(record)
     const raw = state.parser.feed(chunk)
     if (raw === undefined) return { changed: false, pollSoon: false }
     const detecting = this.isDetecting(state, probeAvailable)
     const unknown = detecting && state.foreground === undefined
-    const title = raw.length > 0 ? raw : undefined
+    const title = raw.length > 0 && !isShellOwnTitle(raw, shellPath) ? raw : undefined
     // Spinner frames clean to the same title: nothing new.
     if (title === state.title) return { changed: false, pollSoon: unknown }
     state.title = title
@@ -88,8 +98,9 @@ export class ShellTitleTracker {
     }
     state.failures = 0
     state.foreground = sample.program
-    // A title newer than this ps may belong to a program it did not see yet.
-    if (state.title !== undefined && state.titleAt < probeStartedAt) {
+    // A title newer than this answer may belong to a program it did not see yet.
+    const observedAt = Math.min(sample.observedAt ?? probeStartedAt, probeStartedAt)
+    if (state.title !== undefined && state.titleAt < observedAt) {
       const program = sample.program
       if (program === null || (state.titleOwner !== undefined && state.titleOwner !== program.pid)) {
         // Back at the prompt, or another program now: the title went with its program.
@@ -141,6 +152,14 @@ export class ShellTitleTracker {
     setOptional(record, 'terminalLabel', label)
     return true
   }
+}
+
+/** An absolute path to an executable named like the shell's (`C:\\…\\pwsh.exe`). */
+function isShellOwnTitle(title: string, shellPath: string | undefined): boolean {
+  if (shellPath === undefined) return false
+  const name = (path: string) => path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1).toLowerCase()
+  const absolute = /^(?:[A-Za-z]:[\\/]|\/)/u.test(title.trim())
+  return absolute && name(title.trim()) === name(shellPath)
 }
 
 function setOptional(

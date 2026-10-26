@@ -112,16 +112,20 @@ test("an AI task's tab shows the task name, and a + terminal is named after what
   await expect.poll(() => shellRunId(page), { timeout: 15_000 }).not.toBeNull()
   const runId = (await shellRunId(page))!
   const shellLabel = page.locator(`.ai-run-pane__tab[data-run-id="${runId}"] .ai-run-pane__tab-label`)
-  // Windows opens PowerShell, whose prompt starts with "PS ".
-  const prompt = process.platform === "win32" ? "PS " : "e2e$"
-  await expect.poll(() => terminalOutput(page, runId), { timeout: 15_000 }).toContain(prompt)
-  // On Windows the tab still shows the title PowerShell sets (its own path):
-  // naming it after the program in it is LEV-402's next step.
-  if (process.platform === "win32") return
+  // Windows opens PowerShell, whose prompt starts with "PS ". The title it
+  // sets for itself (its own path) is the shell's, not a program's.
+  const windows = process.platform === "win32"
+  await expect.poll(() => terminalOutput(page, runId), { timeout: 15_000 }).toContain(windows ? "PS " : "e2e$")
   await expect(shellLabel).toHaveText("Terminal")
 
   // A program names itself and keeps running: the tab takes its title.
-  await typeInto(page, runId, "printf '\\033]0;E2E title\\007'; sleep 8\r")
+  await typeInto(
+    page,
+    runId,
+    windows
+      ? 'cmd /c "title E2E title&& ping -n 9 127.0.0.1 >nul"\r'
+      : "printf '\\033]0;E2E title\\007'; sleep 8\r",
+  )
   await expect(shellLabel).toHaveText("E2E title", { timeout: 10_000 })
 
   // It ends; the shell is back at its prompt: "Terminal" again.
