@@ -16,6 +16,9 @@ describe('programNameFromWindowsCommandLine', () => {
     // No /s and one quoted path: cmd keeps the quotes.
     ['cmd.exe /c "C:\\Program Files\\Example\\server.exe"', 'server'],
     ['cmd /c "title E2E title&& ping -n 9 127.0.0.1 >nul"', 'title'],
+    // A quoted command with arguments is a wrapper, even with a path in it.
+    ['cmd.exe /c "git -C C:\\repo log"', 'git'],
+    ['cmd.exe /c "C:\\Windows\\System32\\ping.exe -n 9 127.0.0.1"', 'ping'],
   ])('%s → %s', (commandLine, name) => {
     expect(programNameFromWindowsCommandLine(commandLine)).toBe(name)
   })

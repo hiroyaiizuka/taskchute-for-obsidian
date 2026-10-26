@@ -132,12 +132,12 @@ export function programNameFromWindowsCommandLine(commandLine: string): string |
     const switches = command[1]
     const rest = command[2].trim()
     const wrapped = rest.length >= 2 && rest.startsWith('"') && rest.endsWith('"')
-    // cmd also checks the quoted words name a file; a path with no & | < >
-    // stands in for that.
+    // cmd also checks the quoted words name a file; one path ending in an
+    // executable's extension, with nothing after it, stands in for that.
     const onePath =
       !/\s\/s(?:\s|$)/iu.test(switches) &&
       (rest.match(/"/gu) ?? []).length === 2 &&
-      /^"[^"&|<>]*[\\/][^"&|<>]*"$/u.test(rest)
+      /^"[^"&|<>]*[\\/][^"&|<>]*\.(?:exe|com|bat|cmd)"$/iu.test(rest)
     return programNameFromTokens(windowsTokens(wrapped && !onePath ? rest.slice(1, -1) : rest))
   }
   return programNameFromTokens(tokens)
