@@ -13,6 +13,7 @@ import {
   LSTART_SINGLE_DIGIT_DAY_EPOCH_MS,
   PS_DIALECTS,
 } from './psSnapshots'
+import { stripCommentLines } from '@/features/ai-task/services/broker-source/EmbeddedProgramSource'
 
 /**
  * The broker, guard and watchdog each ship as `node -e <one string>`, so this
@@ -84,9 +85,9 @@ const PROGRAMS = [
 
 describe('posix snapshot fragment composition', () => {
   test.each(PROGRAMS)(
-    'the shipped %s program embeds the fragment verbatim',
+    'the shipped %s program embeds the fragment verbatim, comment lines aside',
     (_name, source) => {
-      expect(source).toContain(POSIX_PROCESS_SNAPSHOT_SOURCE)
+      expect(source).toContain(stripCommentLines(POSIX_PROCESS_SNAPSHOT_SOURCE))
     },
   )
 
@@ -102,7 +103,7 @@ describe('posix snapshot fragment composition', () => {
   // `toContain` alone would still pass if a program grew a second, private copy
   // beside the shared one, which is exactly how the three drifted apart before.
   test.each(PROGRAMS)('%s keeps no private copy of the parser', (_name, source) => {
-    const outsideFragment = source.replace(POSIX_PROCESS_SNAPSHOT_SOURCE, '')
+    const outsideFragment = source.replace(stripCommentLines(POSIX_PROCESS_SNAPSHOT_SOURCE), '')
 
     expect(outsideFragment).not.toMatch(
       /function\s+(?:snapshotIdentity|parsePosixSnapshot)\b/u,

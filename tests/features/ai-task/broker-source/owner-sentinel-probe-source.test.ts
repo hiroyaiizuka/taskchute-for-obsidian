@@ -10,6 +10,7 @@ import { POSIX_PROCESS_SNAPSHOT_SOURCE } from '@/features/ai-task/services/broke
 import { buildTerminalBrokerSource } from '@/features/ai-task/services/TerminalSessionBrokerSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from '@/features/ai-task/services/TerminalSessionGuardSource'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
+import { stripCommentLines } from '@/features/ai-task/services/broker-source/EmbeddedProgramSource'
 
 /**
  * The one place the three programs branch on the host OS.
@@ -83,14 +84,14 @@ const PROGRAMS = [
 
 describe('sentinel probe fragment composition', () => {
   test.each(PROGRAMS)(
-    'the shipped %s program embeds the fragment verbatim',
+    'the shipped %s program embeds the fragment verbatim, comment lines aside',
     (_name, source) => {
-      expect(source).toContain(OWNER_SENTINEL_PROBE_SOURCE)
+      expect(source).toContain(stripCommentLines(OWNER_SENTINEL_PROBE_SOURCE))
     },
   )
 
   test.each(PROGRAMS)('%s keeps no private copy of the probe', (_name, source) => {
-    const outsideFragment = source.replace(OWNER_SENTINEL_PROBE_SOURCE, '')
+    const outsideFragment = source.replace(stripCommentLines(OWNER_SENTINEL_PROBE_SOURCE), '')
 
     expect(outsideFragment).not.toMatch(
       /function\s+(?:canonicalSentinelPath|sentinelState)\b/u,
@@ -106,7 +107,7 @@ describe('sentinel probe fragment composition', () => {
   // the probe but never reaches the fallback is the bug this fragment exists to
   // remove, and it is invisible from the fragment's own tests.
   test.each(PROGRAMS)('%s resolves an unreadable descriptor', (_name, source) => {
-    const outsideFragment = source.replace(OWNER_SENTINEL_PROBE_SOURCE, '')
+    const outsideFragment = source.replace(stripCommentLines(OWNER_SENTINEL_PROBE_SOURCE), '')
 
     expect(outsideFragment).toContain('resolveUnprovenSentinel(')
     expect(outsideFragment).toContain('probeSentinelState(')

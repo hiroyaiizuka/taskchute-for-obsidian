@@ -4,6 +4,7 @@ import { TERMINAL_BROKER_PURE_SOURCE } from '@/features/ai-task/services/broker-
 import { buildTerminalBrokerSource } from '@/features/ai-task/services/TerminalSessionBrokerSource'
 import { buildTerminalShellLaunch } from '@/features/ai-task/services/dispatchers/TerminalShellBootstrap'
 import { NodeProcessGateway } from '@/features/ai-task/services/NodeProcessGateway'
+import { stripCommentLines } from '@/features/ai-task/services/broker-source/EmbeddedProgramSource'
 
 /**
  * The broker ships as `node -e <one string>`, so these functions cannot be
@@ -69,8 +70,8 @@ function feed(
 }
 
 describe('broker pure fragment composition', () => {
-  test('the shipped broker program embeds the fragment verbatim', () => {
-    expect(buildTerminalBrokerSource()).toContain(TERMINAL_BROKER_PURE_SOURCE)
+  test('the shipped broker program embeds the fragment verbatim, comment lines aside', () => {
+    expect(buildTerminalBrokerSource()).toContain(stripCommentLines(TERMINAL_BROKER_PURE_SOURCE))
   })
 
   test('the fragment reaches no host facility, so it can run detached', () => {

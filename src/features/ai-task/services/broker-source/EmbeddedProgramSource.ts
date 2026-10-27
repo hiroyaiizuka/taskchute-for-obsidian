@@ -40,6 +40,21 @@ function zlibModule(): ZlibModuleLike {
   return require('zlib') as ZlibModuleLike
 }
 
+/**
+ * Drops the lines that are only a `//` comment. The programs ship as text
+ * (in argv, or compressed inside the broker), so their comments cost bytes of
+ * the budget in broker-source-budget.test.ts; stripped, the broker is ~16 KB
+ * smaller. Safe because no program has a string that spans lines (no
+ * backticks, no line continuations), which that test also checks: a line
+ * starting with `//` is always a comment. Comments after code stay.
+ */
+export function stripCommentLines(source: string): string {
+  return source
+    .split('\n')
+    .filter((line) => !/^\s*\/\//u.test(line))
+    .join('\n')
+}
+
 export function gzipBase64(source: string): string {
   // gzipSync encodes a string argument as UTF-8, so no Buffer is needed here.
   return zlibModule().gzipSync(source, { level: 9 }).toString('base64')
