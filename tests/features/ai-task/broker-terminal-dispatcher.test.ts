@@ -381,6 +381,19 @@ describe('BrokerTerminalDispatcher', () => {
       expect(callbacks.onData).toHaveBeenCalledWith('ready')
     })
 
+    test('the retry takes the size asked for while the first try was refused', async () => {
+      const { broker, handle } = startSession()
+      handle.resize?.(132, 40)
+      startCallbacks(broker, 0).onExit(refused(OWNERSHIP))
+      await flush()
+
+      expect(broker.start).toHaveBeenCalledTimes(2)
+      expect(broker.resize).toHaveBeenLastCalledWith('ai-run-9', 132, 40)
+      expect(broker.resize.mock.invocationCallOrder.at(-1)).toBeGreaterThan(
+        broker.start.mock.invocationCallOrder[1],
+      )
+    })
+
     test('reports the second refusal instead of trying again', async () => {
       const { broker, callbacks } = startSession()
       startCallbacks(broker, 0).onExit(refused(OWNERSHIP))

@@ -85,8 +85,14 @@ export class BrokerTerminalDispatcher implements AiTerminalDispatcher {
     }
     let retried = false
     let stopRequested = false
+    // The size asked for last, which a retry starts with: the broker forgets
+    // a refused session's size, and the pane resends it only when it changes.
+    let latestSize: { cols: number; rows: number } | null = null
     const launch = (): void => {
       this.broker.start(sessionId, spawn, request.transcriptPath, undefined, attempt)
+      if (retried && latestSize) {
+        this.broker.resize(sessionId, latestSize.cols, latestSize.rows)
+      }
     }
     const onExit = (outcome: AiRunExitOutcome): void => {
       if (
@@ -124,6 +130,10 @@ export class BrokerTerminalDispatcher implements AiTerminalDispatcher {
     }
     return {
       ...handle,
+      resize: (cols, rows) => {
+        latestSize = { cols, rows }
+        handle.resize?.(cols, rows)
+      },
       stop: () => {
         markStopped()
         handle.stop()

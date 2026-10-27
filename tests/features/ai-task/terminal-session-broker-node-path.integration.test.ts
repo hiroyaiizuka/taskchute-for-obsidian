@@ -146,7 +146,8 @@ describePosix('broker that refuses sessions because its node executable is gone 
     const gateway = {
       buildPtyCommand: () => ({
         command: '/bin/sh',
-        args: ['-c', 'echo NEW_BROKER_READY; while :; do sleep 10; done'],
+        // PATH is empty here, so sleep by its absolute path.
+        args: ['-c', 'echo NEW_BROKER_READY; while :; do /bin/sleep 10; done'],
       }),
       getBaseEnv: () => ({ PATH: nodelessPath }),
       getPtyTransport: () => 'script',
