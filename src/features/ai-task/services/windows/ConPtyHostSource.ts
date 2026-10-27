@@ -75,6 +75,11 @@ namespace TaskChute
         private const int JobObjectExtendedLimitInformation = 9;
         private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
         private const byte CRT_FOPEN = 0x01;
+        // How often the foreground sidecar is refreshed (macOS asks ps every 2 s).
+        private const int ForegroundPollMs = 1000;
+        private const uint TH32CS_SNAPPROCESS = 0x00000002;
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+        private const int ProcessCommandLineInformation = 60;
 
         [StructLayout(LayoutKind.Sequential)]
         private struct COORD
@@ -111,6 +116,22 @@ namespace TaskChute
         {
             public STARTUPINFO StartupInfo;
             public IntPtr lpAttributeList;
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct PROCESSENTRY32W
+        {
+            public int dwSize;
+            public int cntUsage;
+            public int th32ProcessID;
+            public IntPtr th32DefaultHeapID;
+            public int th32ModuleID;
+            public int cntThreads;
+            public int th32ParentProcessID;
+            public int pcPriClassBase;
+            public int dwFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string szExeFile;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -198,6 +219,27 @@ namespace TaskChute
         private static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
 
         [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetConsoleCtrlHandler(IntPtr handlerRoutine, bool add);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, int th32ProcessID);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool Process32FirstW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool Process32NextW(IntPtr hSnapshot, ref PROCESSENTRY32W lppe);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, int dwProcessId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetProcessTimes(IntPtr hProcess, out long lpCreationTime, out long lpExitTime, out long lpKernelTime, out long lpUserTime);
+
+        [DllImport("ntdll.dll")]
+        private static extern int NtQueryInformationProcess(IntPtr processHandle, int processInformationClass, IntPtr processInformation, int processInformationLength, out int returnLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
 
         [DllImport("kernel32.dll", SetLastError = true)]
@@ -234,6 +276,7 @@ namespace TaskChute
             string cols = TakeEnvironment("COLS");
             string rows = TakeEnvironment("ROWS");
             string transcriptPath = TakeEnvironment("TRANSCRIPT");
+            string thenShell = TakeEnvironment("THEN_SHELL");
             ClearHostEnvironment();
             try
             {
@@ -259,7 +302,8 @@ namespace TaskChute
                     commandLine,
                     ParseDimension(cols, 80),
                     ParseDimension(rows, 24),
-                    transcriptPath);
+                    transcriptPath,
+                    thenShell);
             }
             catch (Exception error)
             {
@@ -267,8 +311,13 @@ namespace TaskChute
             }
         }
 
-        private static int RunSession(IntPtr control, string commandLine, short cols, short rows, string transcriptPath)
+        private static int RunSession(IntPtr control, string commandLine, short cols, short rows, string transcriptPath, string thenShell)
         {
+            // Ctrl+C in the terminal must reach the CLI (and the shell after
+            // it). A process started in a new process group ignores Ctrl+C and
+            // hands that on to its children; this restores normal handling
+            // for the processes started below, which inherit it.
+            SetConsoleCtrlHandler(IntPtr.Zero, false);
             FileStream transcript = OpenTranscript(transcriptPath);
             PseudoConsole console;
             try
@@ -285,10 +334,41 @@ namespace TaskChute
             StartBackground(output.Run);
             ControlPump controlPump = new ControlPump(control, console);
             StartBackground(controlPump.Run);
+            ForegroundWatcher foreground = null;
+            if (!string.IsNullOrEmpty(transcriptPath))
+            {
+                foreground = new ForegroundWatcher(console, transcriptPath + ".fg");
+                StartBackground(foreground.Run);
+            }
 
             WaitForSingleObject(console.Process, INFINITE);
+            // Like the POSIX bootstrap's exec "$SHELL" -i -l: once the CLI
+            // exits, a shell takes over the same terminal, and the session
+            // ends with it. Not after the plugin closed the terminal (the
+            // CLI exited because it was stopped), and a shell that cannot
+            // start ends the session as a host failure, not as the CLI's.
+            bool handoffFailed = false;
+            if (!string.IsNullOrEmpty(thenShell))
+            {
+                try
+                {
+                    if (console.Spawn(thenShell))
+                    {
+                        WaitForSingleObject(console.Process, INFINITE);
+                    }
+                }
+                catch (Exception error)
+                {
+                    handoffFailed = true;
+                    WriteText(GetStdHandle(STD_ERROR_HANDLE), "TaskChute ConPTY host: " + error.Message + "\r\n");
+                }
+            }
+            if (foreground != null)
+            {
+                foreground.Stop();
+            }
             uint exitCode;
-            if (!GetExitCodeProcess(console.Process, out exitCode))
+            if (handoffFailed || !GetExitCodeProcess(console.Process, out exitCode))
             {
                 exitCode = (uint)HostFailureExitCode;
             }
@@ -355,9 +435,11 @@ namespace TaskChute
             public IntPtr InputWrite;
             public IntPtr OutputRead;
             public IntPtr Process;
+            public volatile int ProcessId;
             private IntPtr job;
             private readonly object sync = new object();
             private bool closed;
+            private bool terminated;
 
             public static PseudoConsole Start(string commandLine, short cols, short rows)
             {
@@ -397,6 +479,44 @@ namespace TaskChute
                 console.OutputRead = outputRead;
                 console.job = CreateKillOnCloseJob();
 
+                try
+                {
+                    console.Spawn(commandLine);
+                    return console;
+                }
+                catch
+                {
+                    // Close our ends first: undrained output blocks ClosePseudoConsole on older builds.
+                    CloseHandle(inputWrite);
+                    CloseHandle(outputRead);
+                    console.Close();
+                    console.ReleaseJob();
+                    throw;
+                }
+            }
+
+            /**
+             * Start a process attached to this pseudo console. The first one is
+             * the CLI; a terminal that keeps going after it starts the shell
+             * here once it exits (RunSession). False, with nothing started,
+             * once Terminate() has run. Terminate() waits for a start in
+             * progress, so the process it starts is ended with the rest.
+             */
+            public bool Spawn(string commandLine)
+            {
+                lock (sync)
+                {
+                    if (terminated)
+                    {
+                        return false;
+                    }
+                    SpawnLocked(commandLine);
+                    return true;
+                }
+            }
+
+            private void SpawnLocked(string commandLine)
+            {
                 IntPtr attributes = IntPtr.Zero;
                 try
                 {
@@ -409,7 +529,7 @@ namespace TaskChute
                         attributes = IntPtr.Zero;
                         throw LastError("InitializeProcThreadAttributeList");
                     }
-                    if (!UpdateProcThreadAttribute(attributes, 0, new IntPtr(PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE), handle, new IntPtr(IntPtr.Size), IntPtr.Zero, IntPtr.Zero))
+                    if (!UpdateProcThreadAttribute(attributes, 0, new IntPtr(PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE), Handle, new IntPtr(IntPtr.Size), IntPtr.Zero, IntPtr.Zero))
                     {
                         throw LastError("UpdateProcThreadAttribute");
                     }
@@ -427,24 +547,20 @@ namespace TaskChute
                         throw LastError("CreateProcess");
                     }
                     // Assign while suspended so every descendant starts in the job.
-                    if (console.job != IntPtr.Zero && !AssignProcessToJobObject(console.job, process.hProcess))
+                    if (job != IntPtr.Zero && !AssignProcessToJobObject(job, process.hProcess))
                     {
-                        CloseHandle(console.job);
-                        console.job = IntPtr.Zero;
+                        CloseHandle(job);
+                        job = IntPtr.Zero;
                     }
                     ResumeThread(process.hThread);
                     CloseHandle(process.hThread);
-                    console.Process = process.hProcess;
-                    return console;
-                }
-                catch
-                {
-                    // Close our ends first: undrained output blocks ClosePseudoConsole on older builds.
-                    CloseHandle(inputWrite);
-                    CloseHandle(outputRead);
-                    console.Close();
-                    console.ReleaseJob();
-                    throw;
+                    IntPtr previous = Process;
+                    Process = process.hProcess;
+                    ProcessId = process.dwProcessId;
+                    if (previous != IntPtr.Zero)
+                    {
+                        CloseHandle(previous);
+                    }
                 }
                 finally
                 {
@@ -486,6 +602,10 @@ namespace TaskChute
 
             public void Terminate()
             {
+                lock (sync)
+                {
+                    terminated = true;
+                }
                 if (job != IntPtr.Zero && TerminateJobObject(job, 1))
                 {
                     return;
@@ -582,6 +702,223 @@ namespace TaskChute
             public void DetachTranscript()
             {
                 transcript = null;
+            }
+        }
+
+        /**
+         * Writes what runs in the foreground of the session to a sidecar file
+         * (<transcript>.fg), for the tab name of a + terminal: an empty line
+         * while the shell is at its prompt, else "<pid>\t<started>\t<command
+         * line>" (started: ms since the Unix epoch) of
+         * the newest process the shell started. Windows has no foreground
+         * process group, so the shell's newest child stands for it, as the
+         * job leader does in ps on macOS. The file is rewritten only when the
+         * answer changes, and removed when the session ends.
+         */
+        private sealed class ForegroundWatcher
+        {
+            private readonly PseudoConsole console;
+            private int shellPid;
+            private long shellCreated;
+            private readonly string path;
+            private readonly ManualResetEvent stopped = new ManualResetEvent(false);
+            private string written;
+
+            public ForegroundWatcher(PseudoConsole console, string path)
+            {
+                this.console = console;
+                this.path = path;
+            }
+
+            public void Run()
+            {
+                do
+                {
+                    try
+                    {
+                        Update();
+                    }
+                    catch
+                    {
+                        // A missed sample only delays the tab name.
+                    }
+                }
+                while (!stopped.WaitOne(ForegroundPollMs));
+            }
+
+            public void Stop()
+            {
+                stopped.Set();
+                lock (this)
+                {
+                    DeleteQuietly(path);
+                    DeleteQuietly(path + ".tmp");
+                    written = null;
+                }
+            }
+
+            private void Update()
+            {
+                // The process on the console changes when the shell takes
+                // over from the CLI (RunSession); follow the current one.
+                int current = console.ProcessId;
+                if (current != shellPid)
+                {
+                    shellPid = current;
+                    shellCreated = CreationTime(current);
+                }
+                if (shellCreated == 0)
+                {
+                    return;
+                }
+                int foreground = 0;
+                long newest = 0;
+                IntPtr snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+                if (snapshot == IntPtr.Zero || snapshot == new IntPtr(-1))
+                {
+                    return;
+                }
+                try
+                {
+                    PROCESSENTRY32W entry = new PROCESSENTRY32W();
+                    entry.dwSize = Marshal.SizeOf(typeof(PROCESSENTRY32W));
+                    for (bool more = Process32FirstW(snapshot, ref entry); more; more = Process32NextW(snapshot, ref entry))
+                    {
+                        if (entry.th32ParentProcessID != shellPid || entry.th32ProcessID == shellPid)
+                        {
+                            continue;
+                        }
+                        if (string.Equals(entry.szExeFile, "conhost.exe", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+                        long created = CreationTime(entry.th32ProcessID);
+                        // Older than the shell: its parent was an earlier owner of the pid.
+                        if (created == 0 || created < shellCreated)
+                        {
+                            continue;
+                        }
+                        if (created > newest)
+                        {
+                            newest = created;
+                            foreground = entry.th32ProcessID;
+                        }
+                    }
+                }
+                finally
+                {
+                    CloseHandle(snapshot);
+                }
+
+                string text = foreground == 0
+                    ? ""
+                    : foreground.ToString() + "\t" + UnixMilliseconds(newest).ToString() + "\t" + OneLine(CommandLine(foreground));
+                lock (this)
+                {
+                    if (stopped.WaitOne(0) || text == written)
+                    {
+                        return;
+                    }
+                    string temporary = path + ".tmp";
+                    File.WriteAllText(temporary, text + "\n", new UTF8Encoding(false));
+                    if (File.Exists(path))
+                    {
+                        File.Replace(temporary, path, null);
+                    }
+                    else
+                    {
+                        File.Move(temporary, path);
+                    }
+                    written = text;
+                }
+            }
+
+            // FILETIME (100 ns since 1601) to ms since 1970, the plugin's clock.
+            private static long UnixMilliseconds(long fileTime)
+            {
+                return (fileTime - 116444736000000000L) / 10000L;
+            }
+
+            private static string OneLine(string text)
+            {
+                return text.Replace('\r', ' ').Replace('\n', ' ');
+            }
+        }
+
+        private static long CreationTime(int pid)
+        {
+            IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+            if (process == IntPtr.Zero)
+            {
+                return 0;
+            }
+            try
+            {
+                long created;
+                long exited;
+                long kernel;
+                long user;
+                return GetProcessTimes(process, out created, out exited, out kernel, out user) ? created : 0;
+            }
+            finally
+            {
+                CloseHandle(process);
+            }
+        }
+
+        // The command line as the process was started, or "" when it cannot be read.
+        private static string CommandLine(int pid)
+        {
+            IntPtr process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+            if (process == IntPtr.Zero)
+            {
+                return "";
+            }
+            IntPtr buffer = IntPtr.Zero;
+            try
+            {
+                int length = 4096;
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    buffer = Marshal.AllocHGlobal(length);
+                    int needed;
+                    int status = NtQueryInformationProcess(process, ProcessCommandLineInformation, buffer, length, out needed);
+                    if (status == 0)
+                    {
+                        // UNICODE_STRING: Length (bytes), MaximumLength, then the pointer.
+                        int bytes = (ushort)Marshal.ReadInt16(buffer);
+                        IntPtr text = Marshal.ReadIntPtr(buffer, IntPtr.Size);
+                        return text == IntPtr.Zero ? "" : Marshal.PtrToStringUni(text, bytes / 2);
+                    }
+                    Marshal.FreeHGlobal(buffer);
+                    buffer = IntPtr.Zero;
+                    if (needed <= length)
+                    {
+                        return "";
+                    }
+                    length = needed;
+                }
+                return "";
+            }
+            finally
+            {
+                if (buffer != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(buffer);
+                }
+                CloseHandle(process);
+            }
+        }
+
+        private static void DeleteQuietly(string file)
+        {
+            try
+            {
+                File.Delete(file);
+            }
+            catch
+            {
+                // Left for the plugin's own temp-file cleanup.
             }
         }
 
@@ -915,6 +1252,8 @@ export interface ConPtyHostSessionOptions {
   cols: number
   rows: number
   transcriptPath: string
+  /** The shell that takes over once the CLI exits; absent: the session ends with it. */
+  thenShellCommandLine?: string
 }
 
 export function buildConPtyHostEnv(
@@ -932,6 +1271,9 @@ export function buildConPtyHostEnv(
   env[`${CONPTY_HOST_ENV_PREFIX}COLS`] = String(options.cols)
   env[`${CONPTY_HOST_ENV_PREFIX}ROWS`] = String(options.rows)
   env[`${CONPTY_HOST_ENV_PREFIX}TRANSCRIPT`] = options.transcriptPath
+  if (options.thenShellCommandLine !== undefined) {
+    env[`${CONPTY_HOST_ENV_PREFIX}THEN_SHELL`] = options.thenShellCommandLine
+  }
   return env
 }
 

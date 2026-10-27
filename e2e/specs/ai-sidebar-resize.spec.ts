@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, enableAiTasks, openTaskChute } from "../helpers/aiTask"
+import { PLUGIN_ID, enableAiTasks, openTaskChute, writeNodeCli } from "../helpers/aiTask"
 
 // LEV-375: the AI pane's left sidebar is resized by dragging its right edge,
 // smoothly down to 35px; dragged past that it closes outright (the same state
@@ -24,10 +24,7 @@ function prepare(home: string, vault: string, bin: string): string {
       { type: "assistant", cwd: vault, message: { role: "assistant", content: [{ type: "text", text: "読みました。" }] } },
     ].map((line) => JSON.stringify(line)).join("\n") + "\n",
   )
-  fs.mkdirSync(bin, { recursive: true })
-  const claude = path.join(bin, "claude")
-  fs.writeFileSync(claude, "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 })
-  return claude
+  return writeNodeCli(bin, "claude", "setTimeout(() => {}, 60_000)")
 }
 
 /** A box in CSS pixels, rounded. */

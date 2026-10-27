@@ -17,7 +17,9 @@
  * working directory.
  *
  * Pure: the file system arrives as a probe, so the search order is testable on
- * any host. Only POSIX hosts use the broker; Windows keeps the bare name.
+ * any host. Windows looks for node.exe on its PATH and in the Node.js
+ * installer's folder; finding none there means terminals run without the
+ * broker (see the ai-task index).
  */
 
 import {
@@ -99,16 +101,54 @@ export function findNodeInKnownLocations(env: Env, probe: NodeExecutableProbe): 
   return candidates.filter((candidate) => probe.isExecutableFile(candidate))
 }
 
+/** Windows variable names ignore case; a copied env object does not. */
+function windowsEnv(env: Env, name: string): string | undefined {
+  const key = Object.keys(env).find((candidate) => candidate.toUpperCase() === name)
+  return key === undefined ? undefined : env[key]
+}
+
+/** `C:\dir` or `\\server\share`: never a relative entry. */
+function isAbsoluteWindowsDirectory(directory: string): boolean {
+  return /^[A-Za-z]:[\\/]/u.test(directory) || directory.startsWith('\\\\')
+}
+
+function nodeExeIn(directory: string): string {
+  return `${directory.replace(/[\\/]+$/u, '')}\\node.exe`
+}
+
+/**
+ * Windows: node.exe on the semicolon-separated PATH, then the folders the
+ * Node.js installer (Program Files\nodejs) and nvm-windows (NVM_SYMLINK)
+ * use, which a PATH edited after Obsidian started does not show yet.
+ */
+export function findWindowsNodeExecutables(env: Env, probe: NodeExecutableProbe): string[] {
+  const directories = (windowsEnv(env, 'PATH') ?? '')
+    .split(';')
+    .map((entry) => entry.trim().replace(/^"(.*)"$/u, '$1'))
+    .filter(isAbsoluteWindowsDirectory)
+  for (const name of ['PROGRAMFILES', 'NVM_SYMLINK']) {
+    const value = windowsEnv(env, name)
+    if (value === undefined || !isAbsoluteWindowsDirectory(value)) continue
+    directories.push(name === 'PROGRAMFILES' ? `${value.replace(/[\\/]+$/u, '')}\\nodejs` : value)
+  }
+  const found: string[] = []
+  for (const candidate of directories.map(nodeExeIn)) {
+    const known = found.some((entry) => entry.toLowerCase() === candidate.toLowerCase())
+    if (!known && probe.isExecutableFile(candidate)) found.push(candidate)
+  }
+  return found
+}
+
 /**
  * Every Node.js the broker may be started with, in the order to try them.
- * Empty means no Node.js could be found; on Windows the bare name is kept.
+ * Empty means no Node.js could be found.
  */
 export function listNodeExecutableCandidates(
   platform: string,
   env: Env,
   probe: NodeExecutableProbe,
 ): string[] {
-  if (platform === 'win32') return ['node']
+  if (platform === 'win32') return findWindowsNodeExecutables(env, probe)
   const ordered = [findNodeOnPath(env['PATH'], probe), ...findNodeInKnownLocations(env, probe)]
   const unique: string[] = []
   for (const candidate of ordered) {

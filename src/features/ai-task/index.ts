@@ -31,9 +31,11 @@ import {
   type AiTerminalDispatcher,
 } from './services/dispatchers/TerminalDispatcher'
 import { BrokerTerminalDispatcher } from './services/dispatchers/BrokerTerminalDispatcher'
-import { TerminalSessionBrokerClient } from './services/TerminalSessionBroker'
+import { TerminalSessionBrokerClient, locateNodeOnDisk } from './services/TerminalSessionBroker'
 import { WorkspaceFileService } from './services/WorkspaceFileService'
 import { createShellForegroundProbe } from './services/terminal-title/ShellForegroundProbe'
+import { createWindowsShellForegroundProbe } from './services/terminal-title/WindowsShellForegroundProbe'
+import { WINDOWS_SHELL_ARGS } from './services/windows/WindowsInteractiveShell'
 import { RecipeService } from '../recipe/services/RecipeService'
 import { RecipeContextProvider } from '../recipe/services/RecipeContextProvider'
 import { AiRunSessionStateStore } from './services/AiRunSessionStateStore'
@@ -171,12 +173,21 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     createAiTaskTerminalRendererLeaseIdentity(
       rendererLeaseGenerationStore,
     )
-  // The broker relies on POSIX process groups; ConPTY sessions stay renderer-owned.
   const conpty = gateway.getPtyTransport() === 'conpty'
   const windowsBuildNumber = gateway.getWindowsBuildNumber()
   let loggedTerminalUnavailable = false
+  // Windows runs the broker on the user's own Node.js. Without one, ConPTY
+  // sessions stay renderer-owned and end with the window, as before.
+  const brokerRuntimeAvailable =
+    !conpty || locateNodeOnDisk(gateway.getBaseEnv()).length > 0
+  if (!brokerRuntimeAvailable) {
+    log('debug', '[AiTask] No Node.js found; terminals end when the window reloads')
+  }
   const terminalDispatcher: AiTerminalDispatcher =
-    !conpty && gateway.isPtySupported() && brokerIdentity !== undefined
+    // ConPTY support is known only once its probe has run, before any spawn.
+    (conpty || gateway.isPtySupported()) &&
+    brokerIdentity !== undefined &&
+    brokerRuntimeAvailable
       ? new BrokerTerminalDispatcher(
           gateway,
           new TerminalSessionBrokerClient({
@@ -241,7 +252,6 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
         }
       },
       getUnavailableReason: () => gateway.getPtyUnavailableReason(),
-      shellSessionsSupported: !conpty,
       ...(conpty
         ? {
             windowsPty: {
@@ -252,11 +262,22 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
         : {}),
       makeTempFilePath: (prefix: string) => gateway.makeTempFilePath(prefix),
       readAndDeleteFile: (path: string) => gateway.readAndDeleteFile(path),
-      // Plain shell sessions (U2 split panels) spawn the user's login shell.
-      getShellPath: () => gateway.getShellPath(),
-      // Their tabs are named after the program in the foreground (POSIX `ps`).
+      // Plain shell sessions (+ and split) spawn the user's login shell; on
+      // Windows, PowerShell (see WindowsInteractiveShell).
       ...(conpty
-        ? {}
+        ? {
+            getShellPath: () => gateway.getWindowsInteractiveShellPath(),
+            getShellArgs: () => WINDOWS_SHELL_ARGS,
+          }
+        : { getShellPath: () => gateway.getShellPath() }),
+      // Their tabs are named after the program in the foreground: POSIX `ps`,
+      // or what the ConPTY host writes next to the transcript on Windows.
+      ...(conpty
+        ? {
+            probeShellForeground: createWindowsShellForegroundProbe({
+              readForeground: (path) => gateway.readConPtyForeground(path),
+            }),
+          }
         : {
             probeShellForeground: createShellForegroundProbe({
               readTtyPath: (path) => gateway.readPtyTtyPath(path),

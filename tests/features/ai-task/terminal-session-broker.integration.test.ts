@@ -108,7 +108,12 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     await client.shutdown()
   })
 
-  test('a second renderer client attaches to the same live process and can type', async () => {
+  // The Windows launch hands the broker its program through stdin behind a
+  // short loader (ProgramPipeLoaderSource); it must behave the same.
+  test.each([
+    ['-e', undefined],
+    ['stdin loader', 'win32'],
+  ])('a second renderer client attaches to the same live process and can type (%s)', async (_launch, platform) => {
     const unique = `${process.pid}-${Date.now()}-${Math.random()}`
     const identity = `broker-integration-${unique}`
     const sessionId = `session-${process.pid}-${Date.now()}`
@@ -130,6 +135,7 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     }
     const firstClient = new TerminalSessionBrokerClient({
       identity,
+      platform,
       log: (level, ...args) => logs.push(`${level}:${args.map(String).join(' ')}`),
     })
 
@@ -198,6 +204,62 @@ describePosix('TerminalSessionBrokerClient integration', () => {
     expect(secondOutput).toContain('READY')
     expect(secondOutput).toContain('ECHO:after-reload')
     expect(logs.filter((line) => line.includes('Spawn failed'))).toEqual([])
+  })
+
+  // A Windows terminal is the ConPTY host, which reads keys and resizes as
+  // frames on its stdio 3 (controlPipe). This target decodes those frames.
+  test('a controlPipe session gets keys and sizes as frames on stdio 3', async () => {
+    const unique = `conpty-frames-${process.pid}-${Date.now()}-${Math.random()}`
+    const identity = `broker-integration-${unique}`
+    const sessionId = `session-${process.pid}-${Date.now()}`
+    const transcriptPath = `/tmp/taskchute-broker-integration-${unique}.log`
+    const decoder = [
+      "const s = new (require('net').Socket)({ fd: 3, readable: true, writable: false });",
+      "let b = Buffer.alloc(0); console.log('READY');",
+      "s.on('data', d => { b = Buffer.concat([b, d]);",
+      "  while (b.length >= 5 && b.length >= 5 + b.readUInt32BE(1)) {",
+      "    const p = b.subarray(5, 5 + b.readUInt32BE(1));",
+      "    if (b[0] === 1) console.log('KEY:' + p.toString('utf8').trim());",
+      "    if (b[0] === 2) console.log('SIZE:' + p.readUInt16BE(0) + 'x' + p.readUInt16BE(2));",
+      "    if (p.toString('utf8').includes('bye')) process.exit(0);",
+      "    b = b.subarray(5 + p.length); } });",
+    ].join('\n')
+    const ready = deferred<void>()
+    const framed = deferred<void>()
+    const exited = deferred<void>()
+    let output = ''
+    const client = new TerminalSessionBrokerClient({ identity })
+
+    client.start(
+      sessionId,
+      {
+        command: process.execPath,
+        args: ['-e', decoder],
+        env: { ...process.env },
+        stdinMode: 'pipe',
+        controlPipe: true,
+      },
+      transcriptPath,
+      undefined,
+      {
+        onData: (data) => {
+          output += data
+          if (output.includes('READY')) ready.resolve()
+          if (output.includes('KEY:héllo') && output.includes('SIZE:120x40')) framed.resolve()
+        },
+        onExit: (outcome) => {
+          if (outcome.status === 'succeeded') exited.resolve()
+          else exited.reject(new Error(`Unexpected exit: ${outcome.status}`))
+        },
+      },
+    )
+    await withTimeout(ready.promise)
+    client.write(sessionId, 'héllo\n')
+    client.resize(sessionId, 120, 40)
+    await withTimeout(framed.promise)
+    client.write(sessionId, 'bye\n')
+    await withTimeout(exited.promise)
+    await client.shutdown()
   })
 
   test('deferred app-exit shutdown is canceled by a reloading renderer', async () => {

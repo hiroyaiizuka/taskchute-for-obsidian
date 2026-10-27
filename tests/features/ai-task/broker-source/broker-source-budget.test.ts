@@ -5,6 +5,10 @@ import {
   gzipBase64,
   INFLATE_PROGRAM_SOURCE,
 } from '@/features/ai-task/services/broker-source/EmbeddedProgramSource'
+import {
+  PROGRAM_PIPE_LOADER_SOURCE,
+  programPipeLoader,
+} from '@/features/ai-task/services/broker-source/ProgramPipeLoaderSource'
 import { buildTerminalBrokerSource } from '@/features/ai-task/services/TerminalSessionBrokerSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from '@/features/ai-task/services/TerminalSessionGuardSource'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
@@ -30,15 +34,14 @@ const MAX_ARG_STRLEN = 32 * 4096
  * Because the guard and watchdog reach the broker compressed, roughly 3KB of
  * growth in either of them costs the broker 1KB.
  *
- * The broker sits ~0.4KB under this budget and ~11KB under the kernel limit
- * (119,630 bytes after LEV-400, October 2026). It had ~13KB of cushion before the owner-reap logic was split
- * into testable fragments, which cost ~6KB across the three programs — the
- * shared code is spliced into each of them, so deduplicating it saves less than
- * it reads like. LEV-379 and LEV-378 had to move comments out of the broker
- * template into the "Note A…Y" block beside buildTerminalBrokerSource to fit,
- * and LEV-400 did the same for TerminalBrokerPureSource.
- * Anything approaching this budget again should move text out of the templates
- * rather than raise it: comments inside them ship inside argv.
+ * The broker sat ~1KB under this budget (October 2026) until LEV-404 began
+ * dropping whole-line comments from all three programs (stripCommentLines):
+ * it now sits ~16KB under. Before that, LEV-379, LEV-378 and LEV-400 had to
+ * move comments out of the broker template into the "Note A…Z" block beside
+ * buildTerminalBrokerSource (and the notes above TerminalBrokerPureSource) to
+ * fit; those blocks still keep the templates readable. Anything approaching
+ * this budget again should move code, not comments, rather than raise it:
+ * comments no longer ship.
  */
 const PROGRAM_BUDGET = 120_000
 
@@ -93,6 +96,23 @@ describe('compressed program transport', () => {
   })
 })
 
+/**
+ * stripCommentLines treats every line that starts with `//` as a comment. That
+ * holds only while no program has a string spanning lines; a backtick or a
+ * trailing backslash would let a `//` line be string content.
+ */
+describe('comment stripping', () => {
+  test.each([
+    ['broker', buildTerminalBrokerSource()],
+    ['session guard', TERMINAL_SESSION_GUARD_SOURCE],
+    ['owner watchdog', TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE],
+  ])('the %s program has no string that spans lines, and ships no comment line', (_name, source) => {
+    expect(source).not.toContain('`')
+    expect(source.split('\n').filter((line) => line.endsWith('\\'))).toEqual([])
+    expect(source.split('\n').filter((line) => /^\s*\/\//u.test(line))).toEqual([])
+  })
+})
+
 describe('program syntax', () => {
   test.each([
     ['broker', buildTerminalBrokerSource()],
@@ -104,5 +124,39 @@ describe('program syntax', () => {
     // that node reports only at spawn time — with the terminal simply never
     // appearing and nothing written to any log.
     expect(() => new Script(source)).not.toThrow()
+  })
+
+  test.each([
+    ['broker', buildTerminalBrokerSource()],
+    ['session guard', TERMINAL_SESSION_GUARD_SOURCE],
+    ['owner watchdog', TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE],
+  ])('the %s program also parses as the body the Windows loader runs it in', (_name, source) => {
+    expect(() => new Script(`(function (require, module, exports) {${source}\n})`)).not.toThrow()
+  })
+})
+
+/**
+ * Windows caps a whole command line at 32,767 characters, and none of the
+ * three programs fits. There the `-e` argument is a short loader and the
+ * program arrives through a pipe (ProgramPipeLoaderSource).
+ */
+describe('Windows command line', () => {
+  const WINDOWS_COMMAND_LINE_MAX = 32_767
+
+  test.each([0, 3, 4])('the loader for fd %i is a small fraction of the limit and parses', (fd) => {
+    const loader = programPipeLoader(fd)
+
+    expect(loader.length).toBeLessThan(WINDOWS_COMMAND_LINE_MAX / 50)
+    expect(loader).toContain(`fd:${fd},`)
+    expect(() => new Script(loader)).not.toThrow()
+  })
+
+  test('the broker starts the watchdog on fd 3 and the guard on fd 4 through the same loader', () => {
+    const broker = buildTerminalBrokerSource()
+
+    expect(broker).toContain(PROGRAM_PIPE_LOADER_SOURCE)
+    expect(broker).toContain("programPipeLoader(3) : ownerWatchdogProgram")
+    expect(broker).toContain("programPipeLoader(4) : sessionGuardProgram")
+    expect(broker.indexOf(PROGRAM_PIPE_LOADER_SOURCE)).toBeLessThan(broker.indexOf('programPipeLoader(3)'))
   })
 })

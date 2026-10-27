@@ -30,14 +30,21 @@ for a run that failed or was skipped; say which tests failed and why.
 
 ## Requirements
 
-- **Linux x64 only** for now (WSL2 with WSLg works). macOS / Windows / CI are
-  not wired up yet.
-- **A display.** WSLg and desktop sessions have one. On a headless box run
-  `xvfb-run -a npm run test:e2e`.
-- **No sudo needed.** The first run downloads the pinned Obsidian AppImage
-  (~140 MB) and any missing Electron libraries (`libnss3`, `libasound2t64`, …)
-  via `apt-get download` into `~/.cache/taskchute-e2e/`
-  (override with `TASKCHUTE_E2E_CACHE`). Later runs reuse the cache.
+- **Linux x64 (WSL2 with WSLg works), macOS, and Windows.** CI does not run it.
+- **A display.** WSLg and desktop sessions have one. On a headless Linux box
+  run `xvfb-run -a npm run test:e2e`.
+- **Obsidian at the pinned version** (`OBSIDIAN_VERSION`, 1.13.7):
+  - Linux: the first run downloads the pinned AppImage (~140 MB) and any
+    missing Electron libraries (`libnss3`, `libasound2t64`, …) via
+    `apt-get download`. No sudo needed.
+  - macOS / Windows: the installed Obsidian is started, and the first run
+    downloads the pinned app (`obsidian-<version>.asar`, ~30 MB), which each
+    test's config dir hands to it. Without it a fresh config dir runs the app
+    the installer bundled, which can be older than the plugin's
+    `minAppVersion` — then most tests fail because no task shows in the list.
+    An installer newer than the pin runs its own app instead.
+  - Downloads go to `~/.cache/taskchute-e2e/` (override with
+    `TASKCHUTE_E2E_CACHE`). Later runs reuse the cache.
 - Each test opens an Obsidian window for about a second. On WSLg the windows
   appear on the Windows desktop; that is expected.
 
@@ -67,9 +74,13 @@ for a run that failed or was skipped; say which tests failed and why.
 
 ## How it works (for maintenance)
 
-- `e2e/obsidian/install.ts` downloads and extracts the pinned AppImage.
+- `e2e/obsidian/install.ts` downloads and extracts the pinned AppImage on
+  Linux, and downloads the pinned app asar on macOS / Windows.
   `OBSIDIAN_VERSION` in `e2e/obsidian/paths.ts` is the pin; only tags that ship
   an AppImage qualify (v1.13.8 is Android-only).
+- To tell which Obsidian a test runs, ask the app
+  (`require("electron").ipcRenderer.sendSync("version")` in the page). The user
+  agent names the installer's version, not the app's.
 - `e2e/obsidian/launch.ts` spawns Obsidian with `--user-data-dir` and
   `--remote-debugging-port`, then attaches with `chromium.connectOverCDP`.
   Playwright's `_electron.launch()` does not work: Obsidian's Electron disables

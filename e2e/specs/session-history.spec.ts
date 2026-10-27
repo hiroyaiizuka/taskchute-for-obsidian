@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeFakeClaude } from "../helpers/aiTask"
+import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, taskRow, todayKey, writeFakeClaude, writeNodeCli } from "../helpers/aiTask"
 
 // LEV-320: past agent sessions of the vault's folder, listed in the AI pane
 // and resumed in a new terminal tab. Obsidian gets a home folder of its own,
@@ -60,12 +60,17 @@ function writeSessions(home: string, vault: string) {
   )
 }
 
-/** A stand-in Claude CLI that records the arguments it was started with. */
+/** A stand-in Claude CLI that records the arguments it was started with, then waits. */
 function writeArgvRecorder(dir: string): { bin: string; argvFile: string } {
-  fs.mkdirSync(dir, { recursive: true })
-  const bin = path.join(dir, "claude")
   const argvFile = path.join(dir, "argv.txt")
-  fs.writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argvFile}'\nexec sleep 60\n`, { mode: 0o755 })
+  const bin = writeNodeCli(
+    dir,
+    "claude",
+    [
+      `require("node:fs").writeFileSync(${JSON.stringify(argvFile)}, process.argv.slice(2).map((a) => a + "\\n").join(""))`,
+      `setTimeout(() => {}, 60_000)`,
+    ].join("\n"),
+  )
   return { bin, argvFile }
 }
 
@@ -129,6 +134,30 @@ test("resumes a session in a new terminal tab with the CLI's resume arguments", 
     return plugin.aiTaskManager.getRuns().map((run) => ({ host: run.host, taskPath: run.taskPath, taskName: run.taskName, cwd: run.cwd }))
   }, PLUGIN_ID)
   expect(runs).toEqual([{ host: "shell", taskPath: "", taskName: "👑 引っ越しの準備", cwd: vault }])
+
+  // Ctrl+C ends the CLI; the terminal stays, now a shell (exec "$SHELL" -i -l
+  // on macOS and Linux, PowerShell on Windows). `exit` ends it.
+  const run = (await resumedRunId(page, "👑 引っ越しの準備"))!
+  const status = () =>
+    page.evaluate(
+      ([id, runId]) =>
+        (window.app.plugins.plugins[id] as { aiTaskManager: { getRun(runId: string): { status: string } | undefined } })
+          .aiTaskManager.getRun(runId)?.status ?? null,
+      [PLUGIN_ID, run] as const,
+    )
+  const type = (data: string) =>
+    page.evaluate(
+      ([id, runId, input]) =>
+        (window.app.plugins.plugins[id] as { aiTaskManager: { sendTerminalInput(runId: string, data: string): void } })
+          .aiTaskManager.sendTerminalInput(runId, input),
+      [PLUGIN_ID, run, data] as const,
+    )
+  await type("\u0003")
+  await page.waitForTimeout(3_000)
+  expect(await status()).toBe("running")
+  // A CLI that ignored Ctrl+C would still be running here, and not end on `exit`.
+  await type("exit\r")
+  await expect.poll(status, { timeout: 20_000 }).not.toBe("running")
 })
 
 /** An AI task note for today, ready to start from its row. */
@@ -294,25 +323,27 @@ test("closing a task's own tab keeps the tabs opened beside it, and its row", as
   await page.locator(".ai-run-pane__sidebar-history").click()
   await page.locator(".ai-run-pane__panel:not([hidden]) .ai-run-pane__add").click()
   await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(2)
-  const terminal = (await childRunIds(page, journalRunId))[1]
-  await expect.poll(() => tabRunIds(page)).toEqual([journalRunId, resumed, terminal])
+  const beside = await childRunIds(page, journalRunId)
+  await expect.poll(() => tabRunIds(page)).toEqual([journalRunId, ...beside])
 
-  // × on the task's own tab: that tab goes; the other two and the row stay.
+  // × on the task's own tab: that tab goes; the others and the row stay.
   await closeTab(journalRunId)
-  await expect.soft.poll(() => tabRunIds(page), { timeout: 20_000 }).toEqual([resumed, terminal])
+  await expect.soft.poll(() => tabRunIds(page), { timeout: 20_000 }).toEqual(beside)
   await expect.soft(sidebarRow("AI Weekly Journal")).toHaveCount(1)
-  await expect.soft.poll(() => runStatuses(page, [resumed, terminal])).toEqual(["running", "running"])
+  await expect.soft.poll(() => runStatuses(page, beside)).toEqual(beside.map(() => "running"))
 
   // Over to AI Weekly Review and back: still there.
   await sidebarRow("AI Weekly Review").click()
   await expect.poll(() => tabRunIds(page)).not.toContain(resumed)
   await sidebarRow("AI Weekly Journal").click()
-  await expect.poll(() => tabRunIds(page)).toEqual([resumed, terminal])
+  await expect.poll(() => tabRunIds(page)).toEqual(beside)
 
   // The row goes with the last tab.
-  await closeTab(terminal)
-  await expect.poll(() => tabRunIds(page), { timeout: 20_000 }).toEqual([resumed])
-  await expect(sidebarRow("AI Weekly Journal")).toHaveCount(1)
+  for (const runId of beside.slice(1).reverse()) {
+    await closeTab(runId)
+    await expect.poll(() => tabRunIds(page), { timeout: 20_000 }).not.toContain(runId)
+    await expect(sidebarRow("AI Weekly Journal")).toHaveCount(1)
+  }
   await closeTab(resumed)
   await expect(sidebarRow("AI Weekly Journal")).toHaveCount(0, { timeout: 20_000 })
   await expect(sidebarRow("AI Weekly Review")).toHaveCount(1)
@@ -352,21 +383,21 @@ test("the row's × asks first, then closes every tab of the row", async ({ obsid
   await page.locator(".ai-run-pane__sidebar-history").click()
   await page.locator(".ai-run-pane__panel:not([hidden]) .ai-run-pane__add").click()
   await expect.poll(() => childRunIds(page, journalRunId), { timeout: 20_000 }).toHaveLength(2)
-  const [resumed, terminal] = await childRunIds(page, journalRunId)
-  const rowRunIds = [journalRunId, resumed, terminal]
+  const rowRunIds = [journalRunId, ...(await childRunIds(page, journalRunId))]
+  const allRunning = rowRunIds.map(() => "running")
   await expect.poll(() => tabRunIds(page)).toEqual(rowRunIds)
 
-  // The row's ×: a dialog naming the task and counting its three tabs (each
-  // listed under the name its tab shows, which for a terminal follows what
-  // runs in it). Cancel keeps all.
+  // The row's ×: a dialog naming the task and counting its tabs (each listed
+  // under the name its tab shows, which for a terminal follows what runs in
+  // it). Cancel keeps all.
   await pressRowClose("AI Weekly Journal")
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText('Close "AI Weekly Journal"?')
-  await expect(dialog).toContainText("This closes all 3 of this row's tabs.")
+  await expect(dialog).toContainText(`This closes all ${rowRunIds.length} of this row's tabs.`)
   await expect(dialog).toContainText("• AI Weekly Journal (running)")
   await dialog.getByRole("button", { name: "Cancel" }).click()
   await expect(dialog).toHaveCount(0)
-  await expect.poll(() => runStatuses(page, rowRunIds)).toEqual(["running", "running", "running"])
+  await expect.poll(() => runStatuses(page, rowRunIds)).toEqual(allRunning)
   await expect.poll(() => tabRunIds(page)).toEqual(rowRunIds)
 
   // Escape is a cancel too.
@@ -374,13 +405,13 @@ test("the row's × asks first, then closes every tab of the row", async ({ obsid
   await expect(dialog).toBeVisible()
   await page.keyboard.press("Escape")
   await expect(dialog).toHaveCount(0)
-  await expect.poll(() => runStatuses(page, rowRunIds)).toEqual(["running", "running", "running"])
+  await expect.poll(() => runStatuses(page, rowRunIds)).toEqual(allRunning)
 
   // Close all: every tab of the row goes, and the row with them.
   await pressRowClose("AI Weekly Journal")
   await dialog.getByRole("button", { name: "Close all" }).click()
   await expect(sidebarRow("AI Weekly Journal")).toHaveCount(0, { timeout: 20_000 })
-  await expect.poll(() => runStatuses(page, rowRunIds), { timeout: 20_000 }).toEqual([null, null, null])
+  await expect.poll(() => runStatuses(page, rowRunIds), { timeout: 20_000 }).toEqual(rowRunIds.map(() => null))
   // The other task is untouched.
   await expect(sidebarRow("AI Weekly Review")).toHaveCount(1)
   await expect.poll(() => runStatuses(page, [reviewRunId])).toEqual(["running"])

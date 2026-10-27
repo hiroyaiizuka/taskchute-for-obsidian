@@ -1,14 +1,16 @@
 import { execSync } from "node:child_process"
-import { ensureObsidian } from "./obsidian/install"
-import { ensureSharedLibraries } from "./obsidian/libs"
+import { locateObsidian } from "./obsidian/locate"
 import { REPO_ROOT } from "./obsidian/paths"
 
 /**
  * Runs once before the suite. Values handed to the tests travel through
  * process.env, which Playwright's workers inherit.
+ *
+ * Linux uses the pinned AppImage; macOS and Windows use the installed Obsidian
+ * running the pinned app (see locateObsidian).
  */
 export default async function globalSetup(): Promise<void> {
-  if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+  if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
     throw new Error(
       "Obsidian needs a display. Run under WSLg or a desktop session, or wrap the command in `xvfb-run -a`.",
     )
@@ -20,7 +22,8 @@ export default async function globalSetup(): Promise<void> {
     execSync("npm run build", { cwd: REPO_ROOT, stdio: "inherit" })
   }
 
-  const executable = await ensureObsidian()
+  const { executable, ldLibraryPath, appAsar } = await locateObsidian()
   process.env.TASKCHUTE_E2E_OBSIDIAN = executable
-  process.env.TASKCHUTE_E2E_LD_LIBRARY_PATH = ensureSharedLibraries(executable)
+  process.env.TASKCHUTE_E2E_LD_LIBRARY_PATH = ldLibraryPath
+  process.env.TASKCHUTE_E2E_APP_ASAR = appAsar
 }

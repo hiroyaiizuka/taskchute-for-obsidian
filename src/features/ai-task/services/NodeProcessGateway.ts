@@ -34,6 +34,7 @@ import {
   parseWindowsBuildNumber,
 } from './windows/ConPtyHostSource'
 import { buildWindowsCommandLine } from './windows/WindowsCommandLine'
+import { resolveWindowsInteractiveShell, WINDOWS_SHELL_ARGS } from './windows/WindowsInteractiveShell'
 
 // Ambient declarations for the Electron renderer runtime (no @types/node in
 // the src build). These shadow nothing at runtime; they only inform tsc.
@@ -109,6 +110,11 @@ export interface PtyCommandRequest {
   cols: number
   /** File the PTY session transcript is recorded to */
   transcriptPath: string
+  /**
+   * Windows: once the CLI exits, PowerShell takes over the same terminal
+   * (the POSIX bootstrap does this with `exec "$SHELL" -i -l`).
+   */
+  thenShell?: boolean
 }
 
 /** A spawnable command + argv produced by buildPtyCommand */
@@ -280,6 +286,7 @@ interface OsModuleLike {
 }
 
 interface FsModuleLike {
+  accessSync(path: string): void
   readFileSync(path: string, encoding: 'utf8'): string
   writeFileSync(path: string, data: string, options: { mode: number; flag: 'wx' }): void
   promises: {
@@ -635,6 +642,11 @@ function normalizeResizeDimension(value: number): number | null {
 
 function getTtySidecarPath(transcriptPath: string): string {
   return `${transcriptPath}.tty`
+}
+
+/** What runs in a ConPTY session's foreground, written by the host (ForegroundWatcher). */
+function getForegroundSidecarPath(transcriptPath: string): string {
+  return `${transcriptPath}.fg`
 }
 
 function isTtyDevicePath(path: string): boolean {
@@ -1376,6 +1388,23 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     return '/bin/sh'
   }
 
+  /**
+   * The shell a + terminal opens on Windows: PowerShell 7 when installed,
+   * otherwise Windows PowerShell (see WindowsInteractiveShell).
+   */
+  getWindowsInteractiveShellPath(): string {
+    return resolveWindowsInteractiveShell(process.env, (path) => {
+      // Not existsSync: a Microsoft Store pwsh.exe is an app execution alias,
+      // which stat (and so existsSync) cannot read, but access can.
+      try {
+        loadFsModule().accessSync(path)
+        return true
+      } catch {
+        return false
+      }
+    })
+  }
+
   /** Runtime platform seam used by the cross-platform CLI locator tests. */
   getPlatform(): string {
     return this.platformOverride ?? process.platform ?? 'unknown'
@@ -1771,6 +1800,14 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
           cols,
           rows,
           transcriptPath: request.transcriptPath,
+          ...(request.thenShell
+            ? {
+                thenShellCommandLine: buildWindowsCommandLine(
+                  this.getWindowsInteractiveShellPath(),
+                  [...WINDOWS_SHELL_ARGS],
+                ),
+              }
+            : {}),
         }),
       }
     }
@@ -1897,6 +1934,16 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
     return Promise.resolve(readTtySidecar(transcriptPath))
   }
 
+  /** The ConPTY host's `<transcript>.fg`, or null while it is unavailable. */
+  async readConPtyForeground(transcriptPath: string): Promise<string | null> {
+    if (!isGatewayTempFilePath(transcriptPath)) return null
+    try {
+      return await loadFsModule().promises.readFile(getForegroundSidecarPath(transcriptPath), 'utf8')
+    } catch {
+      return null
+    }
+  }
+
   /**
    * The file is created here, empty, owner-only and exclusively (LEV-388):
    * `script` would create a missing transcript with the umask (often 0644)
@@ -1941,7 +1988,8 @@ export class NodeProcessGateway implements ProcessGateway, WorkspaceFileGateway 
       }
       return await readTranscriptTail(path, size)
     } finally {
-      for (const cleanupPath of [path, getTtySidecarPath(path)]) {
+      const foreground = getForegroundSidecarPath(path)
+      for (const cleanupPath of [path, getTtySidecarPath(path), foreground, `${foreground}.tmp`]) {
         try {
           await fs.unlink(cleanupPath)
         } catch {

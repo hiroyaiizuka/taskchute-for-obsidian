@@ -85,6 +85,7 @@ interface HarnessOptions {
   withTerminal?: boolean
   timer?: AiGraceTimer
   probeShellForeground?: ShellForegroundProbe
+  shellArgs?: readonly string[]
 }
 
 function createShellHarness(options: HarnessOptions = {}) {
@@ -126,6 +127,7 @@ function createShellHarness(options: HarnessOptions = {}) {
           makeTempFilePath,
           readAndDeleteFile,
           ...(options.withGetShellPath ?? true ? { getShellPath } : {}),
+          ...(options.shellArgs ? { getShellArgs: () => options.shellArgs! } : {}),
           ...(options.probeShellForeground
             ? { probeShellForeground: options.probeShellForeground }
             : {}),
@@ -148,6 +150,14 @@ function createShellHarness(options: HarnessOptions = {}) {
 }
 
 describe('AiTaskManager.startShellSession spawn shape', () => {
+  test("passes the terminal's own shell arguments when it has them (Windows PowerShell)", () => {
+    const harness = createShellHarness({ shellArgs: ['-NoLogo'] })
+
+    harness.manager.startShellSession()
+
+    expect(harness.terminal.last.request.extraArgs).toEqual(['-NoLogo'])
+  })
+
   test('synchronously spawns the login shell through the terminal dispatcher', () => {
     const harness = createShellHarness()
 

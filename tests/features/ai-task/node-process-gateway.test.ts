@@ -288,6 +288,39 @@ describe('NodeProcessGateway', () => {
     })
   })
 
+  describe('getWindowsInteractiveShellPath', () => {
+    const env = { ...process.env }
+    // The module object the gateway require()s (the namespace import is frozen).
+    const nodeFs = jest.requireActual<typeof fs>('fs')
+    afterEach(() => {
+      process.env = { ...env }
+      jest.restoreAllMocks()
+    })
+
+    test('finds a Microsoft Store pwsh.exe, which only access can see', () => {
+      process.env.ProgramW6432 = 'C:\\Program Files'
+      process.env.ProgramFiles = 'C:\\Program Files'
+      process.env.LOCALAPPDATA = 'C:\\Users\\me\\AppData\\Local'
+      const alias = 'C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe'
+      jest.spyOn(nodeFs, 'accessSync').mockImplementation((path) => {
+        if (path !== alias) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      })
+
+      expect(new NodeProcessGateway(undefined, 'win32').getWindowsInteractiveShellPath()).toBe(alias)
+    })
+
+    test('opens Windows PowerShell when no PowerShell 7 is found', () => {
+      process.env.SystemRoot = 'C:\\Windows'
+      jest.spyOn(nodeFs, 'accessSync').mockImplementation(() => {
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
+      })
+
+      expect(new NodeProcessGateway(undefined, 'win32').getWindowsInteractiveShellPath()).toBe(
+        'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      )
+    })
+  })
+
   describe('runtime helpers', () => {
     test('reports an injected platform for deterministic Windows resolution', () => {
       expect(new NodeProcessGateway(undefined, 'win32').getPlatform()).toBe('win32')

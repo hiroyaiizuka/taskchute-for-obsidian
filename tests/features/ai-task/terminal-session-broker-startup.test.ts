@@ -5,9 +5,11 @@ import { join } from 'path'
 
 import type { AiRunExitOutcome } from '@/features/ai-task/services/dispatchers/Dispatcher'
 import {
+  buildTerminalBrokerSource,
   TerminalSessionBrokerClient,
   type TerminalBrokerClientOptions,
 } from '@/features/ai-task/services/TerminalSessionBroker'
+import { programPipeLoader } from '@/features/ai-task/services/broker-source/ProgramPipeLoaderSource'
 
 jest.mock('child_process', () => ({
   ...jest.requireActual<typeof import('child_process')>('child_process'),
@@ -108,6 +110,22 @@ describe('TerminalSessionBrokerClient broker startup', () => {
 
     expect(outcome.terminalFailure).toBe('node-not-found')
     expect(elapsedMs).toBeLessThan(1000)
+  })
+
+  test('on Windows the program goes through stdin behind a short loader', async () => {
+    // Windows caps a command line at 32,767 characters; the broker is ~120 KB.
+    const stdin = { on: jest.fn(), end: jest.fn() }
+    spawnMock.mockImplementation(() => Object.assign(fakeChild({ exit: 1 }), { stdin }))
+
+    await startOnce({ locateNode: () => ['C:\\node\\node.exe'], platform: 'win32' })
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      'C:\\node\\node.exe',
+      ['-e', programPipeLoader(0)],
+      expect.objectContaining({ detached: true, stdio: ['pipe', 'ignore', 'ignore'] }),
+    )
+    expect(stdin.on).toHaveBeenCalledWith('error', expect.any(Function))
+    expect(stdin.end).toHaveBeenCalledWith(buildTerminalBrokerSource())
   })
 
   test('a Node.js that cannot be spawned moves on at once instead of waiting out startup', async () => {

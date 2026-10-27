@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { test as base, expect } from "@playwright/test"
 import { type ObsidianLanguage, type ObsidianSession, launchObsidian } from "../obsidian/launch"
-import { PLUGIN_ID, REPO_ROOT } from "../obsidian/paths"
+import { REPO_ROOT } from "../obsidian/paths"
 import { Recorder } from "./recorder"
 
 export { expect }
@@ -54,27 +54,12 @@ export const test = base.extend<Fixtures>({
       home,
       obsidianExecutable,
       ldLibraryPath: process.env.TASKCHUTE_E2E_LD_LIBRARY_PATH ?? "",
+      appAsar: process.env.TASKCHUTE_E2E_APP_ASAR ?? "",
     })
     try {
       await use(session)
     } finally {
-      // Terminal runs live in a broker that outlasts the window; stop them
-      // first, or their shells stay behind when Obsidian is killed.
-      await session.page
-        .evaluate(async (id) => {
-          const plugin = window.app.plugins.plugins[id] as {
-            aiTaskManager?: {
-              getRuns(): Array<{ id: string; status: string }>
-              stopRun(runId: string): void
-            }
-          }
-          const manager = plugin.aiTaskManager
-          if (!manager) return
-          const live = manager.getRuns().filter((run) => run.status === "running")
-          for (const run of live) manager.stopRun(run.id)
-          if (live.length > 0) await new Promise((resolve) => setTimeout(resolve, 1500))
-        }, PLUGIN_ID)
-        .catch(() => undefined)
+      // close() also stops AI runs and the terminal broker.
       await session.close()
     }
   },

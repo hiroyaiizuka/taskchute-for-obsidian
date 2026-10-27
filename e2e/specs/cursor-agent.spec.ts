@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, aiRunLogStatuses, aiRuns, enableAiTasks, openTaskChute, taskRow, writeFakeClaude } from "../helpers/aiTask"
+import { PLUGIN_ID, aiRunLogStatuses, aiRuns, enableAiTasks, openTaskChute, taskRow, writeFakeClaude, writeNodeCli } from "../helpers/aiTask"
 
 // LEV-313: Cursor is a third agent. A task made with it in the add-task
 // modal runs the Cursor CLI (a stand-in here) headlessly.
@@ -12,7 +12,6 @@ import { PLUGIN_ID, aiRunLogStatuses, aiRuns, enableAiTasks, openTaskChute, task
  */
 function writeFakeCursor(dir: string): { bin: string; argvFile: string } {
   fs.mkdirSync(dir, { recursive: true })
-  const bin = path.join(dir, "cursor-agent")
   const argvFile = path.join(dir, "argv.txt")
   const lines = [
     `{"type":"system","subtype":"init","session_id":"e2e-cursor","model":"Auto","permissionMode":"default"}`,
@@ -20,13 +19,15 @@ function writeFakeCursor(dir: string): { bin: string; argvFile: string } {
     `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Reviewed by fake cursor"}]},"session_id":"e2e-cursor"}`,
     `{"type":"result","subtype":"success","is_error":false,"result":"done","session_id":"e2e-cursor"}`,
   ]
-  const body = [
-    `printf '%s\\n' "$@" > '${argvFile}'`,
-    ...lines.map((line) => `echo '${line}'`),
-    "sleep 1",
-    "exit 0",
-  ].join("\n")
-  fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`, { mode: 0o755 })
+  const bin = writeNodeCli(
+    dir,
+    "cursor-agent",
+    [
+      `require("node:fs").writeFileSync(${JSON.stringify(argvFile)}, process.argv.slice(2).map((a) => a + "\\n").join(""))`,
+      ...lines.map((line) => `console.log(${JSON.stringify(line)})`),
+      "setTimeout(() => process.exit(0), 1_000)",
+    ].join("\n"),
+  )
   return { bin, argvFile }
 }
 

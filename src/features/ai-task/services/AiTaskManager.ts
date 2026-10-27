@@ -291,7 +291,7 @@ export interface AiTaskManagerDeps {
     /** Settles isSupported() (the Windows ConPTY probe). Never rejects. */
     ensureSupported?(): Promise<void>
     getUnavailableReason?(): string | undefined
-    /** False on Windows, where ConPTY hosts AI runs only. Absent = true. */
+    /** False where plain shell sessions cannot run. Absent = true. */
     shellSessionsSupported?: boolean
     windowsPty?: { backend: 'conpty'; buildNumber?: number }
     /** Gateway helper: unique transcript path in the OS temp directory */
@@ -304,10 +304,12 @@ export interface AiTaskManagerDeps {
      * fakes keep working; without it shell sessions are unavailable.
      */
     getShellPath?(): string
+    /** Arguments for that shell. Absent = SHELL_SESSION_ARGS (an interactive login shell). */
+    getShellArgs?(): readonly string[]
     /**
      * What runs in the foreground of a live shell session (by transcript
-     * path), for its tab name. Absent where it cannot be told (Windows): the
-     * tab then keeps the latest title a program set.
+     * path), for its tab name. Absent where it cannot be told: the tab then
+     * keeps the latest title a program set.
      */
     probeShellForeground?: ShellForegroundProbe
   }
@@ -458,6 +460,8 @@ export interface AiShellSessionOptions {
 
 interface InternalRun {
   record: AiRunRecord
+  /** The shell a + / split session runs (its own title is not a program's). */
+  shellPath?: string
   handle: AiRunProcessHandle | null
   /** Set alongside handle for terminal runs; carries the write() capability */
   terminalHandle: TerminalRunHandle | null
@@ -1320,6 +1324,7 @@ export class AiTaskManager {
 
     const internal: InternalRun = {
       record,
+      shellPath,
       handle: null,
       terminalHandle: null,
       exited: false,
@@ -1346,7 +1351,7 @@ export class AiTaskManager {
           binaryPath: shellPath,
           prompt: '',
           cwd: internal.cwd,
-          extraArgs: [...SHELL_SESSION_ARGS],
+          extraArgs: [...(terminal.getShellArgs?.() ?? SHELL_SESSION_ARGS)],
           rows: record.rows ?? DEFAULT_TERMINAL_ROWS,
           cols: record.cols ?? DEFAULT_TERMINAL_COLS,
           transcriptPath: record.transcriptPath ?? '',
@@ -1409,6 +1414,11 @@ export class AiTaskManager {
 
   /** Waits for the Windows ConPTY probe, so supportsSessionResume() gives its real answer. */
   async settleSessionResumeSupport(): Promise<void> {
+    await this.ensureTerminalSupportSettled('terminal')
+  }
+
+  /** Waits for the Windows ConPTY probe, so supportsShellSessions() gives its real answer. */
+  async settleShellSessionSupport(): Promise<void> {
     await this.ensureTerminalSupportSettled('terminal')
   }
 
@@ -2584,7 +2594,12 @@ export class AiTaskManager {
     const record = internal.record
     if (record.host !== 'shell' || internal.exited) return
     const probeAvailable = typeof this.deps.terminal?.probeShellForeground === 'function'
-    const { changed, pollSoon } = this.shellTitles.handleOutput(record, chunk, probeAvailable)
+    const { changed, pollSoon } = this.shellTitles.handleOutput(
+      record,
+      chunk,
+      probeAvailable,
+      internal.shellPath,
+    )
     // A program with a new name is often one that just started. Spinner
     // frames that clean to the same title do not ask again.
     if (pollSoon) this.shellForeground.pollSoon()

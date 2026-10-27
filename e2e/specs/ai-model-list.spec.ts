@@ -1,7 +1,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, enableAiTasks, openTaskChute, writeFakeClaude } from "../helpers/aiTask"
+import { PLUGIN_ID, enableAiTasks, openTaskChute, writeFakeClaude, writeNodeCli } from "../helpers/aiTask"
 
 // LEV-316: the AI model picker lists what the installed CLI offers. Cursor's
 // list comes from `cursor-agent models` (a stand-in here whose answer the test
@@ -27,21 +27,21 @@ const SECOND_LIST = [
 /** A stand-in for `cursor-agent` that prints the model list in `listFile` for `models`. */
 function writeFakeCursor(dir: string): { bin: string; listFile: string; callsFile: string } {
   fs.mkdirSync(dir, { recursive: true })
-  const bin = path.join(dir, "cursor-agent")
   const listFile = path.join(dir, "models.txt")
   const callsFile = path.join(dir, "calls.txt")
   fs.writeFileSync(listFile, `${FIRST_LIST.join("\n")}\n`)
-  const body = [
-    `if [ "$1" = "models" ]; then`,
-    `  echo models >> '${callsFile}'`,
-    // A real list asks the account and takes a moment.
-    "  sleep 1",
-    `  cat '${listFile}'`,
-    "  exit 0",
-    "fi",
-    "exit 0",
-  ].join("\n")
-  fs.writeFileSync(bin, `#!/bin/sh\n${body}\n`, { mode: 0o755 })
+  const bin = writeNodeCli(
+    dir,
+    "cursor-agent",
+    [
+      `const fs = require("node:fs")`,
+      `if (process.argv[2] === "models") {`,
+      `  fs.appendFileSync(${JSON.stringify(callsFile)}, "models\\n")`,
+      // A real list asks the account and takes a moment.
+      `  setTimeout(() => { process.stdout.write(fs.readFileSync(${JSON.stringify(listFile)}, "utf8")); process.exit(0) }, 1_000)`,
+      `} else process.exit(0)`,
+    ].join("\n"),
+  )
   return { bin, listFile, callsFile }
 }
 

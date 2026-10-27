@@ -254,6 +254,17 @@ describe('NodeProcessGateway.buildPtyCommand', () => {
     expect(command.args.join(' ')).not.toContain('danger')
   })
 
+  test('win32: a shell-backed run names the PowerShell that takes over after the CLI', () => {
+    const gateway = new NodeProcessGateway(undefined, 'win32')
+    jest.spyOn(gateway, 'getWindowsInteractiveShellPath').mockReturnValue('C:\\Program Files\\PowerShell\\7\\pwsh.exe')
+
+    const command = gateway.buildPtyCommand({ ...BASE_REQUEST, thenShell: true })
+    const plain = gateway.buildPtyCommand({ ...BASE_REQUEST })
+
+    expect(command.env?.TASKCHUTE_CONPTY_THEN_SHELL).toBe('"C:\\Program Files\\PowerShell\\7\\pwsh.exe" "-NoLogo"')
+    expect(plain.env).not.toHaveProperty('TASKCHUTE_CONPTY_THEN_SHELL')
+  })
+
   test('win32: sanitizes the grid the host starts the pseudo console with', () => {
     const gateway = new NodeProcessGateway(undefined, 'win32')
 

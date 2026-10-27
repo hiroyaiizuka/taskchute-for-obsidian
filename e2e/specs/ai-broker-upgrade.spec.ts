@@ -6,7 +6,7 @@ import os from "node:os"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, createLinkedPair, enableAiTasks, openTaskChute, writeFakeClaude } from "../helpers/aiTask"
+import { PLUGIN_ID, createLinkedPair, enableAiTasks, openTaskChute, writeFakeClaude, skipOnWindows } from "../helpers/aiTask"
 import { cacheRoot } from "../obsidian/paths"
 
 // LEV-391: updating from a release whose broker cannot prove itself.
@@ -20,6 +20,8 @@ import { cacheRoot } from "../obsidian/paths"
 // nothing from the old version keeps talking to a broker.
 
 const OLD_RELEASE = "3.0.1"
+// Its Windows terminals ran without a broker, so there is none to retire there.
+const OLD_RELEASE_HAD_NO_WINDOWS_BROKER = `${OLD_RELEASE} ran no broker on Windows`
 
 test.use({ isolatedHome: true })
 
@@ -153,8 +155,26 @@ function isAlive(pid: number): boolean {
 
 /** TCP connections from anyone on this machine to 127.0.0.1:port. */
 function connectionsTo(port: number): number {
+  if (process.platform === "darwin") return connectionsToOnMac(port)
   const out = execFileSync("ss", ["-Htn", "state", "established", `( dport = :${port} )`], { encoding: "utf8" })
   return out.split("\n").filter((line) => line.trim().length > 0).length
+}
+
+/**
+ * macOS has no `ss`. lsof lists both ends of each connection on the port, and
+ * only the client's end names the port as the far one ("->127.0.0.1:port").
+ * It sees this user's processes only, which is everyone the suite starts.
+ */
+function connectionsToOnMac(port: number): number {
+  let out: string
+  try {
+    out = execFileSync("lsof", ["-nP", `-iTCP@127.0.0.1:${port}`, "-sTCP:ESTABLISHED", "-Fn"], { encoding: "utf8" })
+  } catch (error) {
+    // lsof exits 1 when nothing matches.
+    if ((error as { status?: number }).status === 1) return 0
+    throw error
+  }
+  return out.split("\n").filter((line) => line.startsWith("n") && line.endsWith(`->127.0.0.1:${port}`)).length
 }
 
 async function startShell(page: Page, marker: string): Promise<string> {
@@ -318,6 +338,7 @@ async function shutDown(page: Page, pids: number[]): Promise<void> {
 }
 
 test(`updating from ${OLD_RELEASE} with a live terminal moves to a new broker without trusting the old one`, async ({ obsidian, home }, testInfo) => {
+  skipOnWindows(OLD_RELEASE_HAD_NO_WINDOWS_BROKER)
   const { page, vaultDir } = obsidian
   const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
   const { vault, old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)
@@ -349,6 +370,7 @@ test(`updating from ${OLD_RELEASE} with a live terminal moves to a new broker wi
 })
 
 test(`after updating from ${OLD_RELEASE}, a process that takes the old broker's port gets nothing`, async ({ obsidian, home }, testInfo) => {
+  skipOnWindows(OLD_RELEASE_HAD_NO_WINDOWS_BROKER)
   const { page, vaultDir } = obsidian
   const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
   const { vault, old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)
@@ -470,6 +492,7 @@ test(`an AI task ${OLD_RELEASE} was starting when the update landed never dispat
 })
 
 test(`a lease activation ${OLD_RELEASE} was retrying when the update landed never dials afterwards`, async ({ obsidian, home }, testInfo) => {
+  skipOnWindows(OLD_RELEASE_HAD_NO_WINDOWS_BROKER)
   const { page, vaultDir } = obsidian
   const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
   const { vault, old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)
@@ -522,6 +545,7 @@ test(`a lease activation ${OLD_RELEASE} was retrying when the update landed neve
 })
 
 test(`a ${OLD_RELEASE} runtime whose shutdown failed is not retried after the update`, async ({ obsidian, home }, testInfo) => {
+  skipOnWindows(OLD_RELEASE_HAD_NO_WINDOWS_BROKER)
   const { page, vaultDir } = obsidian
   const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
   const { old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)
@@ -587,6 +611,7 @@ test(`a ${OLD_RELEASE} runtime whose shutdown failed is not retried after the up
 })
 
 test(`updating from ${OLD_RELEASE} into a vault where AI tasks do not start still retires the old runtime`, async ({ obsidian, home }, testInfo) => {
+  skipOnWindows(OLD_RELEASE_HAD_NO_WINDOWS_BROKER)
   const { page, vaultDir } = obsidian
   const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
   const { old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)
@@ -627,6 +652,7 @@ test(`updating from ${OLD_RELEASE} into a vault where AI tasks do not start stil
 })
 
 test(`a ${OLD_RELEASE} runtime whose handoff expired while the plugin was off still ends with the update`, async ({ obsidian, home }, testInfo) => {
+  skipOnWindows(OLD_RELEASE_HAD_NO_WINDOWS_BROKER)
   const { page, vaultDir } = obsidian
   const claude = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
   const { old } = await runOldReleaseWithTerminal(page, vaultDir, home!, claude)

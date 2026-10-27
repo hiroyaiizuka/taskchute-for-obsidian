@@ -4,6 +4,7 @@ import net from "node:net"
 import os from "node:os"
 import path from "node:path"
 import { type Browser, type Page, chromium } from "@playwright/test"
+import { shutDownAiRuntime } from "./broker"
 import { PLUGIN_ID, REPO_ROOT, pluginArtifactsDir } from "./paths"
 
 export type ObsidianLanguage = "en" | "ja"
@@ -14,6 +15,8 @@ export interface LaunchOptions {
   language: ObsidianLanguage
   obsidianExecutable: string
   ldLibraryPath: string
+  /** The app (obsidian-<version>.asar) to run instead of the bundled one; empty for the bundled one. */
+  appAsar: string
   /**
    * A home folder for Obsidian (and every CLI it spawns) other than the
    * user's, so a test never reads or writes the real ~/.claude and the like.
@@ -58,7 +61,7 @@ function freePort(): Promise<number> {
   })
 }
 
-function prepareDirectories(workDir: string): { configDir: string; vaultDir: string } {
+function prepareDirectories(workDir: string, appAsar: string): { configDir: string; vaultDir: string } {
   const configDir = path.join(workDir, "config")
   const vaultDir = path.join(workDir, "vault")
   fs.rmSync(workDir, { recursive: true, force: true })
@@ -88,6 +91,16 @@ function prepareDirectories(workDir: string): { configDir: string; vaultDir: str
       vaults: { [VAULT_ID]: { path: vaultDir, ts: Date.now(), open: true } },
     }),
   )
+  // Obsidian loads the newest obsidian-*.asar in its config dir over the app
+  // its installer bundled. A hard link saves copying 28 MB for every test.
+  if (appAsar) {
+    const target = path.join(configDir, path.basename(appAsar))
+    try {
+      fs.linkSync(appAsar, target)
+    } catch {
+      fs.copyFileSync(appAsar, target)
+    }
+  }
   return { configDir, vaultDir }
 }
 
@@ -204,7 +217,7 @@ function windowWasClosed(error: unknown): boolean {
 }
 
 async function launchOnce(options: LaunchOptions): Promise<ObsidianSession> {
-  const { configDir, vaultDir } = prepareDirectories(options.workDir)
+  const { configDir, vaultDir } = prepareDirectories(options.workDir, options.appAsar)
   if (options.home) linkUserFonts(options.home)
   const port = await freePort()
 
@@ -226,7 +239,10 @@ async function launchOnce(options: LaunchOptions): Promise<ObsidianSession> {
   process.once("exit", onExit)
 
   let browser: Browser | undefined
+  let page: Page | undefined
   const close = async () => {
+    // The broker runs outside Obsidian's process group; ask it to exit first.
+    if (page) await shutDownAiRuntime(page)
     await browser?.close().catch(() => undefined)
     killGroup(child)
     process.removeListener("exit", onExit)
@@ -234,7 +250,7 @@ async function launchOnce(options: LaunchOptions): Promise<ObsidianSession> {
 
   try {
     browser = await connect(port)
-    const page = await findVaultWindow(browser, vaultDir)
+    page = await findVaultWindow(browser, vaultDir)
 
     // Neither setting can be passed on the command line. Obsidian reads the
     // UI language from localStorage (getLanguage() returns it), and trusting

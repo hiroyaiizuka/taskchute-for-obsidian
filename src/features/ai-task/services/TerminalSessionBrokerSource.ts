@@ -7,7 +7,9 @@ import { POSIX_PROCESS_SNAPSHOT_SOURCE } from './broker-source/PosixProcessSnaps
 import {
   gzipBase64,
   INFLATE_PROGRAM_SOURCE,
+  stripCommentLines,
 } from './broker-source/EmbeddedProgramSource'
+import { PROGRAM_PIPE_LOADER_SOURCE } from './broker-source/ProgramPipeLoaderSource'
 
 /**
  * Renderer-independent Node broker program.
@@ -119,6 +121,8 @@ let cachedBrokerSource: string | undefined
  * Note M: JSON escaping can expand control-char-heavy replay up to 6x, so
  * the raw replay cap alone cannot keep the serialized frame under the
  * client's frame limit. Trim from the head: the newest tail redraws the TUI.
+ * The first pass assumes worst-case 6-byte escapes; the fallback drops one
+ * raw char per excess byte, which always fits on the next pass.
  *
  * Note N: A broken tracking file must not hold a completed terminal and
  * broker forever. Parsed identities remain in ownedPids and are still
@@ -159,12 +163,18 @@ let cachedBrokerSource: string | undefined
  * anything still in that group belongs to the terminal. The control pipe
  * (fd 4) is closed too: on Linux the terminal can inherit it as well. So a
  * detached process holding either no longer keeps the session open; like any
- * process the broker never recorded (Note C), it is not waited for.
+ * process the broker never recorded (Note C), it is not waited for. The
+ * guard's exit itself only finishes the session: the guard owns target-tree
+ * cleanup, and numeric group signalling from the broker would race guard-PID
+ * reuse after the OS reports exit.
  *
  * Note U: A renderer may ask to terminate an unavailable session twice, on
  * its data and its control connection (LEV-391). The session keeps whether
  * the first request interrupted it, so every answer, also one after
  * completion, agrees: a transport failure never turns into a normal stop.
+ * A user stop already in progress keeps its normal stopped outcome;
+ * otherwise the transport failure owns the forced termination and the
+ * renderer surfaces it as interrupted.
  *
  * Note V: Activating a renderer lease cancels the exit grace: a renderer is
  * adopting the sessions. A pending-termination retry activates with
@@ -199,6 +209,17 @@ let cachedBrokerSource: string | undefined
  * unconfirmed. On Windows the ChildProcess fallback must not bypass the
  * birth-time check: the PID may already belong to another process.
  *
+ * Note Z: Windows caps a command line at 32,767 characters, too short for
+ * the guard and watchdog as `-e` arguments. There they get a short loader and
+ * read the program from an extra pipe (fd 4 for the guard, after its control
+ * pipe on fd 3; fd 3 for the watchdog). See ProgramPipeLoaderSource.
+ *
+ * Note AA: A Windows terminal runs in the ConPTY host (ConPtyHostSource),
+ * which has no tty for stty and reads keys and resizes as frames on its own
+ * stdio 3 (ConPtyControlFrames). The spawn request says so with controlPipe;
+ * the broker then sends sizes to the guard as RESIZE lines on the guard's
+ * control pipe, and the guard frames both onto the host's stdio 3.
+ *
  * LEV-379: ps and lsof answer in seconds on a busy Mac, longer right after
  * wake, and the broker serves every terminal from one event loop. So when a
  * session ends or is force-stopped, the evidence a decision about its
@@ -224,7 +245,7 @@ let cachedBrokerSource: string | undefined
 
 export function buildTerminalBrokerSource(): string {
   if (cachedBrokerSource !== undefined) return cachedBrokerSource
-  cachedBrokerSource = String.raw`
+  cachedBrokerSource = stripCommentLines(String.raw`
 'use strict';
 const net = require('net');
 const fs = require('fs');
@@ -234,8 +255,8 @@ const path = require('path');
 ${TERMINAL_BROKER_PURE_SOURCE}
 ${POSIX_PROCESS_SNAPSHOT_SOURCE}
 ${INFLATE_PROGRAM_SOURCE}
-// Carried compressed: as plain string literals these two cost ~46KB of the
-// 131_072-byte Linux limit on a single argv string. See EmbeddedProgramSource.
+${PROGRAM_PIPE_LOADER_SOURCE}
+// Carried compressed. See EmbeddedProgramSource.
 const ownerWatchdogProgram = inflateProgram(${JSON.stringify(gzipBase64(TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE))});
 const sessionGuardProgram = inflateProgram(${JSON.stringify(gzipBase64(TERMINAL_SESSION_GUARD_SOURCE))});
 const descriptorPath = process.env.TASKCHUTE_BROKER_DESCRIPTOR;
@@ -440,16 +461,22 @@ function startOwnerWatchdog(onReady) {
     TASKCHUTE_OWNER_WATCH_PYTHON: ownerPythonHookDir,
   });
   try {
+    // Note Z (buildTerminalBrokerSource).
+    const piped = process.platform === 'win32';
     ownerWatchdog = cp.spawn(
       process.execPath,
-      ['-e', ownerWatchdogProgram],
+      ['-e', piped ? programPipeLoader(3) : ownerWatchdogProgram],
       {
         detached: true,
         windowsHide: true,
         env: watchdogEnv,
-        stdio: ['pipe', 'pipe', 'ignore'],
+        stdio: piped ? ['pipe', 'pipe', 'ignore', 'pipe'] : ['pipe', 'pipe', 'ignore'],
       },
     );
+    if (piped && ownerWatchdog.stdio[3]) {
+      ownerWatchdog.stdio[3].on('error', () => {});
+      ownerWatchdog.stdio[3].end(ownerWatchdogProgram);
+    }
   } catch (_) {
     process.exit(66);
     return;
@@ -1677,25 +1704,29 @@ function spawnSession(message, socket) {
       cwd: request.cwd,
       guardToken,
       controlFd: guardControlFd,
+      controlPipe: request.controlPipe === true,
     }),
     'utf8',
   ).toString('base64');
   let child;
   const rootStartedAtLower = Date.now();
   try {
+    // Note Z (buildTerminalBrokerSource).
     child = cp.spawn(
       nodeExecutable,
-      ['-e', sessionGuardProgram, guardToken],
+      ['-e', process.platform === 'win32' ? programPipeLoader(4) : sessionGuardProgram, guardToken],
       {
         cwd: request.cwd,
         env: spawnEnv,
         detached: process.platform !== 'win32',
         windowsHide: true,
-        stdio: process.platform === 'win32'
-          ? ['pipe', 'pipe', 'pipe', 'pipe']
-          : ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
+        stdio: ['pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
       },
     );
+    if (process.platform === 'win32' && child.stdio[4]) {
+      child.stdio[4].on('error', () => {});
+      child.stdio[4].end(sessionGuardProgram);
+    }
   } catch (error) {
     try { fs.unlinkSync(ownerPidFile); } catch (_) {}
     send(socket, { type: 'error', sessionId: message.sessionId, message: String(error && error.message || error) });
@@ -1720,8 +1751,7 @@ function spawnSession(message, socket) {
     process.env.TASKCHUTE_BROKER_TEST_ROOT_RECORD_DELAY_MS,
   );
   if (Number.isFinite(rootRecordDelayMs) && rootRecordDelayMs > 0) {
-    // Deterministic crash-window test hook. The session guard remains
-    // responsive while the broker is deliberately blocked here.
+    // Crash-window test hook.
     Atomics.wait(
       new Int32Array(new SharedArrayBuffer(4)),
       0,
@@ -1791,6 +1821,7 @@ function spawnSession(message, socket) {
     killTimer: null,
     forceKillTimer: null,
     guardControl,
+    controlPipe: request.controlPipe === true,
     transcriptPath: message.transcriptPath,
     pressured: new Set(),
     pressureTimers: new Map(),
@@ -1839,8 +1870,7 @@ function spawnSession(message, socket) {
     broadcast(session, { type: 'data', sessionId: session.id, data: text });
   });
   child.on('exit', (code, signal) => {
-    // The per-session guard owns target-tree cleanup. Numeric group signalling
-    // here would race guard-PID reuse after the OS reports exit.
+    // Note T (buildTerminalBrokerSource).
     finish(session, code, signal, false);
   });
   child.on('close', (code, signal) => finish(session, code, signal, true));
@@ -1877,8 +1907,7 @@ function attachSession(id, socket) {
   let optimistic = true;
   while (frame.length > attachedFrameBudget && payload.replay.length > 0) {
     const excess = frame.length - attachedFrameBudget;
-    // First pass assumes worst-case 6-byte escapes; the fallback drops one
-    // raw char per excess byte, which always fits on the next pass.
+    // Note M (buildTerminalBrokerSource).
     const drop = optimistic ? Math.ceil(excess / 6) : excess;
     optimistic = false;
     payload.replay = payload.replay.slice(Math.min(drop, payload.replay.length));
@@ -1895,6 +1924,16 @@ function pumpResize(session) {
     session.appliedResize.cols === next.cols &&
     session.appliedResize.rows === next.rows
   ) return;
+  // Note AA (buildTerminalBrokerSource).
+  if (session.controlPipe) {
+    const control = session.guardControl;
+    if (!control || control.destroyed) return;
+    try {
+      control.write('RESIZE ' + next.cols + ' ' + next.rows + '\n');
+      session.appliedResize = next;
+    } catch (_) {}
+    return;
+  }
   if (!session.ttyPath) {
     try {
       const tty = fs.readFileSync(session.transcriptPath + '.tty', 'utf8').trim();
@@ -1938,9 +1977,7 @@ function terminateUnavailableSession(id, socket) {
     });
     return;
   }
-  // If a user stop was already in progress, preserve its normal stopped
-  // outcome. Otherwise this transport failure owns the forced termination
-  // and the renderer must surface it as interrupted. Note U.
+  // Note U (buildTerminalBrokerSource).
   if (!session.stopRequested) session.terminatedUnavailable = true;
   const interrupted = session.terminatedUnavailable;
   session.terminationClients.set(socket, interrupted);
@@ -2229,6 +2266,6 @@ startOwnerWatchdog(() => {
 server.on('error', () => shutdown(false));
 process.on('SIGTERM', () => shutdown(false));
 process.on('SIGINT', () => shutdown(false));
-`
+`)
   return cachedBrokerSource
 }
