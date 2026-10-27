@@ -405,7 +405,7 @@ function resolveNodeExecutable(execPath, pathValue, platform, isExecutable) {
   for (const entry of String(pathValue || '').split(windows ? ';' : ':')) {
     const directory = windows ? entry.trim().replace(/^"(.*)"$/, '$1') : entry;
     if (!absolute.test(directory)) continue;
-    const candidate = directory.replace(/[\\/]+$/, '') + (windows ? '\\' : '/') + name;
+    const candidate = directory.replace(windows ? /[\\/]+$/ : /\/+$/, '') + (windows ? '\\' : '/') + name;
     if (isExecutable(candidate)) return candidate;
   }
   return null;

@@ -321,6 +321,17 @@ describe('resolveNodeExecutable', () => {
     ).toBe('C:\\Program Files\\nodejs\\node.exe')
   })
 
+  test('keeps a trailing backslash on POSIX, where it belongs to the directory name', () => {
+    expect(
+      broker.resolveNodeExecutable(
+        '/gone/node',
+        '/opt/custom\\/',
+        'linux',
+        installed('/opt/custom\\/node', '/opt/custom/node'),
+      ),
+    ).toBe('/opt/custom\\/node')
+  })
+
   test('unquotes Windows PATH entries before looking in them', () => {
     expect(
       broker.resolveNodeExecutable(
