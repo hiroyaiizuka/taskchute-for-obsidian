@@ -201,6 +201,7 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
             prepareEnv: () => gateway.refreshLoginShellPath(),
             log: (level, ...args) => log(level, ...args),
           }),
+          (level, ...args) => log(level, ...args),
         )
       : new TerminalDispatcher(gateway)
 

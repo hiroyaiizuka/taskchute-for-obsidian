@@ -10,6 +10,7 @@
 
 import { t } from '@/i18n'
 import type { AiTerminalNotice } from '../types'
+import { isBrokerMachineryFailure } from './BrokerRecovery'
 import type { AiTerminalFailureKind } from './dispatchers/Dispatcher'
 
 let lastNoticeSeq = 0
@@ -39,7 +40,13 @@ export function terminalFailureNotice(
       : t('taskChuteView.aiTask.terminalNotice.startFailed', 'The terminal could not start: {error}', {
         error: errorMessage ?? kind,
       })
-  return { kind: 'start-failed', message, seq: nextNoticeSeq() }
+  const restartable = isBrokerMachineryFailure({ terminalFailure: kind, errorMessage })
+  return {
+    kind: 'start-failed',
+    message,
+    seq: nextNoticeSeq(),
+    ...(restartable ? { restartable } : {}),
+  }
 }
 
 /** The session stopped answering; its termination is being confirmed. */

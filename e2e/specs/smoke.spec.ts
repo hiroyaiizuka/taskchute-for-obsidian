@@ -12,6 +12,7 @@ const COMMAND_IDS = [
   "duplicate-selected-task",
   "delete-selected-task",
   "reset-selected-task",
+  "restart-ai-terminals",
 ].map((id) => `${PLUGIN_ID}:${id}`)
 
 test("loads the plugin outside restricted mode", async ({ obsidian }) => {

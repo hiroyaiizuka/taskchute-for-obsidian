@@ -19,6 +19,8 @@ import {
   TerminalSessionBrokerClient,
 } from '@/features/ai-task/services/TerminalSessionBroker'
 import type { AiRunExitOutcome } from '@/features/ai-task/services/dispatchers/Dispatcher'
+import { BrokerTerminalDispatcher } from '@/features/ai-task/services/dispatchers/BrokerTerminalDispatcher'
+import type { ProcessGateway } from '@/features/ai-task/services/NodeProcessGateway'
 import { describePosix } from '@tests/support/platform'
 import { deferred, withTimeout } from './brokerTestUtils'
 
@@ -36,10 +38,14 @@ function installNodePrefix(prefix: string): string {
   return binary
 }
 
+function brokerPid(identity: string): number {
+  return (
+    JSON.parse(readFileSync(getTerminalBrokerDescriptorPath(identity), 'utf8')) as { pid: number }
+  ).pid
+}
+
 function brokerExecutable(identity: string): string {
-  const descriptor = JSON.parse(
-    readFileSync(getTerminalBrokerDescriptorPath(identity), 'utf8'),
-  ) as { pid: number }
+  const descriptor = { pid: brokerPid(identity) }
   if (process.platform === 'linux') {
     return readlinkSync(`/proc/${descriptor.pid}/exe`)
   }
@@ -116,6 +122,85 @@ describePosix('broker whose own node executable was removed', () => {
     } finally {
       await client.shutdown().catch(() => undefined)
       rmSync(oldPrefix, { force: true, recursive: true })
+    }
+  })
+})
+
+describePosix('broker that refuses sessions because its node executable is gone (LEV-405)', () => {
+  jest.setTimeout(40_000)
+
+  test('a new terminal starts anyway, on a new broker, with nothing for the user to do', async () => {
+    const unique = `${process.pid}-${Date.now()}`
+    const identity = `broker-replace-${unique}`
+    const oldPrefix = mkdtempSync(join(tmpdir(), 'taskchute-old-node-'))
+    // A PATH with no node on it: the old broker has nowhere to fall back to
+    // and refuses, as a broker from before LEV-400 does in any case.
+    const nodelessPath = mkdtempSync(join(tmpdir(), 'taskchute-no-node-'))
+    const oldNode = installNodePrefix(oldPrefix)
+    let brokerPath = dirname(oldNode)
+    const client = new TerminalSessionBrokerClient({
+      identity,
+      shutdownTimeoutMs: 5_000,
+      getEnv: () => ({ ...process.env, PATH: `${brokerPath}${delimiter}${process.env.PATH ?? ''}` }),
+    })
+    const gateway = {
+      buildPtyCommand: () => ({
+        command: '/bin/sh',
+        args: ['-c', 'echo NEW_BROKER_READY; while :; do sleep 10; done'],
+      }),
+      getBaseEnv: () => ({ PATH: nodelessPath }),
+      getPtyTransport: () => 'script',
+    } as unknown as ProcessGateway
+    const dispatcher = new BrokerTerminalDispatcher(gateway, client)
+
+    try {
+      // The broker starts on the versioned node, then that node is removed.
+      const exited = new Set<string>()
+      await startEcho(client, `first-${unique}`, 'FIRST_READY', exited)
+      const oldPid = brokerPid(identity)
+      expect(brokerExecutable(identity)).toBe(realpathSync(oldNode))
+      // Never while a terminal of this window still runs on it.
+      await expect(client.replaceBroker()).rejects.toThrow('still has sessions')
+      expect(brokerPid(identity)).toBe(oldPid)
+      client.stop(`first-${unique}`, true)
+      await withTimeout(
+        (async () => {
+          while (!exited.has(`first-${unique}`)) await new Promise((r) => setTimeout(r, 25))
+        })(),
+      )
+      rmSync(oldPrefix, { force: true, recursive: true })
+      brokerPath = ''
+
+      const ready = deferred<void>()
+      let output = ''
+      dispatcher.start(
+        {
+          sessionId: `second-${unique}`,
+          binaryPath: '/bin/sh',
+          prompt: '',
+          cwd: tmpdir(),
+          extraArgs: [],
+          rows: 24,
+          cols: 80,
+          transcriptPath: join(tmpdir(), `taskchute-second-${unique}.log`),
+        },
+        {
+          onData: (data) => {
+            output += data
+            if (output.includes('NEW_BROKER_READY')) ready.resolve()
+          },
+          onExit: (outcome) =>
+            ready.reject(new Error(`second exited: ${outcome.errorMessage ?? outcome.status}`)),
+        },
+      )
+      await withTimeout(ready.promise)
+
+      expect(brokerPid(identity)).not.toBe(oldPid)
+      expect(brokerExecutable(identity)).toBe(realpathSync(process.execPath))
+    } finally {
+      await client.shutdown().catch(() => undefined)
+      rmSync(oldPrefix, { force: true, recursive: true })
+      rmSync(nodelessPath, { force: true, recursive: true })
     }
   })
 })

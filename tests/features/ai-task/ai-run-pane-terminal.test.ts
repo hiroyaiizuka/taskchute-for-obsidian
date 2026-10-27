@@ -655,4 +655,97 @@ describe('AiRunPaneController terminal mode', () => {
     )
     expect(notice).not.toHaveBeenCalled()
   })
+
+  describe('a start the broker refused for reasons of its own (LEV-405)', () => {
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+    function failedRun() {
+      return createRun({
+        status: 'failed',
+        terminalNotice: {
+          kind: 'start-failed',
+          message: 'The terminal could not start: Terminal root ownership identity could not be recorded',
+          seq: 11,
+          restartable: true,
+        },
+      })
+    }
+    function restartableManager(live: number) {
+      const restartTerminals = jest.fn(() => Promise.resolve())
+      Object.assign(manager, {
+        canRestartTerminals: () => true,
+        countLiveTerminals: () => live,
+        restartTerminals,
+      })
+      return restartTerminals
+    }
+    const button = () =>
+      container.querySelector<HTMLButtonElement>('.ai-run-pane__terminal-notice-action')
+
+    test('offers to restart the terminals, asking first when that ends running ones', async () => {
+      const restartTerminals = restartableManager(2)
+      const confirm = jest.fn(() => Promise.resolve(true))
+      host.confirm = confirm
+      controller.mount(container)
+      manager.emit(failedRun())
+
+      expect(button()?.textContent).toBe('Restart terminals')
+      button()?.click()
+      await flush()
+
+      expect(confirm).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('2 running terminal') as unknown }),
+      )
+      expect(restartTerminals).toHaveBeenCalledTimes(1)
+    })
+
+    test('restarts at once when no terminal is running', async () => {
+      const restartTerminals = restartableManager(0)
+      const confirm = jest.fn(() => Promise.resolve(true))
+      host.confirm = confirm
+      controller.mount(container)
+      manager.emit(failedRun())
+
+      button()?.click()
+      await flush()
+
+      expect(confirm).not.toHaveBeenCalled()
+      expect(restartTerminals).toHaveBeenCalledTimes(1)
+    })
+
+    test('keeps the running terminals when the user says no', async () => {
+      const restartTerminals = restartableManager(1)
+      host.confirm = jest.fn(() => Promise.resolve(false))
+      controller.mount(container)
+      manager.emit(failedRun())
+
+      button()?.click()
+      await flush()
+
+      expect(restartTerminals).not.toHaveBeenCalled()
+    })
+
+    test('offers nothing for other failures, or where terminals do not run in a broker', () => {
+      restartableManager(0)
+      controller.mount(container)
+      manager.emit(
+        createRun({
+          status: 'failed',
+          terminalNotice: { kind: 'start-failed', message: 'Node.js was not found.', seq: 12 },
+        }),
+      )
+      expect(button()).toBeNull()
+
+      Object.assign(manager, { canRestartTerminals: () => false })
+      const later = failedRun()
+      later.id = 'run-2'
+      later.terminalNotice = { ...later.terminalNotice!, seq: 13 }
+      manager.emit(later)
+      controller.openRun('run-2')
+      const shown = container.querySelector('.ai-run-pane__body--terminal.is-active')
+      expect(shown?.querySelector('.ai-run-pane__terminal-notice-text')?.textContent).toContain(
+        'ownership identity',
+      )
+      expect(shown?.querySelector('.ai-run-pane__terminal-notice-action')).toBeNull()
+    })
+  })
 })

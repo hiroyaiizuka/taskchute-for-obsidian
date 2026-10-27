@@ -2,6 +2,7 @@ import type { ProcessGateway } from '@/features/ai-task/services/NodeProcessGate
 import { BrokerTerminalDispatcher } from '@/features/ai-task/services/dispatchers/BrokerTerminalDispatcher'
 import type { TerminalSessionBrokerClient } from '@/features/ai-task/services/TerminalSessionBroker'
 import { POSIX_TERMINAL_BOOTSTRAP } from '@/features/ai-task/services/dispatchers/TerminalShellBootstrap'
+import type { AiRunExitOutcome } from '@/features/ai-task/services/dispatchers/Dispatcher'
 
 function makeGateway(): ProcessGateway {
   return {
@@ -30,6 +31,8 @@ function makeBroker(): jest.Mocked<
     | 'cancelDeferredShutdown'
     | 'setRendererLeaseToken'
     | 'shutdown'
+    | 'hasSessions'
+    | 'replaceBroker'
   >
 > {
   return {
@@ -43,8 +46,24 @@ function makeBroker(): jest.Mocked<
     cancelDeferredShutdown: jest.fn(),
     setRendererLeaseToken: jest.fn(),
     shutdown: jest.fn(),
+    hasSessions: jest.fn(() => false),
+    replaceBroker: jest.fn(() => Promise.resolve()),
   }
 }
+
+/** The callbacks the dispatcher passed to broker.start on that call. */
+function startCallbacks(
+  broker: ReturnType<typeof makeBroker>,
+  call = 0,
+): { onData(bytes: string): void; onExit(outcome: AiRunExitOutcome): void } {
+  return broker.start.mock.calls[call][4]
+}
+
+/** Callbacks reach the run unchanged, through the dispatcher's own onExit. */
+const relayedCallbacks = expect.objectContaining({
+  onData: expect.any(Function),
+  onExit: expect.any(Function),
+}) as unknown
 
 describe('BrokerTerminalDispatcher', () => {
   test('starts the existing PTY wrapper in the broker and returns IPC controls', () => {
@@ -112,8 +131,10 @@ describe('BrokerTerminalDispatcher', () => {
       },
       '/tmp/run-42.log',
       undefined,
-      callbacks,
+      relayedCallbacks,
     )
+    startCallbacks(broker).onData('hello')
+    expect(callbacks.onData).toHaveBeenCalledWith('hello')
 
     handle.write('next\r')
     handle.resize?.(90, 24)
@@ -193,7 +214,7 @@ describe('BrokerTerminalDispatcher', () => {
       },
       'C:\\Temp\\run-7.log',
       undefined,
-      callbacks,
+      relayedCallbacks,
     )
 
     // Keys and sizes go to the broker as usual; its guard frames them.
@@ -306,5 +327,118 @@ describe('BrokerTerminalDispatcher', () => {
       'renderer-owner',
       3,
     )
+  })
+
+  describe('when the broker refuses a session for reasons of its own (LEV-405)', () => {
+    const refused = (message: string): AiRunExitOutcome => ({
+      status: 'failed',
+      exitCode: null,
+      signal: null,
+      errorMessage: message,
+      terminalFailure: 'broker-refused',
+    })
+    const OWNERSHIP = 'Terminal root ownership identity could not be recorded'
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+    function startSession() {
+      const broker = makeBroker()
+      const dispatcher = new BrokerTerminalDispatcher(
+        makeGateway(),
+        broker as unknown as TerminalSessionBrokerClient,
+      )
+      const callbacks = { onData: jest.fn(), onExit: jest.fn() }
+      const handle = dispatcher.start(
+        {
+          sessionId: 'ai-run-9',
+          binaryPath: '/bin/zsh',
+          prompt: '',
+          cwd: '/vault',
+          extraArgs: [],
+          rows: 24,
+          cols: 80,
+          transcriptPath: '/tmp/run-9.log',
+        },
+        callbacks,
+      )
+      return { broker, callbacks, handle }
+    }
+
+    test('starts it once more, with the same id, on a new broker', async () => {
+      const { broker, callbacks } = startSession()
+      startCallbacks(broker, 0).onExit(refused(OWNERSHIP))
+      await flush()
+
+      expect(broker.replaceBroker).toHaveBeenCalledTimes(1)
+      expect(broker.start).toHaveBeenCalledTimes(2)
+      expect(broker.start.mock.calls[1][0]).toBe('ai-run-9')
+      expect(broker.start.mock.calls[1][1]).toEqual(broker.start.mock.calls[0][1])
+      expect(callbacks.onExit).not.toHaveBeenCalled()
+
+      startCallbacks(broker, 1).onData('ready')
+      expect(callbacks.onData).toHaveBeenCalledWith('ready')
+    })
+
+    test('reports the second refusal instead of trying again', async () => {
+      const { broker, callbacks } = startSession()
+      startCallbacks(broker, 0).onExit(refused(OWNERSHIP))
+      await flush()
+      const second = refused('Terminal session process could not be started with /usr/bin/node')
+      startCallbacks(broker, 1).onExit(second)
+      await flush()
+
+      expect(broker.replaceBroker).toHaveBeenCalledTimes(1)
+      expect(broker.start).toHaveBeenCalledTimes(2)
+      expect(callbacks.onExit).toHaveBeenCalledWith(second)
+    })
+
+    test('leaves the broker alone while another session of this window runs on it', async () => {
+      const { broker, callbacks } = startSession()
+      broker.hasSessions.mockReturnValue(true)
+      const outcome = refused(OWNERSHIP)
+      startCallbacks(broker, 0).onExit(outcome)
+      await flush()
+
+      expect(broker.replaceBroker).not.toHaveBeenCalled()
+      expect(callbacks.onExit).toHaveBeenCalledWith(outcome)
+    })
+
+    test('does not retry a refusal any broker would repeat', async () => {
+      const { broker, callbacks } = startSession()
+      const outcome = refused('Invalid spawn request')
+      startCallbacks(broker, 0).onExit(outcome)
+      await flush()
+
+      expect(broker.replaceBroker).not.toHaveBeenCalled()
+      expect(callbacks.onExit).toHaveBeenCalledWith(outcome)
+    })
+
+    test('does not start again a session stopped while the broker was replaced', async () => {
+      const { broker, callbacks, handle } = startSession()
+      let finishReplacement = (): void => {}
+      broker.replaceBroker.mockReturnValue(
+        new Promise<void>((resolve) => {
+          finishReplacement = resolve
+        }),
+      )
+      const outcome = refused(OWNERSHIP)
+      startCallbacks(broker, 0).onExit(outcome)
+      handle.stop()
+      finishReplacement()
+      await flush()
+
+      expect(broker.start).toHaveBeenCalledTimes(1)
+      expect(callbacks.onExit).toHaveBeenCalledWith(outcome)
+    })
+
+    test('reports the refusal when the old broker cannot be stopped', async () => {
+      const { broker, callbacks } = startSession()
+      broker.replaceBroker.mockRejectedValue(new Error('Terminal broker could not be replaced'))
+      const outcome = refused(OWNERSHIP)
+      startCallbacks(broker, 0).onExit(outcome)
+      await flush()
+
+      expect(broker.start).toHaveBeenCalledTimes(1)
+      expect(callbacks.onExit).toHaveBeenCalledWith(outcome)
+    })
   })
 })

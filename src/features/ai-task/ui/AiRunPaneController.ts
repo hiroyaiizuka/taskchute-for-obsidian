@@ -142,6 +142,7 @@ import { getAiAgent } from '../agents'
 import type { AgentSessionHistory, AgentSessionListItem } from '../sessions/AgentSessionHistory'
 import type { ScopedTranslator } from '@/i18n'
 import type { ConfirmModalOptions } from '@/ui/modals/ConfirmModal'
+import { restartAiTerminals } from './restartAiTerminals'
 
 export interface AiRunPaneManagerLike {
   getRuns(): AiRunRecord[]
@@ -150,6 +151,10 @@ export interface AiRunPaneManagerLike {
   isRunExitPersisted?(runId: string): boolean
   getActiveRunForTask(taskPath: string): AiRunRecord | undefined
   stopRun(runId: string): void
+  /** LEV-405: see AiTaskManager.restartTerminals. */
+  canRestartTerminals?(): boolean
+  countLiveTerminals?(): number
+  restartTerminals?(): Promise<void>
   followUp(runId: string, prompt: string): Promise<unknown>
   onChange(
     listener: (record: AiRunRecord, changeType?: AiRunChangeType) => void,
@@ -2365,6 +2370,7 @@ export class AiRunPaneController {
       cls: 'ai-run-pane__terminal-notice-text',
       text: notice.message,
     })
+    this.renderRestartTerminalsButton(banner, notice)
     const dismissLabel = this.host.tv('aiTask.dismissNotice', 'Dismiss')
     const dismiss = banner.createEl('button', {
       cls: 'clickable-icon ai-run-pane__terminal-notice-close',
@@ -2378,6 +2384,43 @@ export class AiRunPaneController {
     })
     view.noticeEl = banner
     if (announce && notice.quiet !== true) new Notice(notice.message)
+  }
+
+  /**
+   * The way out of a broker that can no longer start terminals (LEV-405):
+   * a new one starts once every terminal has ended.
+   */
+  private renderRestartTerminalsButton(
+    banner: HTMLElement,
+    notice: NonNullable<AiRunRecord['terminalNotice']>,
+  ): void {
+    const manager = this.host.manager
+    if (
+      notice.restartable !== true ||
+      manager.canRestartTerminals?.() !== true ||
+      !manager.countLiveTerminals ||
+      !manager.restartTerminals
+    ) {
+      return
+    }
+    const button = banner.createEl('button', {
+      cls: 'mod-cta ai-run-pane__terminal-notice-action',
+      text: this.host.tv('aiTask.restartTerminals.button', 'Restart terminals'),
+    })
+    button.addEventListener('click', (event) => {
+      event.stopPropagation()
+      button.disabled = true
+      void restartAiTerminals(
+        {
+          countLiveTerminals: () => manager.countLiveTerminals?.() ?? 0,
+          restartTerminals: () => manager.restartTerminals?.() ?? Promise.resolve(),
+        },
+        // Without a way to ask, running terminals are never ended unasked.
+        this.host.confirm ?? (() => Promise.resolve(false)),
+      ).finally(() => {
+        button.disabled = false
+      })
+    })
   }
 
   /** Rebuild one sidebar row (status dot, truncated name, × control) */

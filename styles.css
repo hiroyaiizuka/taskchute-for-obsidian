@@ -8497,6 +8497,10 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   min-width: 0;
 }
 
+.ai-run-pane__terminal-notice-action {
+  flex: none;
+}
+
 .ai-run-pane__terminal-notice[data-kind="start-failed"],
 .ai-run-pane__terminal-notice[data-kind="interrupted"] {
   border-color: var(--text-error);

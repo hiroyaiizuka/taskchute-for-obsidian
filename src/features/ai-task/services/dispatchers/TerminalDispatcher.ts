@@ -125,6 +125,11 @@ export interface AiTerminalDispatcher {
   /** Close this renderer's transport without killing broker-owned sessions. */
   detach?(): void
   /**
+   * Stop the broker so the next session starts on a new one (LEV-405).
+   * Only once no session of this window is left on it.
+   */
+  replaceBroker?(): Promise<void>
+  /**
    * Arm a broker-owned shutdown deadline for an ambiguous Obsidian
    * workspace quit. A renderer that reconnects before the deadline cancels
    * it; a real app exit leaves the broker to reap every owned process.

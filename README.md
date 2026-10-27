@@ -153,6 +153,7 @@ Summarize the open questions in this project and propose next steps.
 
 - The terminal is used everywhere by default. Where it isn't available, the run uses conversation mode instead — the CLI runs non-interactively, events render as text in the pane, and follow-up instructions are sent from the pane's input box — and a notice says why.
 - **Windows** runs the terminal inside a Windows pseudo console (ConPTY) hosted by the built-in Windows PowerShell, so nothing extra has to be installed. It needs Windows 10 version 1809 or later. The first terminal run checks that the pseudo console works on the machine; where it cannot (an older build, or PowerShell locked down by policy), it runs in conversation mode instead. On Windows the pane does not offer plain shell sessions (+ or split), and a terminal session ends when the CLI exits.
+- **When a terminal will not start**: terminals run in a separate process (the broker) that keeps running across Obsidian reloads and updates. If the broker can no longer start terminals — after a Node.js upgrade, for example — and no other terminal is running, TaskChute starts a new broker and tries once more by itself. While terminals are running, use the "Restart terminals" button on the failure notice or the command `Restart AI terminals` (running terminals end).
 
 ## Development
 
