@@ -1,13 +1,19 @@
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { ensureObsidian } from "./install"
+import { ensureAppAsar, ensureObsidian } from "./install"
 import { ensureSharedLibraries } from "./libs"
 
 export interface ObsidianLocation {
   executable: string
   /** Extra shared libraries for the extracted AppImage; empty elsewhere. */
   ldLibraryPath: string
+  /**
+   * The pinned app (obsidian-<version>.asar) to put in each config dir, so an
+   * installed Obsidian runs the same version as the Linux AppImage. Empty
+   * when the executable already is the pinned build.
+   */
+  appAsar: string
 }
 
 function firstExisting(candidates: string[]): string | undefined {
@@ -19,10 +25,13 @@ function firstExisting(candidates: string[]): string | undefined {
  *
  * - Linux x64 (WSL included): the pinned AppImage, downloaded on first use,
  *   exactly as the E2E suite does.
- * - macOS and Windows: the Obsidian that is installed. Its version is whatever
- *   the machine has, so say which one it was when you publish a recording.
+ * - macOS and Windows: the Obsidian that is installed, running the pinned app
+ *   (see ensureAppAsar). Its installer's own app can be older than the plugin
+ *   supports, and a fresh config dir never sees the updates the user's
+ *   Obsidian downloaded. An installer newer than the pin runs its own app.
  *
- * TASKCHUTE_E2E_OBSIDIAN_PATH overrides the lookup on every platform.
+ * TASKCHUTE_E2E_OBSIDIAN_PATH overrides the lookup on every platform, and runs
+ * that executable's own app.
  */
 export async function locateObsidian(): Promise<ObsidianLocation> {
   const override = process.env.TASKCHUTE_E2E_OBSIDIAN_PATH
@@ -30,12 +39,12 @@ export async function locateObsidian(): Promise<ObsidianLocation> {
     if (!fs.existsSync(override)) {
       throw new Error(`TASKCHUTE_E2E_OBSIDIAN_PATH points at ${override}, which does not exist.`)
     }
-    return { executable: override, ldLibraryPath: "" }
+    return { executable: override, ldLibraryPath: "", appAsar: "" }
   }
 
   if (process.platform === "linux") {
     const executable = await ensureObsidian()
-    return { executable, ldLibraryPath: ensureSharedLibraries(executable) }
+    return { executable, ldLibraryPath: ensureSharedLibraries(executable), appAsar: "" }
   }
 
   const candidates =
@@ -58,5 +67,5 @@ export async function locateObsidian(): Promise<ObsidianLocation> {
         "Install it, or set TASKCHUTE_E2E_OBSIDIAN_PATH to its executable.",
     )
   }
-  return { executable, ldLibraryPath: "" }
+  return { executable, ldLibraryPath: "", appAsar: await ensureAppAsar() }
 }

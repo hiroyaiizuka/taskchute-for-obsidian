@@ -153,8 +153,26 @@ function isAlive(pid: number): boolean {
 
 /** TCP connections from anyone on this machine to 127.0.0.1:port. */
 function connectionsTo(port: number): number {
+  if (process.platform === "darwin") return connectionsToOnMac(port)
   const out = execFileSync("ss", ["-Htn", "state", "established", `( dport = :${port} )`], { encoding: "utf8" })
   return out.split("\n").filter((line) => line.trim().length > 0).length
+}
+
+/**
+ * macOS has no `ss`. lsof lists both ends of each connection on the port, and
+ * only the client's end names the port as the far one ("->127.0.0.1:port").
+ * It sees this user's processes only, which is everyone the suite starts.
+ */
+function connectionsToOnMac(port: number): number {
+  let out: string
+  try {
+    out = execFileSync("lsof", ["-nP", `-iTCP@127.0.0.1:${port}`, "-sTCP:ESTABLISHED", "-Fn"], { encoding: "utf8" })
+  } catch (error) {
+    // lsof exits 1 when nothing matches.
+    if ((error as { status?: number }).status === 1) return 0
+    throw error
+  }
+  return out.split("\n").filter((line) => line.startsWith("n") && line.endsWith(`->127.0.0.1:${port}`)).length
 }
 
 async function startShell(page: Page, marker: string): Promise<string> {
