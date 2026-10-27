@@ -214,6 +214,12 @@ let cachedBrokerSource: string | undefined
  * read the program from an extra pipe (fd 4 for the guard, after its control
  * pipe on fd 3; fd 3 for the watchdog). See ProgramPipeLoaderSource.
  *
+ * Note AA: A Windows terminal runs in the ConPTY host (ConPtyHostSource),
+ * which has no tty for stty and reads keys and resizes as frames on its own
+ * stdio 3 (ConPtyControlFrames). The spawn request says so with controlPipe;
+ * the broker then sends sizes to the guard as RESIZE lines on the guard's
+ * control pipe, and the guard frames both onto the host's stdio 3.
+ *
  * LEV-379: ps and lsof answer in seconds on a busy Mac, longer right after
  * wake, and the broker serves every terminal from one event loop. So when a
  * session ends or is force-stopped, the evidence a decision about its
@@ -1674,6 +1680,7 @@ function spawnSession(message, socket) {
       cwd: request.cwd,
       guardToken,
       controlFd: guardControlFd,
+      controlPipe: request.controlPipe === true,
     }),
     'utf8',
   ).toString('base64');
@@ -1788,6 +1795,7 @@ function spawnSession(message, socket) {
     killTimer: null,
     forceKillTimer: null,
     guardControl,
+    controlPipe: request.controlPipe === true,
     transcriptPath: message.transcriptPath,
     pressured: new Set(),
     pressureTimers: new Map(),
@@ -1890,6 +1898,16 @@ function pumpResize(session) {
     session.appliedResize.cols === next.cols &&
     session.appliedResize.rows === next.rows
   ) return;
+  // Note AA (buildTerminalBrokerSource).
+  if (session.controlPipe) {
+    const control = session.guardControl;
+    if (!control || control.destroyed) return;
+    try {
+      control.write('RESIZE ' + next.cols + ' ' + next.rows + '\n');
+      session.appliedResize = next;
+    } catch (_) {}
+    return;
+  }
   if (!session.ttyPath) {
     try {
       const tty = fs.readFileSync(session.transcriptPath + '.tty', 'utf8').trim();

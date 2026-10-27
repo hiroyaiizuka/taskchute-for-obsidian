@@ -31,7 +31,7 @@ import {
   type AiTerminalDispatcher,
 } from './services/dispatchers/TerminalDispatcher'
 import { BrokerTerminalDispatcher } from './services/dispatchers/BrokerTerminalDispatcher'
-import { TerminalSessionBrokerClient } from './services/TerminalSessionBroker'
+import { TerminalSessionBrokerClient, locateNodeOnDisk } from './services/TerminalSessionBroker'
 import { WorkspaceFileService } from './services/WorkspaceFileService'
 import { createShellForegroundProbe } from './services/terminal-title/ShellForegroundProbe'
 import { createWindowsShellForegroundProbe } from './services/terminal-title/WindowsShellForegroundProbe'
@@ -173,12 +173,21 @@ export function createAiTaskManager(plugin: AiTaskPluginLike): AiTaskManager | u
     createAiTaskTerminalRendererLeaseIdentity(
       rendererLeaseGenerationStore,
     )
-  // The broker relies on POSIX process groups; ConPTY sessions stay renderer-owned.
   const conpty = gateway.getPtyTransport() === 'conpty'
   const windowsBuildNumber = gateway.getWindowsBuildNumber()
   let loggedTerminalUnavailable = false
+  // Windows runs the broker on the user's own Node.js. Without one, ConPTY
+  // sessions stay renderer-owned and end with the window, as before.
+  const brokerRuntimeAvailable =
+    !conpty || locateNodeOnDisk(gateway.getBaseEnv()).length > 0
+  if (!brokerRuntimeAvailable) {
+    log('debug', '[AiTask] No Node.js found; terminals end when the window reloads')
+  }
   const terminalDispatcher: AiTerminalDispatcher =
-    !conpty && gateway.isPtySupported() && brokerIdentity !== undefined
+    // ConPTY support is known only once its probe has run, before any spawn.
+    (conpty || gateway.isPtySupported()) &&
+    brokerIdentity !== undefined &&
+    brokerRuntimeAvailable
       ? new BrokerTerminalDispatcher(
           gateway,
           new TerminalSessionBrokerClient({

@@ -5,7 +5,7 @@ import os from "node:os"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, enableAiTasks, openTaskChute, writeFakeClaude, skipWithoutBroker } from "../helpers/aiTask"
+import { PLUGIN_ID, enableAiTasks, openTaskChute, writeFakeClaude, skipOnWindows } from "../helpers/aiTask"
 
 // LEV-377: Obsidian launched from the Dock or Finder inherits launchd's PATH,
 // which has no `node`. The terminal broker was spawned as a bare `node`, so a
@@ -56,7 +56,7 @@ function brokerDescriptorPath(vault: string): string {
 }
 
 test("a + terminal opens and takes input on launchd's minimal PATH, with no AI task run first", async ({ obsidian, home }, testInfo) => {
-  skipWithoutBroker()
+  skipOnWindows("launchd's minimal PATH and /bin/ps are macOS and Linux")
   const { page } = obsidian
   expect(await page.evaluate(() => process.env.PATH)).toBe(LAUNCHD_PATH)
   // A login shell with no startup files of its own, so the prompt is quick

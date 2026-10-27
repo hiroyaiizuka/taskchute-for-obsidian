@@ -685,6 +685,24 @@ process.stdin.on('close', beginBrokerLossCleanup);
 process.stdin.on('error', beginBrokerLossCleanup);
 
 let controlInput = null;
+// The ConPTY host's stdio 3: keys and resizes go there as frames.
+let conptyControl = null;
+function conptyFrame(type, payload) {
+  const header = Buffer.alloc(5);
+  header[0] = type;
+  header.writeUInt32BE(payload.length, 1);
+  return Buffer.concat([header, payload]);
+}
+function resizeConPty(command) {
+  const parts = command.split(' ');
+  const cols = Number(parts[1]);
+  const rows = Number(parts[2]);
+  if (!conptyControl || !(cols >= 1 && cols <= 999 && rows >= 1 && rows <= 999)) return;
+  const size = Buffer.alloc(4);
+  size.writeUInt16BE(cols, 0);
+  size.writeUInt16BE(rows, 2);
+  try { conptyControl.write(conptyFrame(2, size)); } catch (_) {}
+}
 let controlBuffer = '';
 try {
   // Extra child-process stdio descriptors are libuv pipes, not ordinary
@@ -709,6 +727,7 @@ try {
       controlBuffer = controlBuffer.slice(newline + 1);
       if (command === 'GRACEFUL_STOP') beginGracefulStop();
       else if (command === 'FORCE_STOP') beginBrokerLossCleanup();
+      else if (command.startsWith('RESIZE ')) resizeConPty(command);
       newline = controlBuffer.indexOf('\n');
     }
   });
@@ -720,9 +739,11 @@ try {
   beginBrokerLossCleanup();
 }
 
-const stdio = process.platform === 'win32'
-  ? ['pipe', 'pipe', 'pipe']
-  : ['pipe', 'pipe', 'pipe', 3];
+const stdio = request.controlPipe === true
+  ? ['pipe', 'pipe', 'pipe', 'pipe']
+  : process.platform === 'win32'
+    ? ['pipe', 'pipe', 'pipe']
+    : ['pipe', 'pipe', 'pipe', 3];
 try {
   targetStartedAtLower = Date.now();
   target = cp.spawn(request.command, request.args, {
@@ -744,6 +765,10 @@ try {
   process.exit(127);
 }
 target.stdin.on('error', () => {});
+if (request.controlPipe === true && target.stdio[3]) {
+  conptyControl = target.stdio[3];
+  conptyControl.on('error', () => {});
+}
 target.stdout.on('error', () => {});
 target.stderr.on('error', () => {});
 const handleOutputDestinationError = () => beginBrokerLossCleanup();
@@ -753,10 +778,11 @@ target.stdout.pipe(process.stdout);
 target.stderr.pipe(process.stderr);
 process.stdin.on('data', data => {
   if (cleaning || !target || targetClosed) return;
+  const sink = conptyControl || target.stdin;
   try {
-    if (!target.stdin.write(data)) {
+    if (!sink.write(conptyControl ? conptyFrame(1, data) : data)) {
       process.stdin.pause();
-      target.stdin.once('drain', () => {
+      sink.once('drain', () => {
         if (!cleaning) process.stdin.resume();
       });
     }
