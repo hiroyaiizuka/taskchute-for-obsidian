@@ -149,7 +149,43 @@ describe('listNodeExecutableCandidates', () => {
     ).toEqual([])
   })
 
-  test('keeps the bare name on Windows', () => {
-    expect(listNodeExecutableCandidates('win32', {}, probeWith([]))).toEqual(['node'])
+  test('on Windows finds node.exe on the PATH, whatever case its name has', () => {
+    expect(
+      listNodeExecutableCandidates(
+        'win32',
+        { Path: 'C:\\Windows;relative\\bin;"C:\\Program Files\\nodejs\\";C:\\tools' },
+        probeWith(['C:\\Program Files\\nodejs\\node.exe', 'C:\\tools\\node.exe', 'relative\\bin\\node.exe']),
+      ),
+    ).toEqual(['C:\\Program Files\\nodejs\\node.exe', 'C:\\tools\\node.exe'])
+  })
+
+  test('on Windows also looks where the installer and nvm-windows put Node.js', () => {
+    expect(
+      listNodeExecutableCandidates(
+        'win32',
+        {
+          PATH: 'C:\\Windows',
+          ProgramFiles: 'C:\\Program Files',
+          NVM_SYMLINK: 'C:\\nvm4w\\nodejs',
+        },
+        probeWith(['C:\\Program Files\\nodejs\\node.exe', 'C:\\nvm4w\\nodejs\\node.exe']),
+      ),
+    ).toEqual(['C:\\Program Files\\nodejs\\node.exe', 'C:\\nvm4w\\nodejs\\node.exe'])
+  })
+
+  test('on Windows lists one folder once, even when the PATH spells it differently', () => {
+    expect(
+      listNodeExecutableCandidates(
+        'win32',
+        { PATH: 'c:\\program files\\nodejs', ProgramFiles: 'C:\\Program Files' },
+        probeWith(['c:\\program files\\nodejs\\node.exe', 'C:\\Program Files\\nodejs\\node.exe']),
+      ),
+    ).toEqual(['c:\\program files\\nodejs\\node.exe'])
+  })
+
+  test('is empty on Windows when no node.exe exists', () => {
+    expect(
+      listNodeExecutableCandidates('win32', { PATH: 'C:\\Windows', ProgramFiles: 'C:\\Program Files' }, probeWith([])),
+    ).toEqual([])
   })
 })

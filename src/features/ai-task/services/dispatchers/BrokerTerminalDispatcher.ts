@@ -19,6 +19,11 @@ function quoteShellPath(path: string): string {
  * Terminal dispatcher whose child-process ownership lives in the sidecar
  * broker. Handles contain only authenticated IPC commands, so a new renderer
  * can reconstruct one from the persisted session id.
+ *
+ * Windows (`conpty` transport): the broker's guard runs the ConPTY host and
+ * turns keys and resizes into frames on its control pipe. As in
+ * TerminalDispatcher, the CLI runs directly and the host starts PowerShell
+ * once it exits, instead of a bootstrap shell around it.
  */
 export class BrokerTerminalDispatcher implements AiTerminalDispatcher {
   readonly isPersistent = true
@@ -38,7 +43,8 @@ export class BrokerTerminalDispatcher implements AiTerminalDispatcher {
     const args = buildTerminalArgs(request.extraArgs, request.prompt)
     const binaryArgsPrefix = request.binaryArgsPrefix ?? []
     const executableArgs = [...binaryArgsPrefix, ...args]
-    const shellLaunch = request.launchInShell
+    const conpty = this.gateway.getPtyTransport?.() === 'conpty'
+    const shellLaunch = request.launchInShell && !conpty
       ? buildTerminalShellLaunch(
           quoteShellPath(this.gateway.getShellPath()),
           request.binaryPath,
@@ -54,6 +60,11 @@ export class BrokerTerminalDispatcher implements AiTerminalDispatcher {
       rows: request.rows,
       cols: request.cols,
       transcriptPath: request.transcriptPath,
+      ...(request.launchInShell && conpty ? { thenShell: true } : {}),
+    })
+    const terminalEnv = buildTerminalEnv({
+      ...this.gateway.getBaseEnv(),
+      ...(request.envPatch ?? {}),
     })
 
     this.broker.start(
@@ -62,11 +73,9 @@ export class BrokerTerminalDispatcher implements AiTerminalDispatcher {
         command: ptyCommand.command,
         args: ptyCommand.args,
         cwd: request.cwd,
-        env: buildTerminalEnv({
-          ...this.gateway.getBaseEnv(),
-          ...(request.envPatch ?? {}),
-        }),
+        env: { ...terminalEnv, ...(ptyCommand.env ?? {}) },
         stdinMode: 'pipe',
+        ...(conpty ? { controlPipe: true } : {}),
       },
       request.transcriptPath,
       undefined,

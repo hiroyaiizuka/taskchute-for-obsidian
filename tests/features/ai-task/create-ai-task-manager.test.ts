@@ -190,6 +190,65 @@ describe('createAiTaskManager gating', () => {
     })
   })
 
+  // LEV-404: Windows terminals live in the broker when Node.js is there to run it.
+  test.each([
+    ['a Node.js is found', ['C:\\Program Files\\nodejs\\node.exe'], 'BrokerTerminalDispatcher'],
+    ['no Node.js is found', [], 'TerminalDispatcher'],
+  ])('on Windows, when %s, terminals use the %s', (_label, nodes, expected) => {
+    jest.isolateModules(() => {
+      jest.doMock('obsidian', () => ({
+        ...jest.requireActual<Record<string, unknown>>('obsidian'),
+        Platform: { isDesktop: true, isMobile: false },
+      }))
+      jest.doMock('@/features/ai-task/services/NodeProcessGateway', () => {
+        const actual = jest.requireActual<
+          typeof import('@/features/ai-task/services/NodeProcessGateway')
+        >('@/features/ai-task/services/NodeProcessGateway')
+        class WindowsGateway extends actual.NodeProcessGateway {
+          getPtyTransport() {
+            return 'conpty' as const
+          }
+          isPtySupported() {
+            // The ConPTY probe has not run yet when the manager is built.
+            return false
+          }
+        }
+        return { ...actual, NodeProcessGateway: WindowsGateway }
+      })
+      const locateNodeOnDisk = jest.fn(() => nodes)
+      jest.doMock('@/features/ai-task/services/TerminalSessionBroker', () => ({
+        locateNodeOnDisk,
+        TerminalSessionBrokerClient: class {
+          setRendererLeaseToken(): Promise<void> {
+            return Promise.resolve()
+          }
+          detach(): void {}
+          shutdown(): Promise<void> {
+            return Promise.resolve()
+          }
+        },
+      }))
+      const mod = require('@/features/ai-task') as FactoryModule
+      const runtimeLease = require(
+        '@/features/ai-task/services/AiTaskRuntimeLease'
+      ) as typeof import('@/features/ai-task/services/AiTaskRuntimeLease')
+      const plugin = makePlugin()
+      ;(plugin.app.vault as unknown as Record<string, unknown>)['adapter'] = {
+        getBasePath: () => 'C:\\vault',
+      }
+
+      const created = mod.createAiTaskManager(plugin)
+      const dispatcher = (
+        created as unknown as { deps: { terminal: { dispatcher: object } } }
+      ).deps.terminal.dispatcher
+
+      expect(locateNodeOnDisk).toHaveBeenCalled()
+      expect(dispatcher.constructor.name).toBe(expected)
+      runtimeLease.forgetRetainedAiTaskManager(created as NonNullable<typeof created>)
+      created?.dispose()
+    })
+  })
+
   // LEV-390: the manager asks this device's approvals before every spawn.
   test("wires the working-folder check to this device's approvals", () => {
     jest.isolateModules(() => {
