@@ -3,6 +3,7 @@ import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
 import { PLUGIN_ID, openTaskChute } from "../helpers/aiTask"
+import { hasBasesKanban, obsidianAppVersion } from "../obsidian/version"
 import { createNotes } from "../recording/helpers"
 
 // LEV-317: "Projects" can open as an Obsidian Bases kanban (1.14+) instead of
@@ -11,20 +12,6 @@ import { createNotes } from "../recording/helpers"
 
 const PROJECTS = "Projects"
 const BASE = `${PROJECTS}/TaskChute Projects.base`
-
-// The running app's version. The user agent names the installer's, which on
-// macOS and Windows is older than the app the suite puts in front of it.
-async function obsidianVersion(page: Page): Promise<[number, number]> {
-  const raw = await page.evaluate(() => {
-    const electron = (window as unknown as {
-      require(id: "electron"): { ipcRenderer: { sendSync(channel: "version"): string } }
-    }).require("electron")
-    return electron.ipcRenderer.sendSync("version").match(/^(\d+)\.(\d+)/)?.slice(1) ?? ["0", "0"]
-  })
-  return [Number(raw[0]), Number(raw[1])]
-}
-
-const hasKanban = ([major, minor]: [number, number]) => major > 1 || (major === 1 && minor >= 14)
 
 async function setUp(page: Page, view: "board" | "bases"): Promise<void> {
   await page.evaluate(
@@ -56,7 +43,7 @@ const read = (vaultDir: string, file: string) => fs.readFileSync(path.join(vault
 
 test("before Obsidian 1.14 the Bases kanban cannot be chosen, and a saved choice opens the TaskChute board", async ({ obsidian }) => {
   const { page, vaultDir } = obsidian
-  test.skip(hasKanban(await obsidianVersion(page)), "Obsidian 1.14+ has the kanban")
+  test.skip(hasBasesKanban(await obsidianAppVersion(page)), "Obsidian 1.14+ has the kanban")
   await setUp(page, "bases")
 
   await openProjects(page)
@@ -81,7 +68,7 @@ test("before Obsidian 1.14 the Bases kanban cannot be chosen, and a saved choice
 
 test("on Obsidian 1.14 \"Projects\" opens a Bases kanban that moves projects between statuses", async ({ obsidian }) => {
   const { page, vaultDir } = obsidian
-  test.skip(!hasKanban(await obsidianVersion(page)), "needs Obsidian 1.14+ (TASKCHUTE_E2E_OBSIDIAN_VERSION=1.14.4)")
+  test.skip(!hasBasesKanban(await obsidianAppVersion(page)), "needs Obsidian 1.14+ (TASKCHUTE_E2E_OBSIDIAN_VERSION=1.14.4)")
   await setUp(page, "bases")
 
   await openProjects(page)

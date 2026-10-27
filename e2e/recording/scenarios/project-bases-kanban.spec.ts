@@ -3,6 +3,7 @@ import path from "node:path"
 import type { Page } from "@playwright/test"
 import type { Recorder } from "../recorder"
 import { PLUGIN_ID, openTaskChute } from "../../helpers/aiTask"
+import { hasBasesKanban, obsidianAppVersion } from "../../obsidian/version"
 import { expect, test } from "../fixtures"
 import { createNotes } from "../helpers"
 
@@ -52,8 +53,7 @@ async function setView(page: Page, view: "board" | "bases"): Promise<void> {
 
 test("project-bases-kanban", async ({ obsidian, recorder }) => {
   const { page, vaultDir } = obsidian
-  const version = await page.evaluate(() => navigator.userAgent.match(/obsidian\/[0-9.]+/)?.[0] ?? "")
-  test.skip(!/obsidian\/1\.(1[4-9]|[2-9]\d)/.test(version), "needs Obsidian 1.14+ (TASKCHUTE_E2E_OBSIDIAN_VERSION=1.14.4)")
+  test.skip(!hasBasesKanban(await obsidianAppVersion(page)), "needs Obsidian 1.14+ (TASKCHUTE_E2E_OBSIDIAN_VERSION=1.14.4)")
 
   await page.evaluate(
     ([id, folder]) => {
