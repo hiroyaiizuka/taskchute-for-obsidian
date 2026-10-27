@@ -508,7 +508,8 @@ function errorCode(error: unknown): string {
     : ''
 }
 
-function locateNodeOnDisk(env: Record<string, string | undefined>): string[] {
+/** Node.js executables on this machine the broker could run on, best first. */
+export function locateNodeOnDisk(env: Record<string, string | undefined>): string[] {
   const fs = loadFs()
   let home = env['HOME']
   if (!home) {

@@ -32,9 +32,9 @@ export function writeFakeClaude(dir: string, behaviour: FakeClaudeBehaviour): st
   return writeNodeCli(dir, `claude-${behaviour}`, source)
 }
 
-/** Skips the running test on Windows, where there is no broker to test. */
-export function skipWithoutBroker(): void {
-  test.skip(process.platform === "win32", "Windows terminals run without the broker")
+/** Skips the running test on Windows, for a reason that only holds elsewhere. */
+export function skipOnWindows(reason: string): void {
+  test.skip(process.platform === "win32", reason)
 }
 
 /**

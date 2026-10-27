@@ -131,6 +131,105 @@ describe('BrokerTerminalDispatcher', () => {
     expect(broker.stop).toHaveBeenNthCalledWith(2, 'ai-run-42', true)
   })
 
+  test('on Windows runs the ConPTY host in the broker, CLI first and PowerShell after', () => {
+    const gateway = {
+      getShellPath: jest.fn(() => {
+        throw new Error('Windows has no login shell to wrap the CLI in')
+      }),
+      getPtyTransport: jest.fn(() => 'conpty'),
+      buildPtyCommand: jest.fn(() => ({
+        command: 'C:\\Windows\\powershell.exe',
+        args: ['-NoLogo', '-Command', 'host-loader'],
+        env: { TASKCHUTE_CONPTY_COMMAND_LINE: 'claude.exe -- hi' },
+      })),
+      getBaseEnv: jest.fn(() => ({ Path: 'C:\\Windows', NO_COLOR: '1' })),
+    } as unknown as ProcessGateway
+    const broker = makeBroker()
+    const dispatcher = new BrokerTerminalDispatcher(
+      gateway,
+      broker as unknown as TerminalSessionBrokerClient,
+    )
+    const callbacks = { onData: jest.fn(), onExit: jest.fn() }
+
+    const handle = dispatcher.start(
+      {
+        sessionId: 'ai-run-7',
+        binaryPath: 'C:\\bin\\claude.exe',
+        binaryArgsPrefix: ['entry.js'],
+        prompt: 'hi',
+        cwd: 'C:\\vault',
+        rows: 30,
+        cols: 120,
+        transcriptPath: 'C:\\Temp\\run-7.log',
+        launchInShell: true,
+      },
+      callbacks,
+    )
+
+    expect(gateway.getShellPath).not.toHaveBeenCalled()
+    expect(gateway.buildPtyCommand).toHaveBeenCalledWith({
+      binaryPath: 'C:\\bin\\claude.exe',
+      args: ['entry.js', '--', 'hi'],
+      rows: 30,
+      cols: 120,
+      transcriptPath: 'C:\\Temp\\run-7.log',
+      thenShell: true,
+    })
+    expect(broker.start).toHaveBeenCalledWith(
+      'ai-run-7',
+      {
+        command: 'C:\\Windows\\powershell.exe',
+        args: ['-NoLogo', '-Command', 'host-loader'],
+        cwd: 'C:\\vault',
+        env: {
+          Path: 'C:\\Windows',
+          FORCE_COLOR: '1',
+          TERM: 'xterm-256color',
+          COLORTERM: 'truecolor',
+          TASKCHUTE_CONPTY_COMMAND_LINE: 'claude.exe -- hi',
+        },
+        stdinMode: 'pipe',
+        controlPipe: true,
+      },
+      'C:\\Temp\\run-7.log',
+      undefined,
+      callbacks,
+    )
+
+    // Keys and sizes go to the broker as usual; its guard frames them.
+    handle.write('x')
+    handle.resize?.(100, 40)
+    expect(broker.write).toHaveBeenCalledWith('ai-run-7', 'x')
+    expect(broker.resize).toHaveBeenCalledWith('ai-run-7', 100, 40)
+  })
+
+  test('on Windows a plain shell session gets no PowerShell after it', () => {
+    const gateway = {
+      getPtyTransport: jest.fn(() => 'conpty'),
+      buildPtyCommand: jest.fn(() => ({ command: 'powershell.exe', args: [] })),
+      getBaseEnv: jest.fn(() => ({})),
+    } as unknown as ProcessGateway
+    const dispatcher = new BrokerTerminalDispatcher(
+      gateway,
+      makeBroker() as unknown as TerminalSessionBrokerClient,
+    )
+
+    dispatcher.start(
+      {
+        binaryPath: 'C:\\Windows\\pwsh.exe',
+        prompt: '',
+        rows: 24,
+        cols: 80,
+        transcriptPath: 'C:\\Temp\\shell.log',
+      },
+      { onData: jest.fn(), onExit: jest.fn() },
+    )
+
+    expect(gateway.buildPtyCommand).toHaveBeenCalledWith(
+      expect.not.objectContaining({ thenShell: expect.anything() }),
+    )
+  })
+
   test('reattaches by stable session id and exposes transport lifecycle', async () => {
     const broker = makeBroker()
     const dispatcher = new BrokerTerminalDispatcher(
