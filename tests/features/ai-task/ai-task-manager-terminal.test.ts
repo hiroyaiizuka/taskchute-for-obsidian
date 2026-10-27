@@ -254,6 +254,7 @@ describe('AiTaskManager terminal mode routing', () => {
       rows: 24,
       cols: 80,
       transcriptPath: record.transcriptPath,
+      mayReplaceBroker: expect.any(Function) as unknown,
     })
   })
 

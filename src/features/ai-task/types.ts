@@ -225,6 +225,11 @@ export interface AiTerminalNotice {
   /** Strictly increasing across notices; a new value is a new notice. */
   seq: number
   /**
+   * The broker's own machinery refused the session (LEV-405): offer to
+   * restart the terminals, which starts a new broker.
+   */
+  restartable?: boolean
+  /**
    * Banner only, no Obsidian Notice: about a run restored at startup, which
    * the user did not just do anything with.
    */

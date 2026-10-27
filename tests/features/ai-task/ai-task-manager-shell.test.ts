@@ -177,6 +177,7 @@ describe('AiTaskManager.startShellSession spawn shape', () => {
       rows: 28,
       cols: 100,
       transcriptPath: record.transcriptPath,
+      mayReplaceBroker: expect.any(Function) as unknown,
     })
     expect(harness.getShellPath).toHaveBeenCalled()
     expect(record.host).toBe('shell')
@@ -761,5 +762,102 @@ describe('AiTaskManager terminal machinery notices', () => {
       message: 'This terminal can no longer be reached, so it was stopped.',
     })
     expect(replayOf(harness, record.id)).toBe('')
+  })
+})
+
+describe('AiTaskManager.restartTerminals (LEV-405)', () => {
+  const stopped = (): AiRunExitOutcome => ({ status: 'stopped', exitCode: null, signal: 'SIGTERM' })
+
+  function manualTimer() {
+    const pending = new Map<number, { callback: () => void; ms: number }>()
+    let nextId = 1
+    const timer: AiGraceTimer = {
+      setTimeout: (callback, ms) => {
+        const id = nextId++
+        pending.set(id, { callback, ms })
+        return id
+      },
+      clearTimeout: (id) => {
+        pending.delete(id)
+      },
+    }
+    /** Fire every timer due within ms, in order. */
+    const run = (ms: number) => {
+      for (const [id, entry] of [...pending].sort((a, b) => a[1].ms - b[1].ms)) {
+        if (entry.ms > ms || !pending.has(id)) continue
+        pending.delete(id)
+        entry.callback()
+      }
+    }
+    return { timer, run }
+  }
+
+  function withBroker(options: HarnessOptions = {}) {
+    const harness = createShellHarness(options)
+    const replaceBroker = jest.fn(() => Promise.resolve())
+    Object.assign(harness.terminal, { replaceBroker })
+    return { ...harness, replaceBroker }
+  }
+
+  test('is offered only where terminals run in a broker that can be replaced', () => {
+    expect(createShellHarness().manager.canRestartTerminals()).toBe(false)
+    expect(withBroker().manager.canRestartTerminals()).toBe(true)
+  })
+
+  test('stops every terminal, waits for them to end, then replaces the broker', async () => {
+    const { manager, terminal, replaceBroker } = withBroker()
+    manager.startShellSession()
+    manager.startShellSession()
+    expect(manager.countLiveTerminals()).toBe(2)
+
+    const restart = manager.restartTerminals()
+    await flushPromises()
+    expect(terminal.runs.map((run) => run.stop.mock.calls.length)).toEqual([1, 1])
+    expect(replaceBroker).not.toHaveBeenCalled()
+
+    terminal.runs[0].exit(stopped())
+    await flushPromises()
+    expect(replaceBroker).not.toHaveBeenCalled()
+    terminal.runs[1].exit(stopped())
+    await restart
+
+    expect(replaceBroker).toHaveBeenCalledTimes(1)
+    expect(manager.countLiveTerminals()).toBe(0)
+  })
+
+  test('force-kills a terminal that does not end, and gives up waiting after a while', async () => {
+    const { timer, run } = manualTimer()
+    const { manager, terminal, replaceBroker } = withBroker({ timer })
+    manager.startShellSession()
+
+    const restart = manager.restartTerminals()
+    run(1500)
+    expect(terminal.last.forceKill).toHaveBeenCalledTimes(1)
+    expect(replaceBroker).not.toHaveBeenCalled()
+
+    run(10_000)
+    await restart
+    // The broker client refuses while a session is left; that error reaches the user.
+    expect(replaceBroker).toHaveBeenCalledTimes(1)
+  })
+
+  test('lets a refused terminal start on a new broker only when it is the only one running', () => {
+    const { manager, terminal } = withBroker()
+    manager.startShellSession()
+    const first = terminal.last.request
+    expect(first.mayReplaceBroker?.()).toBe(true)
+
+    manager.startShellSession()
+    expect(first.mayReplaceBroker?.()).toBe(false)
+    expect(terminal.last.request.mayReplaceBroker?.()).toBe(false)
+
+    terminal.runs[0].exit(stopped())
+    expect(terminal.last.request.mayReplaceBroker?.()).toBe(true)
+  })
+
+  test('replaces the broker at once when no terminal is running', async () => {
+    const { manager, replaceBroker } = withBroker()
+    await manager.restartTerminals()
+    expect(replaceBroker).toHaveBeenCalledTimes(1)
   })
 })

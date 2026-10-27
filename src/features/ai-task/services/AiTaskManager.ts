@@ -80,6 +80,8 @@ export const AI_RUN_EVENT_HEAD_LIMIT = 200
 export const AI_RUN_EVENT_TAIL_LIMIT = 2000
 /** Delay between dispose()'s SIGTERM sweep and the SIGKILL escalation */
 export const DISPOSE_FORCE_KILL_MS = 1500
+/** How long restartTerminals() waits past the force kill for terminals to end. */
+const RESTART_EXIT_LIMIT_MS = 5000
 /**
  * Ring-buffer cap (utf16 code units) for a terminal run's replay buffer.
  * Late subscribers (a re-rendered pane) get this much recent output replayed
@@ -1028,6 +1030,7 @@ export class AiTaskManager {
         const terminalHandle = terminal.dispatcher.start(
           {
             sessionId: record.id,
+            mayReplaceBroker: () => this.isOnlyLiveTerminal(internal),
             binaryPath,
             binaryArgsPrefix: binaryArgsPrefix ? [...binaryArgsPrefix] : undefined,
             ...(binaryEnvPatch === undefined
@@ -1348,6 +1351,7 @@ export class AiTaskManager {
       const terminalHandle = terminal.dispatcher.start(
         {
           sessionId: record.id,
+          mayReplaceBroker: () => this.isOnlyLiveTerminal(internal),
           binaryPath: shellPath,
           prompt: '',
           cwd: internal.cwd,
@@ -1494,6 +1498,7 @@ export class AiTaskManager {
       const terminalHandle = terminal.dispatcher.start(
         {
           sessionId: record.id,
+          mayReplaceBroker: () => this.isOnlyLiveTerminal(internal),
           binaryPath,
           binaryArgsPrefix: binaryArgsPrefix ? [...binaryArgsPrefix] : undefined,
           ...(binaryEnvPatch === undefined ? {} : { envPatch: binaryEnvPatch }),
@@ -1685,6 +1690,88 @@ export class AiTaskManager {
 
   getRun(runId: string): AiRunRecord | undefined {
     return this.runs.get(runId)?.record
+  }
+
+  /** Whether terminals run in a broker that restartTerminals() can replace (LEV-405). */
+  canRestartTerminals(): boolean {
+    return (
+      !this.disposed &&
+      typeof this.deps.terminal?.dispatcher.replaceBroker === 'function'
+    )
+  }
+
+  /** Terminals a restartTerminals() would end. */
+  countLiveTerminals(): number {
+    return this.liveTerminalRuns().length
+  }
+
+  /**
+   * End every terminal and have the next one start on a new broker
+   * (LEV-405). The broker outlives reloads and plugin updates, so this is the
+   * way out when it can no longer start terminals: a Node.js upgrade removed
+   * the binary it runs on, or it runs an older release's code.
+   */
+  async restartTerminals(): Promise<void> {
+    const dispatcher = this.deps.terminal?.dispatcher
+    if (this.disposed || typeof dispatcher?.replaceBroker !== 'function') {
+      throw new Error('Terminals cannot be restarted here')
+    }
+    const targets = this.liveTerminalRuns()
+    for (const internal of targets) this.stopRun(internal.record.id)
+    await this.waitForRunsToExit(targets)
+    await dispatcher.replaceBroker()
+  }
+
+  /**
+   * Whether a new broker would end no terminal but this one (LEV-405). This
+   * manager outlives a plugin hot reload, so it knows the terminals still on
+   * the previous broker client too.
+   */
+  private isOnlyLiveTerminal(internal: InternalRun): boolean {
+    return this.liveTerminalRuns().every((other) => other === internal)
+  }
+
+  private liveTerminalRuns(): InternalRun[] {
+    return Array.from(this.runs.values()).filter(
+      (internal) => internal.record.mode === 'terminal' && !internal.exited,
+    )
+  }
+
+  /**
+   * Wait for runs asked to stop. Ones still running after the grace period
+   * are force-killed; past a further limit this gives up and lets the caller
+   * find out (replaceBroker refuses while sessions remain).
+   */
+  private waitForRunsToExit(targets: InternalRun[]): Promise<void> {
+    if (targets.every((internal) => internal.exited)) return Promise.resolve()
+    return new Promise<void>((resolve) => {
+      let settled = false
+      const timers: number[] = []
+      const finish = (): void => {
+        if (settled) return
+        settled = true
+        for (const timer of timers) this.timer.clearTimeout(timer)
+        this.listeners.delete(onChange)
+        resolve()
+      }
+      const onChange: AiRunChangeListener = () => {
+        if (targets.every((internal) => internal.exited)) finish()
+      }
+      this.listeners.add(onChange)
+      timers.push(
+        this.timer.setTimeout(() => {
+          for (const internal of targets) {
+            if (internal.exited) continue
+            try {
+              internal.handle?.forceKill?.()
+            } catch (error) {
+              this.deps.log?.('warn', '[AiTaskManager] Force kill for a terminal restart failed', error)
+            }
+          }
+        }, DISPOSE_FORCE_KILL_MS),
+        this.timer.setTimeout(finish, DISPOSE_FORCE_KILL_MS + RESTART_EXIT_LIMIT_MS),
+      )
+    })
   }
 
   /**

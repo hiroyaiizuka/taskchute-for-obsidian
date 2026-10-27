@@ -194,6 +194,7 @@ export const ja = {
     reorganizeIdle: "未実行タスクを現在の時間帯に整理",
     leaveComment: "コメントを残す",
     openSessionHistory: "AI のセッション履歴を開く",
+    restartAiTerminals: "AI のターミナルを再起動",
   },
   notices: {
     viewNotOpen: "TaskChuteビューが開かれていません",
@@ -311,6 +312,14 @@ export const ja = {
         connectionLost: "ターミナルとの接続が切れました。プロセスの終了を確認しています…",
         inputDropped: "入力を送れませんでした。ターミナルとの接続が切れています。",
         interrupted: "ターミナルに接続できなくなったため、中断しました。",
+      },
+      restartTerminals: {
+        button: "ターミナルを再起動",
+        confirmTitle: "ターミナルを再起動しますか？",
+        confirmMessage: "動いているターミナル {count} 個が終わります。そのあと、ターミナルを動かす仕組み（ブローカー）を作り直します。",
+        confirm: "再起動",
+        done: "ターミナルを再起動しました。新しいターミナルを開けます。",
+        failed: "ターミナルを再起動できませんでした: {error}",
       },
       contentTab: {
         terminal: "ターミナル",

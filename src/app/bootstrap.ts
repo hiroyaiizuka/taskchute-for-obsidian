@@ -19,6 +19,7 @@ import {
 import { TaskIdManager } from "../services/TaskIdManager"
 import { ReminderSystemManager } from "../features/reminder/services/ReminderSystemManager"
 import { createAiTaskManager } from "../features/ai-task"
+import { registerAiTaskCommands } from "../features/ai-task/registerAiTaskCommands"
 import type { AiTaskManager } from "../features/ai-task/services/AiTaskManager"
 import { createLicenseManager } from "../features/license"
 
@@ -195,6 +196,7 @@ export async function bootstrapPlugin(
   )
   ribbonManager.initialize()
   commandRegistrar.initialize()
+  registerAiTaskCommands(plugin)
 
   // Initialize reminder system (always enabled)
   let reminderManager: ReminderSystemManager | undefined

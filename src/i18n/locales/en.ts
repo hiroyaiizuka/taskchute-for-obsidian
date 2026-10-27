@@ -196,6 +196,7 @@ export const en = {
     reorganizeIdle: "Reorganize idle tasks to current slot",
     leaveComment: "Leave a comment",
     openSessionHistory: "Open AI session history",
+    restartAiTerminals: "Restart AI terminals",
   },
   notices: {
     viewNotOpen: "TaskChute view is not open",
@@ -313,6 +314,14 @@ export const en = {
         connectionLost: "Lost the connection to this terminal. Confirming that its process has stopped…",
         inputDropped: "Input was not sent: the connection to this terminal is lost.",
         interrupted: "This terminal can no longer be reached, so it was stopped.",
+      },
+      restartTerminals: {
+        button: "Restart terminals",
+        confirmTitle: "Restart terminals?",
+        confirmMessage: "{count} running terminal(s) will end. Then the process that runs terminals (the broker) starts over.",
+        confirm: "Restart",
+        done: "Terminals restarted. You can open a new terminal now.",
+        failed: "Terminals could not be restarted: {error}",
       },
       contentTab: {
         terminal: "Terminal",

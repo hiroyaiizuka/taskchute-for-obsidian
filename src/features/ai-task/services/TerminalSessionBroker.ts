@@ -717,6 +717,10 @@ export class TerminalSessionBrokerClient {
   private reconnectAttempts = 0
   private closing = false
   private shutdownCompletion: Promise<void> | null = null
+  /** A replaceBroker() in progress; new requests wait for it (LEV-405). */
+  private brokerReplacement: Promise<void> | null = null
+  /** Starts waiting for that replacement, and whether they were stopped meanwhile. */
+  private readonly startsAwaitingReplacement = new Map<string, { stopped: boolean }>()
   private unavailableRecoveryPromise: Promise<void> | null = null
   private unavailableRecoveryAttempt = 0
   /**
@@ -945,6 +949,25 @@ export class TerminalSessionBrokerClient {
       })
       return
     }
+    if (this.brokerReplacement) {
+      // Registered now, the session would be cleared with the old broker's
+      // connection at the end of the replacement. Start it after.
+      const replacement = this.brokerReplacement
+      const waiting = { stopped: false }
+      this.startsAwaitingReplacement.set(sessionId, waiting)
+      void replacement.catch(() => undefined).then(() => {
+        if (this.startsAwaitingReplacement.get(sessionId) === waiting) {
+          this.startsAwaitingReplacement.delete(sessionId)
+        }
+        // Stopped before it ever reached a broker: it never runs.
+        if (waiting.stopped) {
+          callbacks.onExit({ status: 'stopped', exitCode: null, signal: null })
+          return
+        }
+        this.start(sessionId, spawn, transcriptPath, initialInput, callbacks)
+      })
+      return
+    }
     if (!isValidBrokerSessionId(sessionId)) {
       callbacks.onExit({
         status: 'failed',
@@ -990,6 +1013,14 @@ export class TerminalSessionBrokerClient {
   attach(sessionId: string, callbacks: TerminalBrokerSessionCallbacks): void {
     if (this.closing) {
       callbacks.onUnavailable?.()
+      return
+    }
+    if (this.brokerReplacement) {
+      // As in start(): registered now, it would be cleared by the replacement.
+      const replacement = this.brokerReplacement
+      void replacement.catch(() => undefined).then(() => {
+        this.attach(sessionId, callbacks)
+      })
       return
     }
     if (!isValidBrokerSessionId(sessionId)) {
@@ -1147,6 +1178,11 @@ export class TerminalSessionBrokerClient {
   }
 
   private requestStop(sessionId: string, force: boolean, claimLease: boolean): void {
+    const waiting = this.startsAwaitingReplacement.get(sessionId)
+    if (waiting) {
+      waiting.stopped = true
+      return
+    }
     if (this.closing || !isValidBrokerSessionId(sessionId)) return
     this.explicitlyStoppedSessionIds.add(sessionId)
     if (this.unavailableSessions.has(sessionId)) {
@@ -1322,6 +1358,66 @@ export class TerminalSessionBrokerClient {
     }
   }
 
+  /** True while this window has a session on the broker, or one still being confirmed. */
+  hasSessions(): boolean {
+    return this.callbacks.size > 0 || this.unavailableSessions.size > 0
+  }
+
+  /**
+   * Stop the broker this window uses, so the next start() launches a new one
+   * (LEV-405). A broker outlives reloads and plugin updates and keeps what it
+   * was started with — a Node.js binary that has since been removed, or an
+   * older release's code — so a fix can only reach it through a new broker.
+   * Unlike shutdown(), the client stays usable. Refuses while this window
+   * still has sessions: the caller stops them first.
+   */
+  replaceBroker(): Promise<void> {
+    if (this.brokerReplacement) return this.brokerReplacement
+    const attempt = this.performBrokerReplacement().finally(() => {
+      if (this.brokerReplacement === attempt) this.brokerReplacement = null
+    })
+    this.brokerReplacement = attempt
+    return attempt
+  }
+
+  private async performBrokerReplacement(): Promise<void> {
+    if (this.closing) throw new Error('Terminal broker client is shutting down')
+    if (this.hasSessions()) {
+      throw new Error('Terminal broker still has sessions in this window')
+    }
+    const pendingConnection = this.connectPromise
+    if (pendingConnection) {
+      try {
+        await pendingConnection
+      } catch {
+        // Nothing connected; a descriptor may still name a broker to stop.
+      }
+    }
+    const target =
+      this.descriptor ?? this.lastAuthenticatedDescriptor ?? this.readDescriptor()
+    if (!target) {
+      this.detach()
+      return
+    }
+    const timeoutMs =
+      this.options.shutdownTimeoutMs ?? BROKER_SHUTDOWN_TIMEOUT_MS
+    let requestError: unknown
+    try {
+      await this.requestAuthenticatedBrokerShutdown(target, timeoutMs)
+    } catch (error) {
+      requestError = error
+    }
+    const stopped = await this.waitForBrokerStopped(target, [], timeoutMs)
+    this.detach()
+    if (!stopped) {
+      const detail =
+        requestError === undefined
+          ? 'the broker is still alive'
+          : describeError(requestError)
+      throw new Error(`Terminal broker could not be replaced: ${detail}`)
+    }
+  }
+
   private firstPendingDescriptor(): BrokerDescriptor | null {
     for (const pending of this.unavailableSessions.values()) {
       if (pending.descriptor) return pending.descriptor
@@ -1365,6 +1461,10 @@ export class TerminalSessionBrokerClient {
     // rotate the live client's lease while this old-renderer request is
     // waiting; the broker must still see (and reject) the old lease.
     const rendererLeaseIdentity = this.captureRendererLeaseIdentity()
+    if (this.brokerReplacement) {
+      // Sent now, it could reach the broker that is being stopped.
+      await this.brokerReplacement.catch(() => undefined)
+    }
     const socket = allowBrokerStart
       ? await this.ensureConnected()
       : await this.ensureExistingConnected()

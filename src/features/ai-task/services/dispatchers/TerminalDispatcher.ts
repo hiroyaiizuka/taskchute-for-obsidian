@@ -74,6 +74,13 @@ export interface TerminalRunRequest {
   transcriptPath: string
   /** Run binaryPath + argv as a foreground job of a persistent login shell */
   launchInShell?: boolean
+  /**
+   * True when a new broker would end no other terminal of this window
+   * (LEV-405). Only the caller knows: after a plugin hot reload, terminals
+   * started before it stay on the previous broker client, which the new one
+   * cannot see. Without it, a refused session is not retried on a new broker.
+   */
+  mayReplaceBroker?(): boolean
 }
 
 export interface TerminalRunCallbacks {
@@ -124,6 +131,11 @@ export interface AiTerminalDispatcher {
   readonly isPersistent?: boolean
   /** Close this renderer's transport without killing broker-owned sessions. */
   detach?(): void
+  /**
+   * Stop the broker so the next session starts on a new one (LEV-405).
+   * Only once no session of this window is left on it.
+   */
+  replaceBroker?(): Promise<void>
   /**
    * Arm a broker-owned shutdown deadline for an ambiguous Obsidian
    * workspace quit. A renderer that reconnects before the deadline cancels
