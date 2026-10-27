@@ -719,6 +719,8 @@ export class TerminalSessionBrokerClient {
   private shutdownCompletion: Promise<void> | null = null
   /** A replaceBroker() in progress; new requests wait for it (LEV-405). */
   private brokerReplacement: Promise<void> | null = null
+  /** Starts waiting for that replacement, and whether they were stopped meanwhile. */
+  private readonly startsAwaitingReplacement = new Map<string, { stopped: boolean }>()
   private unavailableRecoveryPromise: Promise<void> | null = null
   private unavailableRecoveryAttempt = 0
   /**
@@ -951,7 +953,17 @@ export class TerminalSessionBrokerClient {
       // Registered now, the session would be cleared with the old broker's
       // connection at the end of the replacement. Start it after.
       const replacement = this.brokerReplacement
+      const waiting = { stopped: false }
+      this.startsAwaitingReplacement.set(sessionId, waiting)
       void replacement.catch(() => undefined).then(() => {
+        if (this.startsAwaitingReplacement.get(sessionId) === waiting) {
+          this.startsAwaitingReplacement.delete(sessionId)
+        }
+        // Stopped before it ever reached a broker: it never runs.
+        if (waiting.stopped) {
+          callbacks.onExit({ status: 'stopped', exitCode: null, signal: null })
+          return
+        }
         this.start(sessionId, spawn, transcriptPath, initialInput, callbacks)
       })
       return
@@ -1166,6 +1178,11 @@ export class TerminalSessionBrokerClient {
   }
 
   private requestStop(sessionId: string, force: boolean, claimLease: boolean): void {
+    const waiting = this.startsAwaitingReplacement.get(sessionId)
+    if (waiting) {
+      waiting.stopped = true
+      return
+    }
     if (this.closing || !isValidBrokerSessionId(sessionId)) return
     this.explicitlyStoppedSessionIds.add(sessionId)
     if (this.unavailableSessions.has(sessionId)) {

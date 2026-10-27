@@ -213,6 +213,28 @@ describePosix('broker that refuses sessions because its node executable is gone 
       await replacing
       await third
       expect(brokerPid(identity)).not.toBe(secondPid)
+
+      // One stopped while it waits never runs at all, and still ends.
+      client.stop(`third-${unique}`, true)
+      await withTimeout(
+        (async () => {
+          while (client.hasSessions()) await new Promise((r) => setTimeout(r, 25))
+        })(),
+      )
+      const marker = join(nodelessPath, 'fourth-ran')
+      const fourthExit = deferred<AiRunExitOutcome>()
+      const replacingAgain = client.replaceBroker()
+      client.start(
+        `fourth-${unique}`,
+        { command: '/bin/sh', args: ['-c', `touch '${marker}'`], env: { ...process.env }, stdinMode: 'pipe' },
+        join(tmpdir(), `taskchute-fourth-${unique}.log`),
+        undefined,
+        { onData: () => undefined, onExit: (outcome) => fourthExit.resolve(outcome) },
+      )
+      client.stop(`fourth-${unique}`, false)
+      await replacingAgain
+      expect((await withTimeout(fourthExit.promise)).status).toBe('stopped')
+      expect(existsSync(marker)).toBe(false)
     } finally {
       await client.shutdown().catch(() => undefined)
       rmSync(oldPrefix, { force: true, recursive: true })
