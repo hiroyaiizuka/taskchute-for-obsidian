@@ -7,7 +7,7 @@ import { REPO_ROOT } from "./obsidian/paths"
  * process.env, which Playwright's workers inherit.
  *
  * Linux uses the pinned AppImage; macOS and Windows use the installed Obsidian
- * (see locateObsidian).
+ * running the pinned app (see locateObsidian).
  */
 export default async function globalSetup(): Promise<void> {
   if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
@@ -22,7 +22,8 @@ export default async function globalSetup(): Promise<void> {
     execSync("npm run build", { cwd: REPO_ROOT, stdio: "inherit" })
   }
 
-  const { executable, ldLibraryPath } = await locateObsidian()
+  const { executable, ldLibraryPath, appAsar } = await locateObsidian()
   process.env.TASKCHUTE_E2E_OBSIDIAN = executable
   process.env.TASKCHUTE_E2E_LD_LIBRARY_PATH = ldLibraryPath
+  process.env.TASKCHUTE_E2E_APP_ASAR = appAsar
 }

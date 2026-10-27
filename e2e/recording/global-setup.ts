@@ -30,7 +30,8 @@ export default async function globalSetup(): Promise<void> {
     execSync("npm run build", { cwd: REPO_ROOT, stdio: "inherit" })
   }
 
-  const { executable, ldLibraryPath } = await locateObsidian()
+  const { executable, ldLibraryPath, appAsar } = await locateObsidian()
   process.env.TASKCHUTE_E2E_OBSIDIAN = executable
   process.env.TASKCHUTE_E2E_LD_LIBRARY_PATH = ldLibraryPath
+  process.env.TASKCHUTE_E2E_APP_ASAR = appAsar
 }

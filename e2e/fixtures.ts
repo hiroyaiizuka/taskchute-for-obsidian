@@ -41,6 +41,7 @@ export const test = base.extend<Fixtures>({
       language,
       obsidianExecutable,
       ldLibraryPath: process.env.TASKCHUTE_E2E_LD_LIBRARY_PATH ?? "",
+      appAsar: process.env.TASKCHUTE_E2E_APP_ASAR ?? "",
       home,
       processPath,
     })

@@ -3,6 +3,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
+import zlib from "node:zlib"
 import type { ReadableStream } from "node:stream/web"
 import { OBSIDIAN_VERSION, cacheRoot } from "./paths"
 
@@ -48,4 +49,34 @@ export async function ensureObsidian(): Promise<string> {
     throw new Error(`Extraction did not produce ${executable}`)
   }
   return executable
+}
+
+/**
+ * Returns the path of the pinned Obsidian app (obsidian-<version>.asar),
+ * downloading it on first use. macOS and Windows drive the installed
+ * Obsidian, whose bundled app is whatever its installer shipped. Placed in the
+ * config dir, this asar is what Obsidian loads instead, so those runs match the
+ * Linux AppImage. Obsidian only loads it when it is newer than the bundled app.
+ */
+export async function ensureAppAsar(): Promise<string> {
+  const dir = path.join(cacheRoot(), `obsidian-${OBSIDIAN_VERSION}`)
+  const asar = path.join(dir, `obsidian-${OBSIDIAN_VERSION}.asar`)
+  if (fs.existsSync(asar)) return asar
+
+  fs.mkdirSync(dir, { recursive: true })
+  const url = `https://github.com/obsidianmd/obsidian-releases/releases/download/v${OBSIDIAN_VERSION}/obsidian-${OBSIDIAN_VERSION}.asar.gz`
+
+  console.log(`[e2e] Downloading the Obsidian ${OBSIDIAN_VERSION} app…`)
+  const response = await fetch(url)
+  if (!response.ok || !response.body) {
+    throw new Error(`Failed to download ${url}: HTTP ${response.status}`)
+  }
+  const partial = `${asar}.part`
+  await pipeline(
+    Readable.fromWeb(response.body as ReadableStream<Uint8Array>),
+    zlib.createGunzip(),
+    fs.createWriteStream(partial),
+  )
+  fs.renameSync(partial, asar)
+  return asar
 }
