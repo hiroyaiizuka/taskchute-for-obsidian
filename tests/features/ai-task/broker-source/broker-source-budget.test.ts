@@ -5,6 +5,10 @@ import {
   gzipBase64,
   INFLATE_PROGRAM_SOURCE,
 } from '@/features/ai-task/services/broker-source/EmbeddedProgramSource'
+import {
+  PROGRAM_PIPE_LOADER_SOURCE,
+  programPipeLoader,
+} from '@/features/ai-task/services/broker-source/ProgramPipeLoaderSource'
 import { buildTerminalBrokerSource } from '@/features/ai-task/services/TerminalSessionBrokerSource'
 import { TERMINAL_SESSION_GUARD_SOURCE } from '@/features/ai-task/services/TerminalSessionGuardSource'
 import { TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE } from '@/features/ai-task/services/TerminalSessionOwnerWatchdogSource'
@@ -103,5 +107,39 @@ describe('program syntax', () => {
     // that node reports only at spawn time — with the terminal simply never
     // appearing and nothing written to any log.
     expect(() => new Script(source)).not.toThrow()
+  })
+
+  test.each([
+    ['broker', buildTerminalBrokerSource()],
+    ['session guard', TERMINAL_SESSION_GUARD_SOURCE],
+    ['owner watchdog', TERMINAL_SESSION_OWNER_WATCHDOG_SOURCE],
+  ])('the %s program also parses as the body the Windows loader runs it in', (_name, source) => {
+    expect(() => new Script(`(function (require, module, exports) {${source}\n})`)).not.toThrow()
+  })
+})
+
+/**
+ * Windows caps a whole command line at 32,767 characters, and none of the
+ * three programs fits. There the `-e` argument is a short loader and the
+ * program arrives through a pipe (ProgramPipeLoaderSource).
+ */
+describe('Windows command line', () => {
+  const WINDOWS_COMMAND_LINE_MAX = 32_767
+
+  test.each([0, 3, 4])('the loader for fd %i is a small fraction of the limit and parses', (fd) => {
+    const loader = programPipeLoader(fd)
+
+    expect(loader.length).toBeLessThan(WINDOWS_COMMAND_LINE_MAX / 50)
+    expect(loader).toContain(`fd:${fd},`)
+    expect(() => new Script(loader)).not.toThrow()
+  })
+
+  test('the broker starts the watchdog on fd 3 and the guard on fd 4 through the same loader', () => {
+    const broker = buildTerminalBrokerSource()
+
+    expect(broker).toContain(PROGRAM_PIPE_LOADER_SOURCE)
+    expect(broker).toContain("programPipeLoader(3) : ownerWatchdogProgram")
+    expect(broker).toContain("programPipeLoader(4) : sessionGuardProgram")
+    expect(broker.indexOf(PROGRAM_PIPE_LOADER_SOURCE)).toBeLessThan(broker.indexOf('programPipeLoader(3)'))
   })
 })
