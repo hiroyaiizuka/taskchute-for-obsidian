@@ -22,6 +22,43 @@ import {
  * on a name the broker introduces later.
  *
  * Keep this plain ES2018 — nothing transpiles the contents of this template.
+ *
+ * Notes on the functions below, kept out of the template because a comment
+ * there ships inside the broker's single argv string (see
+ * broker-source-budget.test.ts):
+ *
+ * - pythonArgsDisableOwnershipHook: -W and -X consume the next token. Neither
+ *   disables the hook itself, and the consumed value must not be mistaken for
+ *   a flag.
+ * - terminalArgvBootstrapDisablesPythonHook: the positionals are shell,
+ *   resolved, command, fallback, prefixCount, then the payload.
+ * - taskChutePtyPositionalLaunchDisablesPythonHook: the injection-safe PTY
+ *   wrappers carry the transcript as outer shell $0 and append the real
+ *   binary/argv as unused validation positionals. Looking only at the fixed
+ *   '-c' program therefore misses a direct Python -S launch even though the
+ *   production request is statically identifiable.
+ * - boundStderrHead: drops the front of the newline-free head of stderrPending
+ *   so it stays within stderrPendingLimit, accounting the loss on
+ *   session.stderrDroppedChars. The head is what the next iteration emits as
+ *   one line, so this has to run before that emit: trimming only afterwards
+ *   bounds the retained buffer but lets a single emitted line reach
+ *   stderrPendingLimit + the length of one pipe read. The JSON round trip
+ *   avoids retaining the oversized concatenation as the parent of a short V8
+ *   SlicedString.
+ * - consumeStderrInto: splits pending stderr into lines, strips the exit
+ *   sentinel onto session.sentinelCode, and hands every visible chunk to emit.
+ *   The broker binds emit to its replay buffer and its sockets; taking it as an
+ *   argument is what keeps this half free of broker state. After the loop
+ *   every newline is consumed, so the trailing boundStderrHead bounds the
+ *   newline-free tail no emit has bounded yet.
+ * - resolveNodeExecutable: the broker outlives node upgrades. A versioned
+ *   install (Homebrew's Cellar/node/<version>) deletes the binary the broker
+ *   was started from, so its own execPath can stop existing while it keeps
+ *   serving sessions. Relative PATH entries are skipped because the broker
+ *   checks candidates from its own cwd but spawns them from the request's.
+ *   On Windows that rules out drive-relative entries such as \tools as well
+ *   (only C:\… and UNC \\server\… are kept), and quotes around an entry
+ *   are dropped first, as NodeExecutableLocator does.
  */
 export const TERMINAL_BROKER_PURE_SOURCE = String.raw`const ownerPidFileEnvName = 'TASKCHUTE_BROKER_OWNER_PID_FILE';
 const terminalArgvBootstrapProgram = ${JSON.stringify(POSIX_TERMINAL_BOOTSTRAP)};
@@ -40,8 +77,6 @@ function pythonArgsDisableOwnershipHook(args) {
     if (!token.startsWith('-') || token === '-') return false;
     if (token === '-c' || token === '-m') return false;
     if (/^-[^-]*[EIS]/.test(token)) return true;
-    // These interpreter options consume the next token. None disables the
-    // hook itself, and the consumed value must not be mistaken for a flag.
     if (token === '-W' || token === '-X') index += 1;
   }
   return false;
@@ -238,7 +273,6 @@ function terminalArgvBootstrapDisablesPythonHook(binary, binaryArgs) {
     ) return false;
     positionals = binaryArgs.slice(commandIndex + 3);
   }
-  // shell, resolved, command, fallback, prefixCount
   if (positionals.length < 5) return true;
   const resolved = positionals[1];
   const command = positionals[2];
@@ -270,10 +304,6 @@ function taskChutePtyPositionalLaunchDisablesPythonHook(
   commandIndex,
   shellProgram,
 ) {
-  // The injection-safe PTY wrappers carry the transcript as outer shell $0
-  // and append the real binary/argv as unused validation positionals.
-  // Looking only at the fixed '-c' program therefore misses a direct Python
-  // -S launch even though the production request is statically identifiable.
   if (
     !shellProgram.includes('TASKCHUTE_AI_TTY_PATH="$0.tty"') ||
     !shellProgram.includes('/usr/bin/script')
@@ -324,25 +354,14 @@ function launchDisablesPythonOwnershipHook(request, initialInput) {
   );
 }
 const stderrPendingLimit = 64 * 1024;
-// Drops the front of the newline-free head of stderrPending so it stays within
-// stderrPendingLimit, accounting the loss on session.stderrDroppedChars. The
-// head is what the next iteration emits as one line, so this has to run before
-// that emit: trimming only afterwards bounds the retained buffer but lets a
-// single emitted line reach stderrPendingLimit + the length of one pipe read.
 function boundStderrHead(session) {
   const newline = session.stderrPending.indexOf('\n');
   const headLength = newline < 0 ? session.stderrPending.length : newline;
   if (headLength <= stderrPendingLimit) return;
   const dropped = headLength - stderrPendingLimit;
   session.stderrDroppedChars += dropped;
-  // JSON materialization avoids retaining the oversized concatenation as
-  // the parent of a short V8 SlicedString.
   session.stderrPending = JSON.parse(JSON.stringify(session.stderrPending.slice(dropped)));
 }
-// Splits pending stderr into lines, strips the exit sentinel onto
-// session.sentinelCode, and hands every visible chunk to emit. The broker binds
-// emit to its replay buffer and its sockets; taking it as an argument is what
-// keeps this half free of broker state.
 function consumeStderrInto(session, text, flush, marker, emit) {
   session.stderrPending += text;
   boundStderrHead(session);
@@ -372,8 +391,23 @@ function consumeStderrInto(session, text, flush, marker, emit) {
     }
     if (visible) emit(visible);
   }
-  // The loop above consumed every newline, so what remains is a newline-free
-  // tail that no emit has bounded yet.
   if (!flush) boundStderrHead(session);
+}
+function pathEnvValue(env) {
+  const key = Object.keys(env || {}).find(name => name.toUpperCase() === 'PATH');
+  return key ? String(env[key] || '') : '';
+}
+function resolveNodeExecutable(execPath, pathValue, platform, isExecutable) {
+  if (isExecutable(execPath)) return execPath;
+  const windows = platform === 'win32';
+  const name = windows ? 'node.exe' : 'node';
+  const absolute = windows ? /^(?:[A-Za-z]:[\\/]|\\\\)/ : /^\//;
+  for (const entry of String(pathValue || '').split(windows ? ';' : ':')) {
+    const directory = windows ? entry.trim().replace(/^"(.*)"$/, '$1') : entry;
+    if (!absolute.test(directory)) continue;
+    const candidate = directory.replace(windows ? /[\\/]+$/ : /\/+$/, '') + (windows ? '\\' : '/') + name;
+    if (isExecutable(candidate)) return candidate;
+  }
+  return null;
 }
 `

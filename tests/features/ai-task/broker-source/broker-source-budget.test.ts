@@ -36,11 +36,12 @@ const MAX_ARG_STRLEN = 32 * 4096
  *
  * The broker sat ~1KB under this budget (October 2026) until LEV-404 began
  * dropping whole-line comments from all three programs (stripCommentLines):
- * it now sits ~16KB under. Before that, LEV-379 and LEV-378 had to move
- * comments out of the broker template into the "Note A…Z" block beside
- * buildTerminalBrokerSource to fit; that block still keeps the templates
- * readable. Anything approaching this budget again should move code, not
- * comments, rather than raise it: comments no longer ship.
+ * it now sits ~16KB under. Before that, LEV-379, LEV-378 and LEV-400 had to
+ * move comments out of the broker template into the "Note A…Z" block beside
+ * buildTerminalBrokerSource (and the notes above TerminalBrokerPureSource) to
+ * fit; those blocks still keep the templates readable. Anything approaching
+ * this budget again should move code, not comments, rather than raise it:
+ * comments no longer ship.
  */
 const PROGRAM_BUDGET = 120_000
 
