@@ -54,14 +54,15 @@ other windows; the picture is taken from the window itself, not the screen.
 
 | | macOS | Windows | Linux x64 / WSL |
 |---|---|---|---|
-| Obsidian | the installed app | the installed app | pinned AppImage, downloaded on first run |
+| Obsidian | the installed app, running the pinned app asar | the installed app, running the pinned app asar | pinned AppImage, downloaded on first run |
 | ffmpeg + ffprobe | `brew install ffmpeg` | `winget install Gyan.FFmpeg` | `apt install ffmpeg` |
 | Narration | `pip install edge-tts` | `pip install edge-tts` | `pip install edge-tts` |
 | Display | – | – | WSLg / desktop, or `xvfb-run -a` |
 
 - `TASKCHUTE_E2E_OBSIDIAN_PATH` points at another Obsidian executable.
-- On macOS and Windows the Obsidian version is whatever is installed; put the
-  version on the page.
+- On macOS and Windows the installed Obsidian runs the pinned app
+  (`OBSIDIAN_VERSION`), downloaded on first run, unless its installer is newer.
+  Put the version on the page.
 - **Narration** uses [edge-tts](https://github.com/rany2/edge-tts): free, no
   key. It sends the caption text to Microsoft's Edge read-aloud service, so it
   needs a network connection, and it is not an official public API — fine for

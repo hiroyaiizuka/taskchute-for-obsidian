@@ -15,6 +15,8 @@ export interface LaunchOptions {
   language: ObsidianLanguage
   obsidianExecutable: string
   ldLibraryPath: string
+  /** The app (obsidian-<version>.asar) to run instead of the bundled one; empty for the bundled one. */
+  appAsar: string
   /**
    * A home folder for Obsidian (and every CLI it spawns) other than the
    * user's, so a test never reads or writes the real ~/.claude and the like.
@@ -59,7 +61,7 @@ function freePort(): Promise<number> {
   })
 }
 
-function prepareDirectories(workDir: string): { configDir: string; vaultDir: string } {
+function prepareDirectories(workDir: string, appAsar: string): { configDir: string; vaultDir: string } {
   const configDir = path.join(workDir, "config")
   const vaultDir = path.join(workDir, "vault")
   fs.rmSync(workDir, { recursive: true, force: true })
@@ -89,6 +91,16 @@ function prepareDirectories(workDir: string): { configDir: string; vaultDir: str
       vaults: { [VAULT_ID]: { path: vaultDir, ts: Date.now(), open: true } },
     }),
   )
+  // Obsidian loads the newest obsidian-*.asar in its config dir over the app
+  // its installer bundled. A hard link saves copying 28 MB for every test.
+  if (appAsar) {
+    const target = path.join(configDir, path.basename(appAsar))
+    try {
+      fs.linkSync(appAsar, target)
+    } catch {
+      fs.copyFileSync(appAsar, target)
+    }
+  }
   return { configDir, vaultDir }
 }
 
@@ -205,7 +217,7 @@ function windowWasClosed(error: unknown): boolean {
 }
 
 async function launchOnce(options: LaunchOptions): Promise<ObsidianSession> {
-  const { configDir, vaultDir } = prepareDirectories(options.workDir)
+  const { configDir, vaultDir } = prepareDirectories(options.workDir, options.appAsar)
   if (options.home) linkUserFonts(options.home)
   const port = await freePort()
 

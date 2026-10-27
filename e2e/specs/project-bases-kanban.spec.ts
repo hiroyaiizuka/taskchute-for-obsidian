@@ -12,8 +12,15 @@ import { createNotes } from "../recording/helpers"
 const PROJECTS = "Projects"
 const BASE = `${PROJECTS}/TaskChute Projects.base`
 
+// The running app's version. The user agent names the installer's, which on
+// macOS and Windows is older than the app the suite puts in front of it.
 async function obsidianVersion(page: Page): Promise<[number, number]> {
-  const raw = await page.evaluate(() => navigator.userAgent.match(/obsidian\/(\d+)\.(\d+)/)?.slice(1) ?? ["0", "0"])
+  const raw = await page.evaluate(() => {
+    const electron = (window as unknown as {
+      require(id: "electron"): { ipcRenderer: { sendSync(channel: "version"): string } }
+    }).require("electron")
+    return electron.ipcRenderer.sendSync("version").match(/^(\d+)\.(\d+)/)?.slice(1) ?? ["0", "0"]
+  })
   return [Number(raw[0]), Number(raw[1])]
 }
 
