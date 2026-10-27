@@ -56,6 +56,9 @@ import {
  *   was started from, so its own execPath can stop existing while it keeps
  *   serving sessions. Relative PATH entries are skipped because the broker
  *   checks candidates from its own cwd but spawns them from the request's.
+ *   On Windows that rules out drive-relative entries such as \tools as well
+ *   (only C:\… and UNC \\server\… are kept), and quotes around an entry
+ *   are dropped first, as NodeExecutableLocator does.
  */
 export const TERMINAL_BROKER_PURE_SOURCE = String.raw`const ownerPidFileEnvName = 'TASKCHUTE_BROKER_OWNER_PID_FILE';
 const terminalArgvBootstrapProgram = ${JSON.stringify(POSIX_TERMINAL_BOOTSTRAP)};
@@ -398,8 +401,9 @@ function resolveNodeExecutable(execPath, pathValue, platform, isExecutable) {
   if (isExecutable(execPath)) return execPath;
   const windows = platform === 'win32';
   const name = windows ? 'node.exe' : 'node';
-  const absolute = windows ? /^(?:[A-Za-z]:)?[\\/]/ : /^\//;
-  for (const directory of String(pathValue || '').split(windows ? ';' : ':')) {
+  const absolute = windows ? /^(?:[A-Za-z]:[\\/]|\\\\)/ : /^\//;
+  for (const entry of String(pathValue || '').split(windows ? ';' : ':')) {
+    const directory = windows ? entry.trim().replace(/^"(.*)"$/, '$1') : entry;
     if (!absolute.test(directory)) continue;
     const candidate = directory.replace(/[\\/]+$/, '') + (windows ? '\\' : '/') + name;
     if (isExecutable(candidate)) return candidate;

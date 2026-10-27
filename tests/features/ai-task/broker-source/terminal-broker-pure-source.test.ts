@@ -321,6 +321,28 @@ describe('resolveNodeExecutable', () => {
     ).toBe('C:\\Program Files\\nodejs\\node.exe')
   })
 
+  test('unquotes Windows PATH entries before looking in them', () => {
+    expect(
+      broker.resolveNodeExecutable(
+        'C:\\old\\node.exe',
+        'C:\\Windows; "D:\\custom node" ',
+        'win32',
+        installed('D:\\custom node\\node.exe'),
+      ),
+    ).toBe('D:\\custom node\\node.exe')
+  })
+
+  test('skips drive-relative Windows entries, whose drive follows the cwd', () => {
+    expect(
+      broker.resolveNodeExecutable(
+        'C:\\old\\node.exe',
+        '\\tools;\\\\server\\share\\node',
+        'win32',
+        installed('\\tools\\node.exe', '\\\\server\\share\\node\\node.exe'),
+      ),
+    ).toBe('\\\\server\\share\\node\\node.exe')
+  })
+
   test('reports null when no node exists anywhere', () => {
     expect(
       broker.resolveNodeExecutable('/gone/node', '/usr/bin:/bin', 'linux', installed()),
