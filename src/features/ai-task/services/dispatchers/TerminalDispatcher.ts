@@ -74,6 +74,13 @@ export interface TerminalRunRequest {
   transcriptPath: string
   /** Run binaryPath + argv as a foreground job of a persistent login shell */
   launchInShell?: boolean
+  /**
+   * True when a new broker would end no other terminal of this window
+   * (LEV-405). Only the caller knows: after a plugin hot reload, terminals
+   * started before it stay on the previous broker client, which the new one
+   * cannot see. Without it, a refused session is not retried on a new broker.
+   */
+  mayReplaceBroker?(): boolean
 }
 
 export interface TerminalRunCallbacks {

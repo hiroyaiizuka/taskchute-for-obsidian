@@ -340,7 +340,9 @@ describe('BrokerTerminalDispatcher', () => {
     const OWNERSHIP = 'Terminal root ownership identity could not be recorded'
     const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-    function startSession() {
+    function startSession(
+      { mayReplaceBroker }: { mayReplaceBroker?: () => boolean } = { mayReplaceBroker: () => true },
+    ) {
       const broker = makeBroker()
       const dispatcher = new BrokerTerminalDispatcher(
         makeGateway(),
@@ -357,6 +359,7 @@ describe('BrokerTerminalDispatcher', () => {
           rows: 24,
           cols: 80,
           transcriptPath: '/tmp/run-9.log',
+          ...(mayReplaceBroker ? { mayReplaceBroker } : {}),
         },
         callbacks,
       )
@@ -394,6 +397,19 @@ describe('BrokerTerminalDispatcher', () => {
     test('leaves the broker alone while another session of this window runs on it', async () => {
       const { broker, callbacks } = startSession()
       broker.hasSessions.mockReturnValue(true)
+      const outcome = refused(OWNERSHIP)
+      startCallbacks(broker, 0).onExit(outcome)
+      await flush()
+
+      expect(broker.replaceBroker).not.toHaveBeenCalled()
+      expect(callbacks.onExit).toHaveBeenCalledWith(outcome)
+    })
+
+    test.each([
+      ['another terminal of this window runs (a hot reload left it on the previous client)', { mayReplaceBroker: () => false }],
+      ['the caller cannot tell', {}],
+    ])('leaves the broker alone when %s', async (_case, options) => {
+      const { broker, callbacks } = startSession(options)
       const outcome = refused(OWNERSHIP)
       startCallbacks(broker, 0).onExit(outcome)
       await flush()

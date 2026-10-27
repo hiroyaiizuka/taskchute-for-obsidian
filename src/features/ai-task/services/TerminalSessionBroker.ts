@@ -947,6 +947,15 @@ export class TerminalSessionBrokerClient {
       })
       return
     }
+    if (this.brokerReplacement) {
+      // Registered now, the session would be cleared with the old broker's
+      // connection at the end of the replacement. Start it after.
+      const replacement = this.brokerReplacement
+      void replacement.catch(() => undefined).then(() => {
+        this.start(sessionId, spawn, transcriptPath, initialInput, callbacks)
+      })
+      return
+    }
     if (!isValidBrokerSessionId(sessionId)) {
       callbacks.onExit({
         status: 'failed',
@@ -992,6 +1001,14 @@ export class TerminalSessionBrokerClient {
   attach(sessionId: string, callbacks: TerminalBrokerSessionCallbacks): void {
     if (this.closing) {
       callbacks.onUnavailable?.()
+      return
+    }
+    if (this.brokerReplacement) {
+      // As in start(): registered now, it would be cleared by the replacement.
+      const replacement = this.brokerReplacement
+      void replacement.catch(() => undefined).then(() => {
+        this.attach(sessionId, callbacks)
+      })
       return
     }
     if (!isValidBrokerSessionId(sessionId)) {

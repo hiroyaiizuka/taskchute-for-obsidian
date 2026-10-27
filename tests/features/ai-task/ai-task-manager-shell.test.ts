@@ -177,6 +177,7 @@ describe('AiTaskManager.startShellSession spawn shape', () => {
       rows: 28,
       cols: 100,
       transcriptPath: record.transcriptPath,
+      mayReplaceBroker: expect.any(Function) as unknown,
     })
     expect(harness.getShellPath).toHaveBeenCalled()
     expect(record.host).toBe('shell')
@@ -838,6 +839,20 @@ describe('AiTaskManager.restartTerminals (LEV-405)', () => {
     await restart
     // The broker client refuses while a session is left; that error reaches the user.
     expect(replaceBroker).toHaveBeenCalledTimes(1)
+  })
+
+  test('lets a refused terminal start on a new broker only when it is the only one running', () => {
+    const { manager, terminal } = withBroker()
+    manager.startShellSession()
+    const first = terminal.last.request
+    expect(first.mayReplaceBroker?.()).toBe(true)
+
+    manager.startShellSession()
+    expect(first.mayReplaceBroker?.()).toBe(false)
+    expect(terminal.last.request.mayReplaceBroker?.()).toBe(false)
+
+    terminal.runs[0].exit(stopped())
+    expect(terminal.last.request.mayReplaceBroker?.()).toBe(true)
   })
 
   test('replaces the broker at once when no terminal is running', async () => {

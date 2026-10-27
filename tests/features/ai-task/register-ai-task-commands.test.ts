@@ -47,6 +47,13 @@ describe('Restart AI terminals command (LEV-405)', () => {
     expect(check(true)).toBe(true)
   })
 
+  test('a manager kept from before a plugin update, without these methods, just hides it', () => {
+    const { host, check } = register()
+    host.aiTaskManager = {}
+    expect(() => check(true)).not.toThrow()
+    expect(check(true)).toBe(false)
+  })
+
   test('asks before ending running terminals, then restarts', async () => {
     const { host, check } = register()
     const current = manager(3)

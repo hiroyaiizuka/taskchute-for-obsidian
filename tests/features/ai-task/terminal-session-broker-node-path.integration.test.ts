@@ -183,6 +183,7 @@ describePosix('broker that refuses sessions because its node executable is gone 
           rows: 24,
           cols: 80,
           transcriptPath: join(tmpdir(), `taskchute-second-${unique}.log`),
+          mayReplaceBroker: () => true,
         },
         {
           onData: (data) => {
@@ -197,6 +198,21 @@ describePosix('broker that refuses sessions because its node executable is gone 
 
       expect(brokerPid(identity)).not.toBe(oldPid)
       expect(brokerExecutable(identity)).toBe(realpathSync(process.execPath))
+
+      // A terminal started while the broker is being replaced waits for the
+      // new one instead of being lost with the old connection.
+      client.stop(`second-${unique}`, true)
+      await withTimeout(
+        (async () => {
+          while (client.hasSessions()) await new Promise((r) => setTimeout(r, 25))
+        })(),
+      )
+      const secondPid = brokerPid(identity)
+      const replacing = client.replaceBroker()
+      const third = startEcho(client, `third-${unique}`, 'THIRD_READY', exited)
+      await replacing
+      await third
+      expect(brokerPid(identity)).not.toBe(secondPid)
     } finally {
       await client.shutdown().catch(() => undefined)
       rmSync(oldPrefix, { force: true, recursive: true })

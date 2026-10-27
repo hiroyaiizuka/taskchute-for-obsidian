@@ -7,10 +7,12 @@ import { restartAiTerminals } from './ui/restartAiTerminals'
 interface AiTaskCommandHost {
   app: App
   addCommand(command: Command): Command
-  /** Read when the command runs: the settings toggle replaces the manager. */
-  aiTaskManager?: Pick<
-    AiTaskManager,
-    'canRestartTerminals' | 'countLiveTerminals' | 'restartTerminals'
+  /**
+   * Read when the command runs: the settings toggle replaces the manager.
+   * A manager kept from before a plugin update may lack these methods.
+   */
+  aiTaskManager?: Partial<
+    Pick<AiTaskManager, 'canRestartTerminals' | 'countLiveTerminals' | 'restartTerminals'>
   >
 }
 
@@ -25,9 +27,22 @@ export function registerAiTaskCommands(host: AiTaskCommandHost): void {
     name: t('commands.restartAiTerminals', 'Restart AI terminals'),
     checkCallback: (checking) => {
       const manager = host.aiTaskManager
-      if (!manager?.canRestartTerminals()) return false
+      if (
+        typeof manager?.canRestartTerminals !== 'function' ||
+        typeof manager.countLiveTerminals !== 'function' ||
+        typeof manager.restartTerminals !== 'function' ||
+        !manager.canRestartTerminals()
+      ) {
+        return false
+      }
       if (!checking) {
-        void restartAiTerminals(manager, (options) => showConfirmModal(host.app, options))
+        void restartAiTerminals(
+          {
+            countLiveTerminals: () => manager.countLiveTerminals?.() ?? 0,
+            restartTerminals: () => manager.restartTerminals?.() ?? Promise.resolve(),
+          },
+          (options) => showConfirmModal(host.app, options),
+        )
       }
       return true
     },

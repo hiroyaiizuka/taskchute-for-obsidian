@@ -28,8 +28,9 @@ function quoteShellPath(path: string): string {
  * once it exits, instead of a bootstrap shell around it.
  *
  * A session the broker refuses for reasons of its own machinery (LEV-405) is
- * started once more on a new broker, when no other session in this window
- * would go down with the old one. See BrokerRecovery.
+ * started once more on a new broker, when no other terminal of this window
+ * would go down with the old one (the caller says so: mayReplaceBroker). See
+ * BrokerRecovery.
  */
 export class BrokerTerminalDispatcher implements AiTerminalDispatcher {
   readonly isPersistent = true
@@ -92,6 +93,7 @@ export class BrokerTerminalDispatcher implements AiTerminalDispatcher {
         retried ||
         stopRequested ||
         !isBrokerMachineryFailure(outcome) ||
+        request.mayReplaceBroker?.() !== true ||
         this.broker.hasSessions()
       ) {
         callbacks.onExit(outcome)

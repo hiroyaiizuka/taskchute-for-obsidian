@@ -1030,6 +1030,7 @@ export class AiTaskManager {
         const terminalHandle = terminal.dispatcher.start(
           {
             sessionId: record.id,
+            mayReplaceBroker: () => this.isOnlyLiveTerminal(internal),
             binaryPath,
             binaryArgsPrefix: binaryArgsPrefix ? [...binaryArgsPrefix] : undefined,
             ...(binaryEnvPatch === undefined
@@ -1350,6 +1351,7 @@ export class AiTaskManager {
       const terminalHandle = terminal.dispatcher.start(
         {
           sessionId: record.id,
+          mayReplaceBroker: () => this.isOnlyLiveTerminal(internal),
           binaryPath: shellPath,
           prompt: '',
           cwd: internal.cwd,
@@ -1496,6 +1498,7 @@ export class AiTaskManager {
       const terminalHandle = terminal.dispatcher.start(
         {
           sessionId: record.id,
+          mayReplaceBroker: () => this.isOnlyLiveTerminal(internal),
           binaryPath,
           binaryArgsPrefix: binaryArgsPrefix ? [...binaryArgsPrefix] : undefined,
           ...(binaryEnvPatch === undefined ? {} : { envPatch: binaryEnvPatch }),
@@ -1717,6 +1720,15 @@ export class AiTaskManager {
     for (const internal of targets) this.stopRun(internal.record.id)
     await this.waitForRunsToExit(targets)
     await dispatcher.replaceBroker()
+  }
+
+  /**
+   * Whether a new broker would end no terminal but this one (LEV-405). This
+   * manager outlives a plugin hot reload, so it knows the terminals still on
+   * the previous broker client too.
+   */
+  private isOnlyLiveTerminal(internal: InternalRun): boolean {
+    return this.liveTerminalRuns().every((other) => other === internal)
   }
 
   private liveTerminalRuns(): InternalRun[] {
