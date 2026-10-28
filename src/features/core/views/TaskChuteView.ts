@@ -1775,7 +1775,25 @@ export class TaskChuteView
       )
     for (const record of records) {
       try {
-        await this.stopTaskForAiRunClose(record)
+        // Duplicate rows of one task note share its AI terminal; all of them
+        // stop. Without one on screen, the × path finds the persisted timer.
+        const visible = this.taskInstances.filter(
+          (instance) =>
+            instance.state === 'running' &&
+            ((record.instanceId !== undefined && instance.instanceId === record.instanceId) ||
+              (record.taskPath.length > 0 && instance.task?.path === record.taskPath)),
+        )
+        if (visible.length === 0) {
+          await this.stopTaskForAiRunClose(record)
+          continue
+        }
+        for (const instance of visible) {
+          if (instance.state !== 'running') continue
+          // One row failing to save must not leave its duplicates timing.
+          await this.stopInstance(instance).catch((error: unknown) => {
+            console.error('[TaskChuteView] Failed to stop a task before restarting terminals', error)
+          })
+        }
       } catch (error) {
         console.error('[TaskChuteView] Failed to stop a task before restarting terminals', error)
       }

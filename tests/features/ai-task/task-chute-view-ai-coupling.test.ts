@@ -2067,6 +2067,24 @@ describe('Restart AI terminals stops the AI tasks first (LEV-405)', () => {
     expect(inst.state).toBe('done')
   })
 
+  test('stops every duplicate row that shares the terminal', async () => {
+    const { manager, view, execution } = setUp()
+    const origin = makeInstance()
+    origin.instanceId = 'origin'
+    origin.state = 'running'
+    const duplicate = makeInstance()
+    duplicate.instanceId = 'duplicate'
+    duplicate.state = 'running'
+    view.taskInstances = [origin, duplicate]
+    manager.getRuns.mockReturnValue([makeRecord({ mode: 'terminal', instanceId: 'origin' })])
+
+    await stopForRestart(view)
+
+    expect(execution.stopInstance).toHaveBeenCalledTimes(2)
+    expect(origin.state).toBe('done')
+    expect(duplicate.state).toBe('done')
+  })
+
   test('also stops a timer on a date the view is not showing', async () => {
     const { manager, view, execution } = setUp()
     view.currentDate = new Date(2026, 6, 19)
@@ -2096,16 +2114,16 @@ describe('Restart AI terminals stops the AI tasks first (LEV-405)', () => {
 
   test('one failure does not keep the other tasks from stopping', async () => {
     const { manager, view, execution } = setUp()
-    const first = makeInstance()
+    const first = makeInstance(undefined, makeTaskFile('TASKS/first.md', 'first'))
     first.instanceId = 'first'
     first.state = 'running'
-    const second = makeInstance()
+    const second = makeInstance(undefined, makeTaskFile('TASKS/second.md', 'second'))
     second.instanceId = 'second'
     second.state = 'running'
     view.taskInstances = [first, second]
     manager.getRuns.mockReturnValue([
-      makeRecord({ id: 'a', mode: 'terminal', instanceId: 'first' }),
-      makeRecord({ id: 'b', mode: 'terminal', instanceId: 'second' }),
+      makeRecord({ id: 'a', mode: 'terminal', instanceId: 'first', taskPath: 'TASKS/first.md' }),
+      makeRecord({ id: 'b', mode: 'terminal', instanceId: 'second', taskPath: 'TASKS/second.md' }),
     ])
     execution.stopInstance.mockRejectedValueOnce(new Error('disk full'))
     const error = jest.spyOn(console, 'error').mockImplementation(() => undefined)
