@@ -9,17 +9,20 @@ type RestartableManager = Pick<AiTaskManager, 'countLiveTerminals' | 'restartTer
 /**
  * Restart the AI terminals on the user's request (LEV-405): from the
  * failed-start banner, or the "Restart AI terminals" command. Running
- * terminals end, so the user confirms first when there are any. The AI tasks
- * among them stop too, as if their stop button were pressed; the
- * confirmation says how many.
+ * terminals end, so the user confirms first when there are any.
+ *
+ * `stopTaskTimers` stops the timers of the AI tasks running in them first, as
+ * their stop button would (a TaskChute view does it). Only then does the
+ * confirmation say those tasks will stop and be marked done.
  */
 export async function restartAiTerminals(
   manager: RestartableManager,
   confirm: (options: ConfirmModalOptions) => Promise<boolean>,
+  stopTaskTimers?: () => Promise<void>,
 ): Promise<void> {
   const count = manager.countLiveTerminals()
   if (count > 0) {
-    const tasks = manager.countLiveTerminalTasks?.() ?? 0
+    const tasks = stopTaskTimers ? (manager.countLiveTerminalTasks?.() ?? 0) : 0
     const message =
       tasks > 0
         ? t(
@@ -41,6 +44,7 @@ export async function restartAiTerminals(
     if (!confirmed) return
   }
   try {
+    await stopTaskTimers?.()
     await manager.restartTerminals()
     new Notice(
       t(

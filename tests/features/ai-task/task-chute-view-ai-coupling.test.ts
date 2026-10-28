@@ -2041,47 +2041,80 @@ describe('TaskChuteView two-way link sync (#183)', () => {
     expect(execution.stopInstance).not.toHaveBeenCalled()
     expect(inst.state).toBe('running')
   })
+})
 
-  test('a run ended by "Restart AI terminals" stops its timer as the stop button would (LEV-405)', async () => {
+describe('Restart AI terminals stops the AI tasks first (LEV-405)', () => {
+  const stopForRestart = (view: TaskChuteView): Promise<void> =>
+    (view as unknown as { stopAiTaskTimersForTerminalRestart(): Promise<void> }).stopAiTaskTimersForTerminalRestart()
+
+  test('stops the timer of every AI task running in a terminal, as its stop button would', async () => {
     const { manager, view, execution } = setUp()
     const inst = makeInstance()
+    inst.instanceId = 'inst-1'
     inst.state = 'running'
     view.taskInstances = [inst]
-    asCapable(view).watchLinkedAiRunExits()
-    const listener = manager.onChange.mock.calls[0]?.[0]
-    if (!listener) throw new Error('watchLinkedAiRunExits did not subscribe')
-    const record = makeRecord({ id: 'restarted-run', instanceId: 'inst-1', stoppedByRestart: true })
+    manager.getRuns.mockReturnValue([
+      makeRecord({ id: 'task-run', mode: 'terminal', instanceId: 'inst-1' }),
+      makeRecord({ id: 'shell-run', mode: 'terminal', host: 'shell', taskPath: '' }),
+      makeRecord({ id: 'headless-run', mode: 'headless', taskPath: 'TASKS/other.md' }),
+      makeRecord({ id: 'ended-run', mode: 'terminal', status: 'stopped', taskPath: 'TASKS/ended.md' }),
+    ])
 
-    listener(record)
-    listener({ ...record, status: 'stopping' })
-    expect(execution.stopInstance).not.toHaveBeenCalled()
-    const ended = { ...record, status: 'stopped' as const, endedAt: Date.now() }
-    listener(ended)
-    // A second mounted leaf hears the same stop.
-    listener(ended)
-    await flushPromises()
+    await stopForRestart(view)
 
     expect(execution.stopInstance).toHaveBeenCalledTimes(1)
     expect(execution.stopInstance).toHaveBeenCalledWith(inst, undefined)
     expect(inst.state).toBe('done')
   })
 
-  test('a run stopped any other way leaves its timer running', async () => {
+  test('also stops a timer on a date the view is not showing', async () => {
     const { manager, view, execution } = setUp()
-    const inst = makeInstance()
-    inst.state = 'running'
-    view.taskInstances = [inst]
-    asCapable(view).watchLinkedAiRunExits()
-    const listener = manager.onChange.mock.calls[0]?.[0]
-    if (!listener) throw new Error('watchLinkedAiRunExits did not subscribe')
-    const record = makeRecord({ id: 'closed-run', instanceId: 'inst-1' })
+    view.currentDate = new Date(2026, 6, 19)
+    view.taskInstances = [makeHumanInstance('Today task')]
+    const startedAt = '2026-07-18T09:14:28.784Z'
+    jest.spyOn(view.runningTasksService, 'findByInstanceOrPathStrict').mockResolvedValue({
+      date: '2026-07-18',
+      taskTitle: 'AI memory update',
+      taskPath: TASK_PATH,
+      taskId: 'tc-ai-memory',
+      instanceId: 'previous-day-instance',
+      startTime: startedAt,
+      slotKey: '18:00-0:00',
+      isRoutine: true,
+    })
+    manager.getRuns.mockReturnValue([
+      makeRecord({ mode: 'terminal', instanceId: 'previous-day-instance', startedAt: new Date(startedAt).getTime() }),
+    ])
 
-    listener(record)
-    listener({ ...record, status: 'stopped', endedAt: Date.now() })
-    await flushPromises()
+    await stopForRestart(view)
 
-    expect(execution.stopInstance).not.toHaveBeenCalled()
-    expect(inst.state).toBe('running')
+    expect(execution.stopInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceId: 'previous-day-instance', state: 'done' }),
+      undefined,
+    )
+  })
+
+  test('one failure does not keep the other tasks from stopping', async () => {
+    const { manager, view, execution } = setUp()
+    const first = makeInstance()
+    first.instanceId = 'first'
+    first.state = 'running'
+    const second = makeInstance()
+    second.instanceId = 'second'
+    second.state = 'running'
+    view.taskInstances = [first, second]
+    manager.getRuns.mockReturnValue([
+      makeRecord({ id: 'a', mode: 'terminal', instanceId: 'first' }),
+      makeRecord({ id: 'b', mode: 'terminal', instanceId: 'second' }),
+    ])
+    execution.stopInstance.mockRejectedValueOnce(new Error('disk full'))
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await stopForRestart(view)
+
+    expect(execution.stopInstance).toHaveBeenCalledTimes(2)
+    expect(second.state).toBe('done')
+    error.mockRestore()
   })
 })
 

@@ -1705,7 +1705,7 @@ export class AiTaskManager {
     return this.liveTerminalRuns().length
   }
 
-  /** AI tasks among them, whose timers a restartTerminals() stops too. */
+  /** AI tasks among them; the restart flow stops their timers first. */
   countLiveTerminalTasks(): number {
     return this.liveTerminalRuns().filter((internal) => internal.record.host !== 'shell').length
   }
@@ -1722,11 +1722,7 @@ export class AiTaskManager {
       throw new Error('Terminals cannot be restarted here')
     }
     const targets = this.liveTerminalRuns()
-    for (const internal of targets) {
-      // Set before the stop, so every change the view hears carries it.
-      internal.record.stoppedByRestart = true
-      this.stopRun(internal.record.id)
-    }
+    for (const internal of targets) this.stopRun(internal.record.id)
     await this.waitForRunsToExit(targets)
     await dispatcher.replaceBroker()
   }
