@@ -1,10 +1,11 @@
 import { PLUGIN_ID, TASK_FOLDER, aiRuns, enableAiTasks, openTaskChute, rowState, taskRow } from "../../helpers/aiTask"
+import { realClaudePath, runIdOf, waitForClaude } from "../aiTerminal"
 import { expect, test } from "../fixtures"
-import { FAKE_CLAUDE_BANNER, createNotes, waitForTerminalOutput, writeSwitchableFakeClaude } from "../helpers"
+import { createNotes } from "../helpers"
 
 // LEV-395: an AI task that is not a routine starts by itself once its start
 // time has come, once a day, as AI routines already do. Follows the issue's
-// "done when" list.
+// "done when" list. Recorded with the real Claude Code CLI of whoever records.
 
 const ONE_OFF = "ニュースを要約する"
 const LATER = "夕方のまとめ"
@@ -19,7 +20,8 @@ function note(properties: string[], prompt: string): string {
   return ["---", "tags:", "  - task", ...properties, "ai_task: true", "ai_task_host: claude", "---", "", "## Prompt", "", prompt, ""].join("\n")
 }
 
-test("ai-ambient-start", async ({ obsidian, recorder }, testInfo) => {
+test("ai-ambient-start", async ({ obsidian, recorder }) => {
+  test.setTimeout(300_000)
   const { page } = obsidian
   const now = new Date()
   test.skip(now.getHours() === 23 && now.getMinutes() >= 45, "too close to midnight")
@@ -27,8 +29,7 @@ test("ai-ambient-start", async ({ obsidian, recorder }, testInfo) => {
   const due = `${pad(now.getHours())}:${pad(now.getMinutes())}`
   const later = now.getHours() >= 22 ? "23:59" : `${pad(now.getHours() + 2)}:${pad(now.getMinutes())}`
 
-  const fake = writeSwitchableFakeClaude(testInfo.outputPath("bin"))
-  await enableAiTasks(page, fake.file, "terminal")
+  await enableAiTasks(page, await realClaudePath(), "terminal")
   // The scheduler is already running and checks every minute. Until the first
   // chapter, its checks find nothing, so no task starts during setup.
   await page.evaluate((id) => {
@@ -41,8 +42,8 @@ test("ai-ambient-start", async ({ obsidian, recorder }, testInfo) => {
     options.findCandidates = (now) => (w.ambientReady ? find(now) : [])
   }, PLUGIN_ID)
   await createNotes(page, {
-    [oneOffPath]: note([`target_date: "${today}"`, `scheduled_time: "${due}"`], "今日のニュースを要約してください。"),
-    [laterPath]: note([`target_date: "${today}"`, `scheduled_time: "${later}"`], "今日の作業をまとめてください。"),
+    [oneOffPath]: note([`target_date: "${today}"`, `scheduled_time: "${due}"`], "「ニュースの要約」とは何かを一文で説明してください。"),
+    [laterPath]: note([`target_date: "${today}"`, `scheduled_time: "${later}"`], "一日の作業のまとめ方を一文で説明してください。"),
     [routinePath]: note(
       [
         "isRoutine: true",
@@ -52,7 +53,7 @@ test("ai-ambient-start", async ({ obsidian, recorder }, testInfo) => {
         `routine_start: "${today}"`,
         `scheduled_time: "${due}"`,
       ],
-      "設定を点検してください。",
+      "朝の点検で確かめることを 3 つ、箇条書きで挙げてください。",
     ),
   })
   await page.evaluate(() => {
@@ -76,7 +77,7 @@ test("ai-ambient-start", async ({ obsidian, recorder }, testInfo) => {
   const runsOf = async (path: string) => (await aiRuns(page)).filter((run) => run.taskPath === path).length
 
   await recorder.start(`開始時刻 ${due} の AI タスク 2 つと、${later} の AI タスク`, {
-    sub: "「ニュースを要約する」はルーチンではない。AI は偽の CLI です",
+    sub: "「ニュースを要約する」はルーチンではない。Claude Code は本物です",
     say: `開始時刻が ${due} の AI タスクが 2 つと、${later} の AI タスクがあります。ニュースを要約するは、ルーチンではありません。`,
   })
 
@@ -90,7 +91,7 @@ test("ai-ambient-start", async ({ obsidian, recorder }, testInfo) => {
   await checkNow()
   await expect.poll(() => rowState(oneOff), { timeout: 30_000 }).toBe("running")
   await expect.poll(() => rowState(routine), { timeout: 30_000 }).toBe("running")
-  await waitForTerminalOutput(page, oneOffPath, FAKE_CLAUDE_BANNER)
+  await waitForClaude(page, (await runIdOf(page, oneOffPath))!)
 
   await recorder.chapter("② 開始時刻がまだのタスク", { sub: `「${LATER}」（${later}）は未実行のまま` })
   await recorder.hover(laterRow)

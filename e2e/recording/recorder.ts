@@ -153,6 +153,19 @@ export class Recorder {
   async follow(page: Page): Promise<void> {
     this.assertRunning()
     if (page === this.page) return
+    await this.attach(page)
+  }
+
+  /**
+   * Draws the overlay again after the recorded window reloaded, which drops
+   * it, and records on. Call it once the reloaded page has loaded.
+   */
+  async reattach(): Promise<void> {
+    this.assertRunning()
+    await this.attach(this.page)
+  }
+
+  private async attach(page: Page): Promise<void> {
     await this.cdp?.send("Page.stopScreencast").catch(() => undefined)
     await this.cdp?.detach().catch(() => undefined)
     this.cdp = null
