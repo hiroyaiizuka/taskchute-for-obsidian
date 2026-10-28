@@ -855,6 +855,13 @@ describe('AiTaskManager.restartTerminals (LEV-405)', () => {
     expect(terminal.last.request.mayReplaceBroker?.()).toBe(true)
   })
 
+  test('a shell is a terminal but not an AI task', () => {
+    const { manager } = withBroker()
+    manager.startShellSession()
+    expect(manager.countLiveTerminals()).toBe(1)
+    expect(manager.countLiveTerminalTasks()).toBe(0)
+  })
+
   test('replaces the broker at once when no terminal is running', async () => {
     const { manager, replaceBroker } = withBroker()
     await manager.restartTerminals()

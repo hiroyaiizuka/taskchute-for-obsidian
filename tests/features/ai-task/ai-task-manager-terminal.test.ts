@@ -1316,6 +1316,20 @@ describe('AiTaskManager concurrent terminal runs', () => {
   })
 })
 
+describe('AiTaskManager restartTerminals with AI tasks (LEV-405)', () => {
+  test('counts the AI tasks running in terminals', async () => {
+    const harness = createTerminalHarness()
+    const record = await harness.manager.startRun(makeTaskFile('TaskChute/Task/Task A.md', 'Task A'))
+    await harness.manager.startRun(makeTaskFile('TaskChute/Task/Task B.md', 'Task B'))
+    expect(harness.manager.countLiveTerminalTasks()).toBe(2)
+
+    harness.manager.stopRun(record.id)
+    harness.terminal.runs[0].exit({ status: 'stopped', exitCode: null, signal: 'SIGTERM' })
+    await flushPromises()
+    expect(harness.manager.countLiveTerminalTasks()).toBe(1)
+  })
+})
+
 describe('AiTaskManager dispose during live terminal sessions', () => {
   test('dispose() stops the session, escalates to forceKill, and silences terminal listeners', async () => {
     const timerCallbacks: Array<() => void> = []

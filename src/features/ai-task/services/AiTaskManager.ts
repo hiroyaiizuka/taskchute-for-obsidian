@@ -1705,6 +1705,11 @@ export class AiTaskManager {
     return this.liveTerminalRuns().length
   }
 
+  /** AI tasks among them; the restart flow stops their timers first. */
+  countLiveTerminalTasks(): number {
+    return this.liveTerminalRuns().filter((internal) => internal.record.host !== 'shell').length
+  }
+
   /**
    * End every terminal and have the next one start on a new broker
    * (LEV-405). The broker outlives reloads and plugin updates, so this is the

@@ -2,7 +2,7 @@ import fs from "node:fs"
 import path from "node:path"
 import type { Page } from "@playwright/test"
 import { expect, test } from "../fixtures"
-import { PLUGIN_ID, enableAiTasks, openTaskChute, writeFakeClaude } from "../helpers/aiTask"
+import { PLUGIN_ID, TASK_FOLDER, enableAiTasks, openTaskChute, rowState, taskRow, todayKey, writeFakeClaude } from "../helpers/aiTask"
 
 // LEV-404: a terminal outlives a reload of the Obsidian window. Its shell runs
 // in the broker, not in the window, so after the reload the plugin finds the
@@ -10,7 +10,8 @@ import { PLUGIN_ID, enableAiTasks, openTaskChute, writeFakeClaude } from "../hel
 // joined the other platforms here; before, its terminals ended with the window.
 //
 // LEV-405: because the broker outlives the window, "Restart AI terminals" is
-// the way to a new one; the second test checks that.
+// the way to a new one; the second test checks that. The AI tasks running in
+// those terminals stop with them, as with their stop button; the third test.
 test.use({ isolatedHome: true })
 
 const windows = process.platform === "win32"
@@ -199,6 +200,58 @@ test("Restart AI terminals ends the terminals and the next one runs on a new bro
     const newBroker = await brokerPid(page)
     expect(newBroker).not.toBeNull()
     expect(newBroker).not.toBe(oldBroker)
+  } finally {
+    await page
+      .evaluate(async (id) => {
+        const manager = (window.app.plugins.plugins[id] as { aiTaskManager?: ManagerHandle }).aiTaskManager
+        await manager?.disposeAndWait()
+      }, PLUGIN_ID)
+      .catch(() => undefined)
+  }
+})
+
+test("Restart AI terminals also stops the AI tasks running in them, and says so first", async ({ obsidian }, testInfo) => {
+  test.setTimeout(120_000)
+  const { page } = obsidian
+  const cli = writeFakeClaude(testInfo.outputPath("bin"), "runs-until-killed")
+  await enableAiTasks(page, cli, "terminal")
+  const taskPath = `${TASK_FOLDER}/Summarize minutes.md`
+  const note = ["---", "tags:", "  - task", `target_date: "${await todayKey(page)}"`, "ai_task: true", "ai_task_host: claude", "---", "", "## Prompt", "", "Summarize.", ""].join("\n")
+  await page.evaluate(
+    async ([folder, file, content]) => {
+      const vault = window.app.vault as unknown as {
+        getAbstractFileByPath(path: string): unknown
+        createFolder(path: string): Promise<unknown>
+        create(path: string, data: string): Promise<unknown>
+      }
+      if (!vault.getAbstractFileByPath(folder)) await vault.createFolder(folder).catch(() => undefined)
+      await vault.create(file, content)
+    },
+    [TASK_FOLDER, taskPath, note] as const,
+  )
+  await page.waitForFunction((p) => {
+    const app = window.app as unknown as { metadataCache: { getCache(path: string): { frontmatter?: unknown } | null } }
+    return !!app.metadataCache.getCache(p)?.frontmatter
+  }, taskPath)
+  await openTaskChute(page)
+
+  try {
+    const row = taskRow(page, taskPath)
+    await row.locator(".play-stop-button").click()
+    await expect.poll(() => rowState(row), { timeout: 30_000 }).toBe("running")
+    // The row turns running before the terminal has reached the broker.
+    await expect.poll(() => brokerPid(page), { timeout: 30_000 }).not.toBeNull()
+    const oldBroker = await brokerPid(page)
+
+    await page.evaluate((id) => window.app.commands.executeCommandById(`${id}:restart-ai-terminals`), PLUGIN_ID)
+    const dialog = page.locator(".modal").filter({ hasText: "1 running AI task(s)" })
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText("marked done")
+    await dialog.getByRole("button", { name: "Restart" }).click()
+
+    // The task stopped as with its stop button: done, not still timing.
+    await expect.poll(() => rowState(row), { timeout: 30_000 }).toBe("done")
+    await expect.poll(() => processAlive(oldBroker!), { timeout: 30_000 }).toBe(false)
   } finally {
     await page
       .evaluate(async (id) => {

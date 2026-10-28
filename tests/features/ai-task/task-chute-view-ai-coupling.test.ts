@@ -2043,6 +2043,99 @@ describe('TaskChuteView two-way link sync (#183)', () => {
   })
 })
 
+describe('Restart AI terminals stops the AI tasks first (LEV-405)', () => {
+  const stopForRestart = (view: TaskChuteView): Promise<void> =>
+    (view as unknown as { stopAiTaskTimersForTerminalRestart(): Promise<void> }).stopAiTaskTimersForTerminalRestart()
+
+  test('stops the timer of every AI task running in a terminal, as its stop button would', async () => {
+    const { manager, view, execution } = setUp()
+    const inst = makeInstance()
+    inst.instanceId = 'inst-1'
+    inst.state = 'running'
+    view.taskInstances = [inst]
+    manager.getRuns.mockReturnValue([
+      makeRecord({ id: 'task-run', mode: 'terminal', instanceId: 'inst-1' }),
+      makeRecord({ id: 'shell-run', mode: 'terminal', host: 'shell', taskPath: '' }),
+      makeRecord({ id: 'headless-run', mode: 'headless', taskPath: 'TASKS/other.md' }),
+      makeRecord({ id: 'ended-run', mode: 'terminal', status: 'stopped', taskPath: 'TASKS/ended.md' }),
+    ])
+
+    await stopForRestart(view)
+
+    expect(execution.stopInstance).toHaveBeenCalledTimes(1)
+    expect(execution.stopInstance).toHaveBeenCalledWith(inst, undefined)
+    expect(inst.state).toBe('done')
+  })
+
+  test('stops every duplicate row that shares the terminal', async () => {
+    const { manager, view, execution } = setUp()
+    const origin = makeInstance()
+    origin.instanceId = 'origin'
+    origin.state = 'running'
+    const duplicate = makeInstance()
+    duplicate.instanceId = 'duplicate'
+    duplicate.state = 'running'
+    view.taskInstances = [origin, duplicate]
+    manager.getRuns.mockReturnValue([makeRecord({ mode: 'terminal', instanceId: 'origin' })])
+
+    await stopForRestart(view)
+
+    expect(execution.stopInstance).toHaveBeenCalledTimes(2)
+    expect(origin.state).toBe('done')
+    expect(duplicate.state).toBe('done')
+  })
+
+  test('also stops a timer on a date the view is not showing', async () => {
+    const { manager, view, execution } = setUp()
+    view.currentDate = new Date(2026, 6, 19)
+    view.taskInstances = [makeHumanInstance('Today task')]
+    const startedAt = '2026-07-18T09:14:28.784Z'
+    jest.spyOn(view.runningTasksService, 'findByInstanceOrPathStrict').mockResolvedValue({
+      date: '2026-07-18',
+      taskTitle: 'AI memory update',
+      taskPath: TASK_PATH,
+      taskId: 'tc-ai-memory',
+      instanceId: 'previous-day-instance',
+      startTime: startedAt,
+      slotKey: '18:00-0:00',
+      isRoutine: true,
+    })
+    manager.getRuns.mockReturnValue([
+      makeRecord({ mode: 'terminal', instanceId: 'previous-day-instance', startedAt: new Date(startedAt).getTime() }),
+    ])
+
+    await stopForRestart(view)
+
+    expect(execution.stopInstance).toHaveBeenCalledWith(
+      expect.objectContaining({ instanceId: 'previous-day-instance', state: 'done' }),
+      undefined,
+    )
+  })
+
+  test('one failure does not keep the other tasks from stopping', async () => {
+    const { manager, view, execution } = setUp()
+    const first = makeInstance(undefined, makeTaskFile('TASKS/first.md', 'first'))
+    first.instanceId = 'first'
+    first.state = 'running'
+    const second = makeInstance(undefined, makeTaskFile('TASKS/second.md', 'second'))
+    second.instanceId = 'second'
+    second.state = 'running'
+    view.taskInstances = [first, second]
+    manager.getRuns.mockReturnValue([
+      makeRecord({ id: 'a', mode: 'terminal', instanceId: 'first', taskPath: 'TASKS/first.md' }),
+      makeRecord({ id: 'b', mode: 'terminal', instanceId: 'second', taskPath: 'TASKS/second.md' }),
+    ])
+    execution.stopInstance.mockRejectedValueOnce(new Error('disk full'))
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await stopForRestart(view)
+
+    expect(execution.stopInstance).toHaveBeenCalledTimes(2)
+    expect(second.state).toBe('done')
+    error.mockRestore()
+  })
+})
+
 describe('TaskChuteView stop coupling during the AI start window', () => {
   test('a human stop routes through requestStopForTask even before the run registers', async () => {
     const { manager, view } = setUp()

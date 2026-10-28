@@ -1755,6 +1755,51 @@ export class TaskChuteView
     })
   }
 
+  /**
+   * "Restart AI terminals" (LEV-405) ends every terminal. The AI tasks running
+   * in them stop first, each as its stop button would — the same path as the
+   * AI Runs × control, which also finds a timer on another date. Stopping
+   * the timer before the process means it ends done however the process
+   * itself ends.
+   */
+  async stopAiTaskTimersForTerminalRestart(): Promise<void> {
+    const manager = this.plugin.aiTaskManager
+    if (!manager) return
+    const records = manager
+      .getRuns()
+      .filter(
+        (record) =>
+          record.host !== 'shell' &&
+          record.mode === 'terminal' &&
+          (record.status === 'starting' || record.status === 'running'),
+      )
+    for (const record of records) {
+      try {
+        // Duplicate rows of one task note share its AI terminal; all of them
+        // stop. Without one on screen, the × path finds the persisted timer.
+        const visible = this.taskInstances.filter(
+          (instance) =>
+            instance.state === 'running' &&
+            ((record.instanceId !== undefined && instance.instanceId === record.instanceId) ||
+              (record.taskPath.length > 0 && instance.task?.path === record.taskPath)),
+        )
+        if (visible.length === 0) {
+          await this.stopTaskForAiRunClose(record)
+          continue
+        }
+        for (const instance of visible) {
+          if (instance.state !== 'running') continue
+          // One row failing to save must not leave its duplicates timing.
+          await this.stopInstance(instance).catch((error: unknown) => {
+            console.error('[TaskChuteView] Failed to stop a task before restarting terminals', error)
+          })
+        }
+      } catch (error) {
+        console.error('[TaskChuteView] Failed to stop a task before restarting terminals', error)
+      }
+    }
+  }
+
   private async stopTaskForAiRunClose(record: AiRunRecord): Promise<void> {
     const visibleTarget = this.findRunningInstanceForAiRun(record)
     if (visibleTarget) {
@@ -2281,6 +2326,7 @@ export class TaskChuteView
         }),
       registerManagedDisposer: (cleanup) => this.registerManagedDisposer(cleanup),
       onStopAndCloseTaskRun: (record) => this.handleAiRunStopAndClose(record),
+      stopAiTaskTimersForTerminalRestart: () => this.stopAiTaskTimersForTerminalRestart(),
       confirm: (options) => showConfirmModal(this.app, options),
       onInterruptedTaskRun: () => {
         // Attach can fail after the mount-time recovery pass. Re-run it on

@@ -698,6 +698,32 @@ describe('AiRunPaneController terminal mode', () => {
       expect(restartTerminals).toHaveBeenCalledTimes(1)
     })
 
+    test('stops the AI tasks\' timers through the view first, and says so', async () => {
+      const order: string[] = []
+      const restartTerminals = restartableManager(2)
+      restartTerminals.mockImplementation(() => {
+        order.push('terminals')
+        return Promise.resolve()
+      })
+      Object.assign(manager, { countLiveTerminalTasks: () => 1 })
+      host.stopAiTaskTimersForTerminalRestart = jest.fn(() => {
+        order.push('timers')
+        return Promise.resolve()
+      })
+      const confirm = jest.fn(() => Promise.resolve(true))
+      host.confirm = confirm
+      controller.mount(container)
+      manager.emit(failedRun())
+
+      button()?.click()
+      await flush()
+
+      expect(confirm).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('1 running AI task') as unknown }),
+      )
+      expect(order).toEqual(['timers', 'terminals'])
+    })
+
     test('restarts at once when no terminal is running', async () => {
       const restartTerminals = restartableManager(0)
       const confirm = jest.fn(() => Promise.resolve(true))

@@ -1,5 +1,6 @@
 import type { App, Command } from 'obsidian'
 import { t } from '@/i18n'
+import { VIEW_TYPE_TASKCHUTE } from '@/types'
 import { showConfirmModal } from '@/ui/modals/ConfirmModal'
 import type { AiTaskManager } from './services/AiTaskManager'
 import { restartAiTerminals } from './ui/restartAiTerminals'
@@ -12,8 +13,30 @@ interface AiTaskCommandHost {
    * A manager kept from before a plugin update may lack these methods.
    */
   aiTaskManager?: Partial<
-    Pick<AiTaskManager, 'canRestartTerminals' | 'countLiveTerminals' | 'restartTerminals'>
+    Pick<
+      AiTaskManager,
+      'canRestartTerminals' | 'countLiveTerminals' | 'countLiveTerminalTasks' | 'restartTerminals'
+    >
   >
+}
+
+interface TerminalRestartTimerHost {
+  stopAiTaskTimersForTerminalRestart?(): Promise<void>
+}
+
+/**
+ * The open TaskChute view stops the AI tasks' timers before the restart, as
+ * their stop buttons would. Without one, the timers are left as they are.
+ */
+function timerStopperOf(app: App): (() => Promise<void>) | undefined {
+  const leaves = app.workspace?.getLeavesOfType?.(VIEW_TYPE_TASKCHUTE) ?? []
+  for (const leaf of leaves) {
+    const view = leaf.view as TerminalRestartTimerHost | undefined
+    if (typeof view?.stopAiTaskTimersForTerminalRestart === 'function') {
+      return () => view.stopAiTaskTimersForTerminalRestart?.() ?? Promise.resolve()
+    }
+  }
+  return undefined
 }
 
 /**
@@ -39,9 +62,11 @@ export function registerAiTaskCommands(host: AiTaskCommandHost): void {
         void restartAiTerminals(
           {
             countLiveTerminals: () => manager.countLiveTerminals?.() ?? 0,
+            countLiveTerminalTasks: () => manager.countLiveTerminalTasks?.() ?? 0,
             restartTerminals: () => manager.restartTerminals?.() ?? Promise.resolve(),
           },
           (options) => showConfirmModal(host.app, options),
+          timerStopperOf(host.app),
         )
       }
       return true

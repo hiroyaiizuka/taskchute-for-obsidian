@@ -5,8 +5,10 @@ import { expect, test } from "../fixtures"
 import { createNotes } from "../helpers"
 
 // LEV-405: "Restart AI terminals" ends the running terminals and replaces the
-// broker they run in, so the next terminal starts on a new one. Follows the
-// issue's "done when": with a terminal running, the command rebuilds it.
+// broker they run in, so the next terminal starts on a new one. The AI tasks
+// running in them stop as with their stop button, which the dialog says.
+// Follows the issue's "done when": with a terminal running, the command
+// rebuilds it.
 //
 // The automatic retry and the notice's button need a broker that refuses to
 // start a terminal; the integration tests cover those, this video does not.
@@ -87,7 +89,7 @@ test("ai-restart-terminals", async ({ obsidian, recorder }) => {
     })
 
     await recorder.chapter("② コマンド「AI のターミナルを再起動」を選ぶ", {
-      sub: "動いているターミナルがあるので、先に確認が出る",
+      sub: "動いているターミナルと、止まる AI タスクの数が、先に確認に出る",
     })
     await page.keyboard.press("ControlOrMeta+p")
     const palette = page.locator(".prompt-input")
@@ -97,17 +99,19 @@ test("ai-restart-terminals", async ({ obsidian, recorder }) => {
     await recorder.click(item)
     const dialog = page.locator(".modal").filter({ hasText: "動いているターミナル 1 個が終わります" })
     await expect(dialog).toBeVisible()
+    await expect(dialog).toContainText("実行中の AI タスク 1 個は、停止ボタンを押したときと同じように止まり、完了になります")
     await recorder.pause(1_500)
 
-    await recorder.chapter("③ 「再起動」を押す", { sub: "ターミナルが終わり、古いブローカーも終わる" })
+    await recorder.chapter("③ 「再起動」を押す", { sub: "ターミナルが終わり、AI タスクも止まって完了になる。古いブローカーも終わる" })
     await recorder.click(dialog.getByRole("button", { name: "再起動" }))
     const runStatus = async () => (await aiRuns(page)).find((run) => run.taskPath === taskPath)?.status ?? "gone"
     await expect.poll(runStatus, { timeout: 30_000 }).not.toBe("running")
+    await expect.poll(() => rowState(row), { timeout: 30_000 }).toBe("done")
     await expect.poll(() => processAlive(oldBroker!), { timeout: 30_000 }).toBe(false)
     await expect(page.locator(".notice", { hasText: "ターミナルを再起動しました" })).toBeVisible()
     await recorder.caption("③ 「再起動」を押す", {
-      sub: `ブローカー（${oldBroker}）は終わった`,
-      say: "古いブローカーは終わりました。",
+      sub: `「${TASK}」は完了。ブローカー（${oldBroker}）は終わった`,
+      say: "タスクは完了になり、古いブローカーは終わりました。",
     })
 
     await recorder.chapter("④ 別の AI タスクを開始する", { sub: "新しいブローカーで動く" })

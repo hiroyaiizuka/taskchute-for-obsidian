@@ -8,10 +8,10 @@ jest.mock('@/ui/modals/ConfirmModal', () => ({
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-function register() {
+function register(app: App = {} as App) {
   const commands: Command[] = []
   const host: Parameters<typeof registerAiTaskCommands>[0] = {
-    app: {} as App,
+    app,
     addCommand: (command) => {
       commands.push(command)
       return command
@@ -64,6 +64,67 @@ describe('Restart AI terminals command (LEV-405)', () => {
 
     expect(showConfirmModal).toHaveBeenCalledTimes(1)
     expect(current.restartTerminals).toHaveBeenCalledTimes(1)
+  })
+
+  /** An app whose open TaskChute view stops the AI tasks' timers. */
+  function appWithTaskChuteView(order: string[]) {
+    const view = {
+      stopAiTaskTimersForTerminalRestart: jest.fn(() => {
+        order.push('timers')
+        return Promise.resolve()
+      }),
+    }
+    const app = {
+      workspace: { getLeavesOfType: jest.fn((type: string) => (type === 'taskchute-view' ? [{ view }] : [])) },
+    } as unknown as App
+    return { app, view }
+  }
+
+  test('with a TaskChute view open, says how many AI tasks stop, and stops their timers before the terminals', async () => {
+    const order: string[] = []
+    const { app, view } = appWithTaskChuteView(order)
+    const { host, check } = register(app)
+    const current = { ...manager(3), countLiveTerminalTasks: jest.fn(() => 2) }
+    current.restartTerminals.mockImplementation(() => {
+      order.push('terminals')
+      return Promise.resolve()
+    })
+    host.aiTaskManager = current
+
+    check(false)
+    await flush()
+
+    const message = jest.mocked(showConfirmModal).mock.calls[0]?.[1].message ?? ''
+    expect(message).toContain('3 running terminal(s) will end')
+    expect(message).toContain('2 running AI task(s)')
+    expect(message).toContain('marked done')
+    expect(view.stopAiTaskTimersForTerminalRestart).toHaveBeenCalledTimes(1)
+    expect(order).toEqual(['timers', 'terminals'])
+  })
+
+  test('without a TaskChute view, does not promise that the AI tasks are marked done', async () => {
+    const { host, check } = register()
+    host.aiTaskManager = { ...manager(3), countLiveTerminalTasks: jest.fn(() => 2) }
+
+    check(false)
+    await flush()
+
+    const message = jest.mocked(showConfirmModal).mock.calls[0]?.[1].message ?? ''
+    expect(message).toContain('3 running terminal(s) will end')
+    expect(message).not.toContain('AI task')
+  })
+
+  test('without AI tasks among them, the message is only about the terminals', async () => {
+    const { app } = appWithTaskChuteView([])
+    const { host, check } = register(app)
+    host.aiTaskManager = { ...manager(1), countLiveTerminalTasks: jest.fn(() => 0) }
+
+    check(false)
+    await flush()
+
+    const message = jest.mocked(showConfirmModal).mock.calls[0]?.[1].message ?? ''
+    expect(message).toContain('1 running terminal(s) will end')
+    expect(message).not.toContain('AI task')
   })
 
   test('uses the manager that is current when it runs, not the one at startup', async () => {

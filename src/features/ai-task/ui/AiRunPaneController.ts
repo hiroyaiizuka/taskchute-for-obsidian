@@ -154,6 +154,7 @@ export interface AiRunPaneManagerLike {
   /** LEV-405: see AiTaskManager.restartTerminals. */
   canRestartTerminals?(): boolean
   countLiveTerminals?(): number
+  countLiveTerminalTasks?(): number
   restartTerminals?(): Promise<void>
   followUp(runId: string, prompt: string): Promise<unknown>
   onChange(
@@ -234,6 +235,11 @@ export interface AiRunPaneControllerHost {
    * persistence failure can never leave the PTY alive.
    */
   onStopAndCloseTaskRun?: (record: AiRunRecord) => void
+  /**
+   * Stop the timers of the AI tasks running in terminals, as their stop
+   * buttons would, before "Restart terminals" ends them (LEV-405).
+   */
+  stopAiTaskTimersForTerminalRestart?: () => Promise<void>
   /** Reconcile a TaskChute timer when a late broker attach becomes unavailable. */
   onInterruptedTaskRun?: (record: AiRunRecord) => void
   /**
@@ -2413,10 +2419,12 @@ export class AiRunPaneController {
       void restartAiTerminals(
         {
           countLiveTerminals: () => manager.countLiveTerminals?.() ?? 0,
+          countLiveTerminalTasks: () => manager.countLiveTerminalTasks?.() ?? 0,
           restartTerminals: () => manager.restartTerminals?.() ?? Promise.resolve(),
         },
         // Without a way to ask, running terminals are never ended unasked.
         this.host.confirm ?? (() => Promise.resolve(false)),
+        this.host.stopAiTaskTimersForTerminalRestart,
       ).finally(() => {
         button.disabled = false
       })
