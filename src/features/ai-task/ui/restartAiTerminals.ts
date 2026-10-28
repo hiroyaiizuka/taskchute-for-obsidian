@@ -20,7 +20,7 @@ export async function restartAiTerminals(
       title: t('taskChuteView.aiTask.restartTerminals.confirmTitle', 'Restart terminals?'),
       message: t(
         'taskChuteView.aiTask.restartTerminals.confirmMessage',
-        '{count} running terminal(s) will end. Then the process that runs terminals (the broker) starts over.',
+        '{count} running terminal(s) will end. Then new terminals can start fresh.',
         { count },
       ),
       confirmText: t('taskChuteView.aiTask.restartTerminals.confirm', 'Restart'),

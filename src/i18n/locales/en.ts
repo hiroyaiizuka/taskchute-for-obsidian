@@ -318,7 +318,7 @@ export const en = {
       restartTerminals: {
         button: "Restart terminals",
         confirmTitle: "Restart terminals?",
-        confirmMessage: "{count} running terminal(s) will end. Then the process that runs terminals (the broker) starts over.",
+        confirmMessage: "{count} running terminal(s) will end. Then new terminals can start fresh.",
         confirm: "Restart",
         done: "Terminals restarted. You can open a new terminal now.",
         failed: "Terminals could not be restarted: {error}",
