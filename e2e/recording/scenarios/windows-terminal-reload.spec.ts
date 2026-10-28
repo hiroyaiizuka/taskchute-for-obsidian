@@ -104,8 +104,9 @@ test("windows-terminal-reload", async ({ obsidian, recorder }) => {
     await recorder.click(terminalOf(page, task))
     await page.keyboard.type(FOLLOW_UP, { delay: 60 })
     await page.keyboard.press("Enter")
-    // An answer after the whole question that gives a number of people (in
-    // 万). The question names no city; answering it needs the first answer.
+    // An answer after the whole question that gives a number of people
+    // ("約1,400万人" or "約14,000,000人"). The question names no city;
+    // answering it needs the first answer.
     await expect
       .poll(
         async () => {
@@ -114,7 +115,7 @@ test("windows-terminal-reload", async ({ obsidian, recorder }) => {
         },
         { timeout: 120_000 },
       )
-      .toMatch(/\d[\d,]*万人/)
+      .toMatch(/\d[\d,]*万人|\d{1,3}(?:,\d{3}){2,}人|\d{7,}人/)
     await recorder.pause(3_000)
   } finally {
     await disposeAiRuns(page)
