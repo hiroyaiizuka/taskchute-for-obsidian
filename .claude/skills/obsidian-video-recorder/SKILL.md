@@ -72,8 +72,14 @@ other windows; the picture is taken from the window itself, not the screen.
   warning and records captions only.
 - **Fake AI CLI** (`writeSwitchableFakeClaude`) is a POSIX shell script: macOS,
   Linux and WSL. On native Windows record AI scenes with the real CLI.
-- Native Windows has not been run yet (as of 2026-10-10); macOS and the Linux
-  path it shares with the E2E suite have. Expect to fix small things there.
+- **Real Claude Code**: `e2e/recording/aiTerminal.ts` finds it on PATH
+  (`realClaudePath`), waits for its screen and accepts the trust prompt of
+  the fresh vault (`waitForClaude`), and reads what a terminal printed
+  (`printed`) — Windows has no transcript file. `windows-ai-pane.spec.ts` is
+  the example. The recorder's account and folder paths are in the video;
+  say so on the page.
+- Native Windows works (2026-10-28, Windows 11, Obsidian 1.14.5). Run it
+  from cmd in the Windows clone, with ffmpeg from winget.
 
 ## Writing a scenario
 
@@ -107,6 +113,9 @@ test("my-feature", async ({ obsidian, recorder }) => {
   included. Obsidian 1.14 opens Settings in a window of its own: wait for it
   with `page.context().waitForEvent("page")`, `follow` it, and `follow` the
   main page again before closing it. `project-bases-kanban.spec.ts` does this.
+- `recorder.reattach()` – after the recorded window reloads (`app:reload`),
+  which drops the caption bar, draw it again and record on.
+  `windows-terminal-reload.spec.ts` does this.
 - `recorder.chapter(title, { sub, say })` – new scene and chapter-list entry.
   `recorder.caption(...)` changes the caption inside a scene.
 - `recorder.click(locator)` / `recorder.hover(locator)` – move the mouse there
