@@ -316,7 +316,7 @@ export const ja = {
       restartTerminals: {
         button: "ターミナルを再起動",
         confirmTitle: "ターミナルを再起動しますか？",
-        confirmMessage: "動いているターミナル {count} 個が終わります。そのあと、ターミナルを動かす仕組み（ブローカー）を作り直します。",
+        confirmMessage: "動いているターミナル {count} 個が終わります。そのあと、新しいターミナルを始められるように準備し直します。",
         confirm: "再起動",
         done: "ターミナルを再起動しました。新しいターミナルを開けます。",
         failed: "ターミナルを再起動できませんでした: {error}",
