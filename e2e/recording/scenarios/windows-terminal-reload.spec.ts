@@ -76,7 +76,10 @@ test("windows-terminal-reload", async ({ obsidian, recorder }) => {
       say: "ウィンドウを再読み込みします。",
     })
     await recorder.settle()
-    await page.evaluate(() => window.app.commands.executeCommandById("app:reload"))
+    // Wait for the new document: the old one still answers until it unloads.
+    const reloaded = page.waitForEvent("load")
+    await page.evaluate(() => window.app.commands.executeCommandById("app:reload")).catch(() => undefined)
+    await reloaded
     await page.waitForFunction(() => window.app?.workspace?.layoutReady === true, undefined, { timeout: 60_000 })
     await page.waitForFunction((id) => !!window.app.plugins.plugins[id], PLUGIN_ID, { timeout: 60_000 })
     await enableAiTasks(page, claudePath, "terminal")
@@ -101,9 +104,17 @@ test("windows-terminal-reload", async ({ obsidian, recorder }) => {
     await recorder.click(terminalOf(page, task))
     await page.keyboard.type(FOLLOW_UP, { delay: 60 })
     await page.keyboard.press("Enter")
+    // An answer after the whole question that gives a number of people (in
+    // 万). The question names no city; answering it needs the first answer.
     await expect
-      .poll(async () => (await printed(page, task)).split(FOLLOW_UP).pop() ?? "", { timeout: 120_000 })
-      .toMatch(/万|千|人/)
+      .poll(
+        async () => {
+          const shown = await printed(page, task)
+          return shown.includes(FOLLOW_UP) ? (shown.split(FOLLOW_UP).pop() ?? "") : ""
+        },
+        { timeout: 120_000 },
+      )
+      .toMatch(/\d[\d,]*万人/)
     await recorder.pause(3_000)
   } finally {
     await disposeAiRuns(page)

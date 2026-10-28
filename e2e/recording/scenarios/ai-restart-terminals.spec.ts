@@ -89,7 +89,7 @@ test("ai-restart-terminals", async ({ obsidian, recorder }) => {
     await recorder.chapter("② コマンド「AI のターミナルを再起動」を選ぶ", {
       sub: "動いているターミナルがあるので、先に確認が出る",
     })
-    await page.keyboard.press("Control+p")
+    await page.keyboard.press("ControlOrMeta+p")
     const palette = page.locator(".prompt-input")
     await palette.waitFor()
     await page.keyboard.insertText("AI のターミナルを再起動")
