@@ -2304,6 +2304,8 @@ export class TaskChuteView
    * When the process of a linked AI run ends on its own (succeeded or
    * failed), finish its timer and the linked human task (#183). Unlinked
    * runs are left alone: their timer keeps running until the user stops it.
+   * A run ended by "Restart AI terminals" is the exception: the user asked
+   * for it to stop, so its timer stops as with the stop button (LEV-405).
    * Subscribed apart from the AI Runs pane, which may be hidden.
    */
   private watchLinkedAiRunExits(): void {
@@ -2319,6 +2321,14 @@ export class TaskChuteView
       const previous = lastStatus.get(record.id)
       lastStatus.set(record.id, record.status)
       if (record.host === 'shell') return
+      const ended =
+        record.status === 'stopped' || record.status === 'succeeded' || record.status === 'failed'
+      if (record.stoppedByRestart === true && ended && previous !== record.status) {
+        void this.stopRestartedAiRunTimer(record).catch((error: unknown) => {
+          console.error('[TaskChuteView] Failed to stop the timer of a restarted AI run', error)
+        })
+        return
+      }
       if (record.status !== 'succeeded' && record.status !== 'failed') return
       if (previous !== 'starting' && previous !== 'running') return
       void this.completeLinkedAiRunOnExit(record).catch((error: unknown) => {
@@ -2331,6 +2341,17 @@ export class TaskChuteView
   private unwatchLinkedAiRunExits(): void {
     this.linkedAiRunExitWatch?.dispose()
     this.linkedAiRunExitWatch = null
+  }
+
+  private async stopRestartedAiRunTimer(record: AiRunRecord): Promise<void> {
+    const target = this.findRunningInstanceForAiRun(record)
+    if (!target) return
+    // Every mounted leaf hears the same stop; the first that sees the timer
+    // stops it.
+    const exitKey = `${record.id}:${record.endedAt ?? ''}`
+    if (claimedLinkedAiRunExits.has(exitKey)) return
+    claimedLinkedAiRunExits.add(exitKey)
+    await this.completeLinkedAiRunTimers([target])
   }
 
   private async completeLinkedAiRunOnExit(record: AiRunRecord): Promise<void> {

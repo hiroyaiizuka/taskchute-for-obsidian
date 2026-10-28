@@ -12,7 +12,10 @@ interface AiTaskCommandHost {
    * A manager kept from before a plugin update may lack these methods.
    */
   aiTaskManager?: Partial<
-    Pick<AiTaskManager, 'canRestartTerminals' | 'countLiveTerminals' | 'restartTerminals'>
+    Pick<
+      AiTaskManager,
+      'canRestartTerminals' | 'countLiveTerminals' | 'countLiveTerminalTasks' | 'restartTerminals'
+    >
   >
 }
 
@@ -39,6 +42,7 @@ export function registerAiTaskCommands(host: AiTaskCommandHost): void {
         void restartAiTerminals(
           {
             countLiveTerminals: () => manager.countLiveTerminals?.() ?? 0,
+            countLiveTerminalTasks: () => manager.countLiveTerminalTasks?.() ?? 0,
             restartTerminals: () => manager.restartTerminals?.() ?? Promise.resolve(),
           },
           (options) => showConfirmModal(host.app, options),

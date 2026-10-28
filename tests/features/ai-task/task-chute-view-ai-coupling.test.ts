@@ -2041,6 +2041,48 @@ describe('TaskChuteView two-way link sync (#183)', () => {
     expect(execution.stopInstance).not.toHaveBeenCalled()
     expect(inst.state).toBe('running')
   })
+
+  test('a run ended by "Restart AI terminals" stops its timer as the stop button would (LEV-405)', async () => {
+    const { manager, view, execution } = setUp()
+    const inst = makeInstance()
+    inst.state = 'running'
+    view.taskInstances = [inst]
+    asCapable(view).watchLinkedAiRunExits()
+    const listener = manager.onChange.mock.calls[0]?.[0]
+    if (!listener) throw new Error('watchLinkedAiRunExits did not subscribe')
+    const record = makeRecord({ id: 'restarted-run', instanceId: 'inst-1', stoppedByRestart: true })
+
+    listener(record)
+    listener({ ...record, status: 'stopping' })
+    expect(execution.stopInstance).not.toHaveBeenCalled()
+    const ended = { ...record, status: 'stopped' as const, endedAt: Date.now() }
+    listener(ended)
+    // A second mounted leaf hears the same stop.
+    listener(ended)
+    await flushPromises()
+
+    expect(execution.stopInstance).toHaveBeenCalledTimes(1)
+    expect(execution.stopInstance).toHaveBeenCalledWith(inst, undefined)
+    expect(inst.state).toBe('done')
+  })
+
+  test('a run stopped any other way leaves its timer running', async () => {
+    const { manager, view, execution } = setUp()
+    const inst = makeInstance()
+    inst.state = 'running'
+    view.taskInstances = [inst]
+    asCapable(view).watchLinkedAiRunExits()
+    const listener = manager.onChange.mock.calls[0]?.[0]
+    if (!listener) throw new Error('watchLinkedAiRunExits did not subscribe')
+    const record = makeRecord({ id: 'closed-run', instanceId: 'inst-1' })
+
+    listener(record)
+    listener({ ...record, status: 'stopped', endedAt: Date.now() })
+    await flushPromises()
+
+    expect(execution.stopInstance).not.toHaveBeenCalled()
+    expect(inst.state).toBe('running')
+  })
 })
 
 describe('TaskChuteView stop coupling during the AI start window', () => {

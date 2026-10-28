@@ -152,6 +152,11 @@ export interface AiRunRecord {
    * row still leads to them, and goes with the last of them.
    */
   viewClosed?: boolean
+  /**
+   * Ended by "Restart AI terminals" (LEV-405). Its task's timer stops with it,
+   * as if the user had pressed the task's stop button.
+   */
+  stoppedByRestart?: boolean
   host: AiRunHost
   status: AiRunStatus
   /** Execution mode of the child process (see AiRunMode) */

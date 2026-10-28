@@ -1316,6 +1316,38 @@ describe('AiTaskManager concurrent terminal runs', () => {
   })
 })
 
+describe('AiTaskManager restartTerminals with AI tasks (LEV-405)', () => {
+  test('counts running AI tasks and marks their runs, so their timers stop too', async () => {
+    const harness = createTerminalHarness()
+    Object.assign(harness.terminal, { replaceBroker: jest.fn(() => Promise.resolve()) })
+    const recordA = await harness.manager.startRun(makeTaskFile('TaskChute/Task/Task A.md', 'Task A'))
+    const recordB = await harness.manager.startRun(makeTaskFile('TaskChute/Task/Task B.md', 'Task B'))
+
+    expect(harness.manager.countLiveTerminals()).toBe(2)
+    expect(harness.manager.countLiveTerminalTasks()).toBe(2)
+
+    const restart = harness.manager.restartTerminals()
+    await flushPromises()
+    expect(recordA.stoppedByRestart).toBe(true)
+    expect(recordB.stoppedByRestart).toBe(true)
+    for (const run of harness.terminal.runs) run.exit({ status: 'stopped', exitCode: null, signal: 'SIGTERM' })
+    await restart
+
+    expect(recordA.status).toBe('stopped')
+    expect(recordB.status).toBe('stopped')
+    expect(harness.manager.countLiveTerminalTasks()).toBe(0)
+  })
+
+  test('a run stopped on its own is not marked', async () => {
+    const harness = createTerminalHarness()
+    const record = await harness.manager.startRun(makeTaskFile('TaskChute/Task/Task A.md', 'Task A'))
+    harness.manager.stopRun(record.id)
+    harness.terminal.runs[0].exit({ status: 'stopped', exitCode: null, signal: 'SIGTERM' })
+    await flushPromises()
+    expect(record.stoppedByRestart).toBeUndefined()
+  })
+})
+
 describe('AiTaskManager dispose during live terminal sessions', () => {
   test('dispose() stops the session, escalates to forceKill, and silences terminal listeners', async () => {
     const timerCallbacks: Array<() => void> = []

@@ -66,6 +66,31 @@ describe('Restart AI terminals command (LEV-405)', () => {
     expect(current.restartTerminals).toHaveBeenCalledTimes(1)
   })
 
+  test('says how many running AI tasks will stop with the terminals', async () => {
+    const { host, check } = register()
+    host.aiTaskManager = { ...manager(3), countLiveTerminalTasks: jest.fn(() => 2) }
+
+    check(false)
+    await flush()
+
+    const message = jest.mocked(showConfirmModal).mock.calls[0]?.[1].message ?? ''
+    expect(message).toContain('3 running terminal(s) will end')
+    expect(message).toContain('2 running AI task(s)')
+    expect(message).toContain('marked done')
+  })
+
+  test('without AI tasks among them, the message is only about the terminals', async () => {
+    const { host, check } = register()
+    host.aiTaskManager = { ...manager(1), countLiveTerminalTasks: jest.fn(() => 0) }
+
+    check(false)
+    await flush()
+
+    const message = jest.mocked(showConfirmModal).mock.calls[0]?.[1].message ?? ''
+    expect(message).toContain('1 running terminal(s) will end')
+    expect(message).not.toContain('AI task')
+  })
+
   test('uses the manager that is current when it runs, not the one at startup', async () => {
     const { host, check } = register()
     host.aiTaskManager = manager(0)

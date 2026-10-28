@@ -319,6 +319,7 @@ export const en = {
         button: "Restart terminals",
         confirmTitle: "Restart terminals?",
         confirmMessage: "{count} running terminal(s) will end. Then new terminals can start fresh.",
+        confirmMessageWithTasks: "{count} running terminal(s) will end. {tasks} running AI task(s) among them will stop and be marked done, as with their stop button. Then new terminals can start fresh.",
         confirm: "Restart",
         done: "Terminals restarted. You can open a new terminal now.",
         failed: "Terminals could not be restarted: {error}",

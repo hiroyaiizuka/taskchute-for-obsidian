@@ -154,6 +154,7 @@ export interface AiRunPaneManagerLike {
   /** LEV-405: see AiTaskManager.restartTerminals. */
   canRestartTerminals?(): boolean
   countLiveTerminals?(): number
+  countLiveTerminalTasks?(): number
   restartTerminals?(): Promise<void>
   followUp(runId: string, prompt: string): Promise<unknown>
   onChange(
@@ -2413,6 +2414,7 @@ export class AiRunPaneController {
       void restartAiTerminals(
         {
           countLiveTerminals: () => manager.countLiveTerminals?.() ?? 0,
+          countLiveTerminalTasks: () => manager.countLiveTerminalTasks?.() ?? 0,
           restartTerminals: () => manager.restartTerminals?.() ?? Promise.resolve(),
         },
         // Without a way to ask, running terminals are never ended unasked.
