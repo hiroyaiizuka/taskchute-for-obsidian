@@ -19,6 +19,25 @@ import { RecordsRebuilder, type RecordsRebuildStats } from './RecordsRebuilder';
 import { LogReconciler } from './LogReconciler';
 import { LOG_INBOX_FOLDER, LOG_INBOX_LEGACY_FOLDER } from '../constants';
 
+/**
+ * The daily total each plugin last wrote, kept per plugin rather than per
+ * service. Every TaskChute view builds its own service, so a cache on the
+ * service let a freshly opened view write the same total again. A host that
+ * rebuilds the view whenever a note changes (Hearth's plugin-view card) then
+ * looped: the write changed a note, the note change rebuilt the view, and the
+ * new view wrote again (LEV-408).
+ */
+const summaryTotalsWritten = new WeakMap<TaskChutePluginLike, Map<string, number>>();
+
+function summaryTotalsFor(plugin: TaskChutePluginLike): Map<string, number> {
+  let totals = summaryTotalsWritten.get(plugin);
+  if (!totals) {
+    totals = new Map<string, number>();
+    summaryTotalsWritten.set(plugin, totals);
+  }
+  return totals;
+}
+
 export class ExecutionLogService {
   private readonly deviceIdentity: DeviceIdentityService;
   private readonly deltaWriter: ExecutionLogDeltaWriter;
@@ -26,7 +45,6 @@ export class ExecutionLogService {
   private readonly recordsRebuilder: RecordsRebuilder;
   private reconcilePromise: Promise<void> | null = null;
   private reconcilePending = false;
-  private readonly summaryDeltaCache = new Map<string, number>();
 
   constructor(private plugin: TaskChutePluginLike) {
     this.deviceIdentity = new DeviceIdentityService(plugin);
@@ -269,11 +287,11 @@ export class ExecutionLogService {
       return;
     }
 
-    const cached = this.summaryDeltaCache.get(dateKey);
-    if (cached === totalTasks) {
+    const written = summaryTotalsFor(this.plugin);
+    if (written.get(dateKey) === totalTasks) {
       return;
     }
-    this.summaryDeltaCache.set(dateKey, totalTasks);
+    written.set(dateKey, totalTasks);
 
     const monthKey = `${year}-${month}`;
     await this.appendDeltaRecord({

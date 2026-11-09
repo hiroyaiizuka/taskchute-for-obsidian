@@ -507,4 +507,28 @@ describe('ExecutionLogService.updateDailySummaryTotals', () => {
     const lines = raw?.trim().split('\n') ?? [];
     expect(lines).toHaveLength(1);
   });
+
+  // LEV-408: each TaskChute view builds its own service, and a host that
+  // rebuilds the view on every note change looped while each new one wrote.
+  test('skips a total another service of the same plugin already wrote', async () => {
+    primeDeviceId('device-alpha');
+    const { plugin, deltaStore } = createPluginStub();
+
+    await new ExecutionLogService(plugin).updateDailySummaryTotals('2025-10-09', 4);
+    await new ExecutionLogService(plugin).updateDailySummaryTotals('2025-10-09', 4);
+
+    const raw = deltaStore.get('LOGS/inbox/device-alpha/2025-10.jsonl');
+    expect(raw?.trim().split('\n') ?? []).toHaveLength(1);
+  });
+
+  test('still writes a changed total from a new service', async () => {
+    primeDeviceId('device-alpha');
+    const { plugin, deltaStore } = createPluginStub();
+
+    await new ExecutionLogService(plugin).updateDailySummaryTotals('2025-10-09', 4);
+    await new ExecutionLogService(plugin).updateDailySummaryTotals('2025-10-09', 5);
+
+    const raw = deltaStore.get('LOGS/inbox/device-alpha/2025-10.jsonl');
+    expect(raw?.trim().split('\n') ?? []).toHaveLength(2);
+  });
 });

@@ -28,3 +28,32 @@ describe('RecordsWriter date keys', () => {
     },
   )
 })
+
+// LEV-408: a note write wakes plugins that watch the metadata cache, so a
+// record whose contents did not change is left alone.
+describe('RecordsWriter rewrites', () => {
+  const entry = { taskTitle: 'Task A', taskPath: 'TASKS/a.md', startTime: '09:00', stopTime: '09:30', durationSec: 1800 }
+
+  test('leaves an unchanged record alone', async () => {
+    const { plugin } = createPluginStub()
+    const writer = new RecordsWriter(plugin)
+    const payload = { dateKey: '2026-11-10', entries: [entry], canonicalRevision: 1, summary: { totalTasks: 3 } }
+
+    await writer.writeDay(payload)
+    await writer.writeDay(payload)
+
+    expect(plugin.app.vault.create).toHaveBeenCalledTimes(1)
+    expect(plugin.app.vault.modify).not.toHaveBeenCalled()
+  })
+
+  test('rewrites a record whose contents changed', async () => {
+    const { plugin, store } = createPluginStub()
+    const writer = new RecordsWriter(plugin)
+
+    await writer.writeDay({ dateKey: '2026-11-10', entries: [entry], canonicalRevision: 1, summary: { totalTasks: 3 } })
+    await writer.writeDay({ dateKey: '2026-11-10', entries: [entry], canonicalRevision: 1, summary: { totalTasks: 4 } })
+
+    expect(plugin.app.vault.modify).toHaveBeenCalledTimes(1)
+    expect(store.get('LOGS/records/2026/record-2026-11-10.md')).toContain('totalTasks: 4')
+  })
+})

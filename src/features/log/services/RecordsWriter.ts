@@ -117,6 +117,11 @@ interface RecordWritePayload {
   snapshotMeta?: TaskLogSnapshotMeta
 }
 
+/** A record's text with its generatedAt line taken out, for telling a real change from a rewrite. */
+function withoutGeneratedAt(content: string): string {
+  return content.replace(/^generatedAt:.*$/m, '')
+}
+
 export class RecordsWriter {
   constructor(private readonly plugin: TaskChutePluginLike) {}
 
@@ -154,6 +159,10 @@ export class RecordsWriter {
 
     const existing = this.plugin.app.vault.getAbstractFileByPath(filePath)
     if (existing && existing instanceof TFile) {
+      // Rewriting an unchanged record would only move generatedAt, yet every
+      // note write wakes other plugins that watch the metadata cache (LEV-408).
+      const current = await this.plugin.app.vault.read(existing)
+      if (withoutGeneratedAt(current) === withoutGeneratedAt(content)) return
       await this.plugin.app.vault.modify(existing, content)
     } else {
       await this.plugin.app.vault.create(filePath, content)
