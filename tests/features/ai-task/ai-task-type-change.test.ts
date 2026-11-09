@@ -143,7 +143,9 @@ describe('getSharedAiTaskAmbientScheduleStateStore', () => {
     }
     const scheduler = getSharedAiTaskAmbientScheduleStateStore(app)
     scheduler.isExecuted('tc-task-1', '2026-10-07')
-    getSharedAiTaskAmbientScheduleStateStore(app).markExecuted('tc-task-1', '2026-10-07')
+    // Mark it as run on that day: a mark stamped "now" for a date past the
+    // 30-day retention would be pruned as soon as it is written.
+    getSharedAiTaskAmbientScheduleStateStore(app).markExecuted('tc-task-1', '2026-10-07', new Date(2026, 9, 7, 9))
     expect(scheduler.isExecuted('tc-task-1', '2026-10-07')).toBe(true)
     expect(getSharedAiTaskAmbientScheduleStateStore({})).not.toBe(scheduler)
   })
