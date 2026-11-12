@@ -3,6 +3,7 @@ import { Notice } from 'obsidian'
 
 import { t } from "@/i18n";
 import { VIEW_TYPE_TASKCHUTE } from "@/types";
+import { showLeaf } from "@/utils/showLeaf";
 
 import type { TaskChutePluginLike } from "@/types";
 import type {
@@ -48,7 +49,7 @@ export class TaskChuteViewController {
 
     if (leaves.length > 0) {
       if (reveal) {
-        await workspace.revealLeaf(leaves[0]);
+        await showLeaf(workspace, leaves[0]);
       }
       return;
     }
@@ -58,7 +59,7 @@ export class TaskChuteViewController {
     const leaf = workspace.getLeaf(reveal ? false : 'tab');
     await leaf.setViewState({ type: VIEW_TYPE_TASKCHUTE, active: reveal });
     if (reveal) {
-      await workspace.revealLeaf(leaf);
+      await showLeaf(workspace, leaf);
     }
   }
 
@@ -252,7 +253,7 @@ export class TaskChuteViewController {
       new Notice(t("notices.viewNotOpen", "TaskChute view is not open"));
       return;
     }
-    await this.plugin.app.workspace.revealLeaf(view.leaf);
+    await showLeaf(this.plugin.app.workspace, view.leaf);
     view.leaveComment();
   }
 
@@ -263,7 +264,7 @@ export class TaskChuteViewController {
       new Notice(t("notices.viewNotOpen", "TaskChute view is not open"));
       return;
     }
-    await this.plugin.app.workspace.revealLeaf(view.leaf);
+    await showLeaf(this.plugin.app.workspace, view.leaf);
     if (!view.openSessionHistory()) {
       new Notice(t("notices.sessionHistoryUnavailable", "Turn on AI tasks to use the session history."));
     }

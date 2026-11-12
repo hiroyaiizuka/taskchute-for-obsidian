@@ -138,7 +138,7 @@ describe('ReviewService', () => {
     expect(fileName).toBe('Review-2025-10-17.md')
   })
 
-  test('openInSplit focuses the review leaf when revealLeaf is available', async () => {
+  test('openInSplit brings the review leaf to the front and makes it the current leaf', async () => {
     const { plugin } = createPluginStub()
     const rightLeaf = { openFile: jest.fn() } as unknown as WorkspaceLeaf
     const workspace = {
@@ -157,10 +157,10 @@ describe('ReviewService', () => {
     expect(workspace.splitActiveLeaf).toHaveBeenCalledWith('vertical')
     expect(rightLeaf.openFile).toHaveBeenCalledWith(reviewFile)
     expect(workspace.revealLeaf).toHaveBeenCalledWith(rightLeaf)
-    expect(workspace.setActiveLeaf).not.toHaveBeenCalled()
+    expect(workspace.setActiveLeaf).toHaveBeenCalledWith(rightLeaf, { focus: true })
   })
 
-  test('openInSplit falls back to setActiveLeaf when revealLeaf is unavailable', async () => {
+  test('openInSplit still makes the review leaf current when revealLeaf is unavailable', async () => {
     const { plugin } = createPluginStub()
     const rightLeaf = { openFile: jest.fn() } as unknown as WorkspaceLeaf
     const workspace = {
@@ -176,6 +176,6 @@ describe('ReviewService', () => {
 
     expect(workspace.getLeaf).toHaveBeenCalledWith('split')
     expect(rightLeaf.openFile).toHaveBeenCalledWith(reviewFile)
-    expect(workspace.setActiveLeaf).toHaveBeenCalledWith(rightLeaf)
+    expect(workspace.setActiveLeaf).toHaveBeenCalledWith(rightLeaf, { focus: true })
   })
 })

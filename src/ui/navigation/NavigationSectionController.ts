@@ -9,6 +9,7 @@ import { VIEW_TYPE_PROJECT_BOARD } from '@/types'
 import type { RoutineTaskShape } from '@/types/routine'
 import RecipeManagerModal from '@/features/recipe/modals/RecipeManagerModal'
 import { t, type ScopedTranslator } from '@/i18n'
+import { showLeaf } from '@/utils/showLeaf'
 import {
   ensureProjectBase,
   isBasesKanbanSupported,
@@ -178,7 +179,7 @@ export default class NavigationSectionController {
         )
         return false
       }
-      await app.workspace.revealLeaf(leaf)
+      await showLeaf(app.workspace, leaf)
       return true
     } catch (error) {
       console.error('[Navigation] Failed to open the projects base:', error)
@@ -197,13 +198,7 @@ export default class NavigationSectionController {
       )
       return
     }
-    void leaf.setViewState({ type: VIEW_TYPE_PROJECT_BOARD, active: true }).then(() => {
-      if (typeof workspace.revealLeaf === 'function') {
-        void workspace.revealLeaf(leaf)
-      } else {
-        workspace.setActiveLeaf(leaf)
-      }
-    }).catch((error: unknown) => {
+    void leaf.setViewState({ type: VIEW_TYPE_PROJECT_BOARD, active: true }).then(() => showLeaf(workspace, leaf)).catch((error: unknown) => {
       console.error('[Navigation] Failed to open project board view:', error)
       new Notice(
         t('projectBoard.errors.genericTitle', 'Unable to load projects'),
