@@ -71,6 +71,82 @@ describe('TaskChuteViewController isViewActive', () => {
   })
 })
 
+describe('TaskChuteViewController activateView', () => {
+  // LEV-410: revealLeaf only brings the tab to the front. Without
+  // setActiveLeaf the hidden tab the user came from stays current, and the
+  // next note they open lands there, out of sight.
+  test('returning to an existing TaskChute leaf brings it forward and makes it current', async () => {
+    const taskChuteLeaf: MockLeaf = {
+      view: { getViewType: () => VIEW_TYPE_TASKCHUTE },
+    }
+    const calls: string[] = []
+    const revealLeaf = jest.fn(async () => {
+      calls.push('reveal')
+    })
+    const setActiveLeaf = jest.fn(() => {
+      calls.push('activate')
+    })
+    const getLeaf = jest.fn()
+    const plugin = {
+      app: {
+        workspace: {
+          getLeavesOfType: jest.fn(() => [taskChuteLeaf]),
+          getLeaf,
+          revealLeaf,
+          setActiveLeaf,
+        },
+      },
+    } as unknown as TaskChutePluginLike
+
+    await new TaskChuteViewController(plugin).activateView()
+
+    expect(revealLeaf).toHaveBeenCalledWith(taskChuteLeaf)
+    expect(setActiveLeaf).toHaveBeenCalledWith(taskChuteLeaf, { focus: true })
+    expect(calls).toEqual(['reveal', 'activate'])
+    expect(getLeaf).not.toHaveBeenCalled()
+  })
+
+  test('a newly opened TaskChute leaf is also made current', async () => {
+    const newLeaf: MockLeaf = { setViewState: jest.fn().mockResolvedValue(undefined) }
+    const setActiveLeaf = jest.fn()
+    const plugin = {
+      app: {
+        workspace: {
+          getLeavesOfType: jest.fn(() => []),
+          getLeaf: jest.fn(() => newLeaf),
+          revealLeaf: jest.fn(async () => undefined),
+          setActiveLeaf,
+        },
+      },
+    } as unknown as TaskChutePluginLike
+
+    await new TaskChuteViewController(plugin).activateView()
+
+    expect(newLeaf.setViewState).toHaveBeenCalledWith({ type: VIEW_TYPE_TASKCHUTE, active: true })
+    expect(setActiveLeaf).toHaveBeenCalledWith(newLeaf, { focus: true })
+  })
+
+  test('background mode leaves the current leaf alone', async () => {
+    const taskChuteLeaf: MockLeaf = {
+      view: { getViewType: () => VIEW_TYPE_TASKCHUTE },
+    }
+    const setActiveLeaf = jest.fn()
+    const plugin = {
+      app: {
+        workspace: {
+          getLeavesOfType: jest.fn(() => [taskChuteLeaf]),
+          revealLeaf: jest.fn(async () => undefined),
+          setActiveLeaf,
+        },
+      },
+    } as unknown as TaskChutePluginLike
+
+    await new TaskChuteViewController(plugin).activateView({ reveal: false })
+
+    expect(setActiveLeaf).not.toHaveBeenCalled()
+  })
+})
+
 describe('TaskChuteViewController background activation', () => {
   test('creates a non-active tab without revealing it for Ambient execution', async () => {
     const backgroundLeaf: MockLeaf = {

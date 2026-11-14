@@ -1,6 +1,7 @@
 import { TFile, WorkspaceLeaf, Notice } from 'obsidian'
 import type { TaskChutePluginLike } from '@/types'
 import { t } from '@/i18n'
+import { showLeaf } from '@/utils/showLeaf'
 
 export class ReviewService {
   private readonly plugin: TaskChutePluginLike;
@@ -54,11 +55,7 @@ export class ReviewService {
       }
 
       await rightLeaf.openFile(file);
-      if (typeof (workspace as { revealLeaf?: (leaf: WorkspaceLeaf) => void }).revealLeaf === 'function') {
-        void workspace.revealLeaf(rightLeaf);
-      } else {
-        workspace.setActiveLeaf(rightLeaf);
-      }
+      await showLeaf(workspace, rightLeaf);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       new Notice(

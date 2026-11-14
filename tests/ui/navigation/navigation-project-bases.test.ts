@@ -68,6 +68,8 @@ describe('"Projects" as a Bases kanban', () => {
     const { controller, workspace, opened } = setUp({ open: [already] })
     await controller.handleNavigationItemClick('projects')
     expect(workspace.revealLeaf).toHaveBeenCalledWith(already)
+    // In front is not enough: it must also become the current leaf (LEV-410).
+    expect(workspace.setActiveLeaf).toHaveBeenCalledWith(already, { focus: true })
     expect(opened.openFile).not.toHaveBeenCalled()
   })
 
