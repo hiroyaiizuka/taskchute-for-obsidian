@@ -9637,7 +9637,7 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 }
 
 /* The row and its comments read as one: the line goes under the comments. */
-.task-item:has(+ .taskchute-row-comments) {
+.task-item.has-row-comments {
   border-bottom-color: transparent;
 }
 

@@ -335,7 +335,11 @@ export default class TaskListRenderer {
     this.actions.renderSettingsButton(taskItem, inst)
     this.setupTaskItemEventListeners(taskItem, inst)
     const comments = this.host.renderRowComments?.(inst)
-    if (comments) this.host.taskList.appendChild(comments)
+    if (comments) {
+      // The row's line moves under its comments (LEV-412); a class, since :has is not allowed.
+      if (comments.classList.contains('taskchute-row-comments')) taskItem.classList.add('has-row-comments')
+      this.host.taskList.appendChild(comments)
+    }
   }
 
   private createDragHandle(taskItem: HTMLElement, inst: TaskInstance, slot: string, idx: number): void {
