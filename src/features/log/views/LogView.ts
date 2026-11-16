@@ -2,7 +2,9 @@ import { App, Notice, TFile, WorkspaceLeaf, normalizePath } from 'obsidian'
 
 import { getCurrentLocale, t, type ScopedKey, type Variables } from '@/i18n'
 
-import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData, TaskChuteSettings } from '@/types'
+import type { DayComment, DayState, HeatmapDayDetail, HeatmapDayStats, HeatmapYearData, TaskChuteSettings } from '@/types'
+import { visibleComments } from '@/services/dayState/comments'
+import { formatCommentTime } from '@/features/comments/ui/commentDom'
 import { HeatmapService } from '../services/HeatmapService'
 import { LOG_HEATMAP_FOLDER, LOG_HEATMAP_LEGACY_FOLDER } from '../constants'
 import { BackupRestoreService } from '../services/BackupRestoreService'
@@ -20,6 +22,11 @@ interface LogPlugin {
   app: App;
   pathManager: LogPathManager;
    settings?: TaskChuteSettings;
+  /** Where a day's comments are kept; without it the log shows none (LEV-412). */
+  dayStateService?: {
+    loadDay(date: Date): Promise<DayState>;
+    getDateFromKey(dateKey: string): Date;
+  };
 }
 
 interface TaskChuteViewLike {
@@ -66,6 +73,8 @@ export class LogView {
   private heatmapData: HeatmapYearData | null = null
   private currentTooltip: HTMLElement | null = null
   private dayDetailCache = new Map<string, HeatmapDayDetail>()
+  /** Each day's comments, read with its detail (LEV-412). */
+  private dayCommentsCache = new Map<string, DayComment[]>()
   private dayDetailContainer: HTMLElement | null = null
   private selectedDateKey: string | null = null
   private readonly onRequestClose?: () => void
@@ -508,7 +517,11 @@ export class LogView {
     this.renderDayDetail({ status: 'loading', dateKey });
 
     try {
-      const detail = await this.heatmapService.loadDayDetail(dateKey);
+      const [detail, comments] = await Promise.all([
+        this.heatmapService.loadDayDetail(dateKey),
+        this.loadDayComments(dateKey),
+      ]);
+      this.dayCommentsCache.set(dateKey, comments);
       if (this.selectedDateKey !== dateKey) {
         return;
       }
@@ -524,6 +537,50 @@ export class LogView {
         this.renderDayDetail({ status: 'error', dateKey });
       }
     }
+  }
+
+  /**
+   * The day's comments, deleted ones left out. A day that cannot be read
+   * shows its log without them rather than failing.
+   */
+  private async loadDayComments(dateKey: string): Promise<DayComment[]> {
+    const service = this.plugin.dayStateService;
+    if (!service) return [];
+    try {
+      const state = await service.loadDay(service.getDateFromKey(dateKey));
+      return (state.comments ?? []).filter((comment) => comment.deletedAt === undefined);
+    } catch (error) {
+      console.warn('[TaskChute] Failed to load comments for the log', error);
+      return [];
+    }
+  }
+
+  /** Time and text, oldest first, read-only. */
+  private renderCommentList(parent: HTMLElement, comments: DayComment[], cls: string): void {
+    const list = parent.createEl('ul', { cls: `heatmap-detail-comment-list ${cls}` });
+    for (const comment of [...comments].reverse()) {
+      const item = list.createEl('li');
+      item.createEl('time', { text: formatCommentTime(comment.at) });
+      item.createSpan({ cls: 'heatmap-detail-comment-text', text: comment.text });
+    }
+  }
+
+  /**
+   * The day's own comments, for someone who has them turned on (LEV-412):
+   * the log is where the day is read back.
+   */
+  private renderDayComments(dateKey: string): void {
+    if (!this.dayDetailContainer || this.plugin.settings?.dayCommentsEnabled !== true) return;
+    const comments = visibleComments(this.dayCommentsCache.get(dateKey));
+    if (comments.length === 0) return;
+    const section = this.dayDetailContainer.createDiv({ cls: 'heatmap-detail-day-comments' });
+    const heading = section.createEl('h4', { cls: 'heatmap-detail-day-comments__title' });
+    heading.createSpan({ text: this.tv('labels.dayComments', "Today's comments") });
+    heading.createSpan({
+      cls: 'heatmap-detail-day-comments__count',
+      text: this.tv('labels.commentCount', '{count} comments', { count: comments.length }),
+    });
+    this.renderCommentList(section, comments, 'is-day');
   }
 
   private renderDayDetail(state: DayDetailRenderState): void {
@@ -617,8 +674,10 @@ export class LogView {
         cls: 'heatmap-detail-empty',
         text: this.tv('labels.noEntries', 'No execution logs recorded for this day.'),
       });
+      this.renderDayComments(detail.date);
       return;
     }
+    const dayComments = this.dayCommentsCache.get(detail.date);
 
     const table = this.dayDetailContainer.createEl('table', {
       cls: 'heatmap-detail-table',
@@ -673,12 +732,19 @@ export class LogView {
       });
 
       const commentCell = row.createEl('td', { cls: 'heatmap-detail-comment' });
+      // The comments left while it ran, under the one written when it ended (LEV-412).
+      const running = entry.instanceId ? visibleComments(dayComments, entry.instanceId) : [];
       if (entry.executionComment) {
-        commentCell.textContent = entry.executionComment;
-      } else {
+        commentCell.createDiv({ cls: 'heatmap-detail-execution-comment', text: entry.executionComment });
+      }
+      if (running.length > 0) {
+        this.renderCommentList(commentCell, running, 'is-running');
+      }
+      if (!entry.executionComment && running.length === 0) {
         commentCell.textContent = '-';
       }
     });
+    this.renderDayComments(detail.date);
   }
 
   private createSummaryItem(parent: HTMLElement, label: string, value: string): void {

@@ -12,24 +12,84 @@ export function formatCommentTime(at: number): string {
 }
 
 export interface CommentItemOptions {
-  deleteLabel: string
-  /** Comments cannot be rewritten, only deleted (LEV-346, LEV-347). */
-  onDelete: (comment: DayComment) => void
+  editLabel?: string
+  /** Rewrites it in place (LEV-413); without it there is no edit button. */
+  onEdit?: (comment: DayComment) => void
+  deleteLabel?: string
+  /** Without it there is no delete button: a list only for reading. */
+  onDelete?: (comment: DayComment) => void
 }
 
-/** One comment: time, text, and a button that deletes it. */
+function iconButton(parent: HTMLElement, cls: string, icon: string, label: string, onClick: () => void): void {
+  const button = parent.createEl('button', {
+    cls: `clickable-icon ${cls}`,
+    attr: { type: 'button', 'aria-label': label, title: label },
+  })
+  setIcon(button, icon)
+  button.addEventListener('click', (event) => {
+    event.stopPropagation()
+    onClick()
+  })
+}
+
+/** One comment: time, text, and the buttons that edit and delete it, when given. */
 export function createCommentItem(list: HTMLElement, comment: DayComment, options: CommentItemOptions): HTMLLIElement {
   const item = list.createEl('li')
+  item.setAttribute('data-comment-id', comment.id)
   item.createEl('time', { text: formatCommentTime(comment.at) })
   item.createSpan({ cls: 'taskchute-comment-text', text: comment.text })
-  const remove = item.createEl('button', {
-    cls: 'clickable-icon taskchute-comment-delete',
-    attr: { type: 'button', 'aria-label': options.deleteLabel, title: options.deleteLabel },
+  const { onEdit, onDelete } = options
+  if (!onEdit && !onDelete) return item
+  const actions = item.createDiv({ cls: 'taskchute-comment-actions' })
+  if (onEdit) {
+    iconButton(actions, 'taskchute-comment-edit', 'pencil', options.editLabel ?? '', () => onEdit(comment))
+  }
+  if (onDelete) {
+    iconButton(actions, 'taskchute-comment-delete', 'x', options.deleteLabel ?? '', () => onDelete(comment))
+  }
+  return item
+}
+
+export interface CommentEditorOptions {
+  focusKey: string
+  value: string
+  submitOnEnter: boolean
+  saveText: string
+  cancelText: string
+  onInput: (value: string) => void
+  onSave: (text: string) => void
+  onCancel: () => void
+}
+
+/**
+ * A comment being rewritten (LEV-413): its time, then its text in an input
+ * that grows with it. Enter saves and Esc cancels, as in the other inputs;
+ * the buttons under it do the same for a phone.
+ */
+export function createCommentEditor(list: HTMLElement, comment: DayComment, options: CommentEditorOptions): HTMLLIElement {
+  const item = list.createEl('li', { cls: 'is-editing' })
+  item.setAttribute('data-comment-id', comment.id)
+  item.createEl('time', { text: formatCommentTime(comment.at) })
+  const body = item.createDiv({ cls: 'taskchute-comment-editor' })
+  const textarea = createCommentTextarea(body, {
+    cls: 'taskchute-comment-input taskchute-comment-editor__input',
+    focusKey: options.focusKey,
+    value: options.value,
+    submitOnEnter: options.submitOnEnter,
+    onInput: options.onInput,
+    onSubmit: options.onSave,
+    onEscape: options.onCancel,
   })
-  setIcon(remove, 'x')
-  remove.addEventListener('click', (event) => {
+  const buttons = body.createDiv({ cls: 'taskchute-comment-editor__buttons' })
+  const cancel = buttons.createEl('button', { text: options.cancelText, attr: { type: 'button' } })
+  cancel.addEventListener('click', (event) => {
     event.stopPropagation()
-    options.onDelete(comment)
+    options.onCancel()
+  })
+  const save = buttons.createEl('button', { cls: 'mod-cta', text: options.saveText, attr: { type: 'button' } })
+  save.addEventListener('click', (event) => {
+    event.stopPropagation()
+    options.onSave(textarea.value)
   })
   return item
 }

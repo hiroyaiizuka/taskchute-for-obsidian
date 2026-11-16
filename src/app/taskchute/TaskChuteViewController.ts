@@ -257,6 +257,19 @@ export class TaskChuteViewController {
     view.leaveComment();
   }
 
+  /**
+   * The running task's comment, in a modal over whatever is on screen: the
+   * view is created if needed but not brought to the front (LEV-415).
+   */
+  async triggerLeaveRunningComment(): Promise<void> {
+    const view = await this.getOrCreateView(["leaveRunningComment"]);
+    if (!view) {
+      new Notice(t("notices.viewNotOpen", "TaskChute view is not open"));
+      return;
+    }
+    view.leaveRunningComment();
+  }
+
   /** Shows the AI pane with the session history, bringing the view up first. */
   async triggerOpenSessionHistory(): Promise<void> {
     const view = await this.getOrCreateView(["openSessionHistory"]);

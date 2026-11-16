@@ -28,6 +28,9 @@ export const DEFAULT_SETTINGS: TaskChuteSettings = {
   // The day's comments box (off until the user turns it on)
   dayCommentsEnabled: false,
 
+  // A task's comments from while it ran, under its row (off until turned on)
+  rowCommentsEnabled: false,
+
   // AI Task defaults
   aiTaskEnabled: false,
   aiTaskLogRetentionDays: 30,

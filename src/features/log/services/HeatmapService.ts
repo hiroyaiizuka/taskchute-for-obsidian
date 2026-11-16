@@ -455,6 +455,7 @@ export class HeatmapService {
       energyLevel:
         energy !== null && energy > 0 ? Math.min(5, Math.round(energy)) : undefined,
       executionComment: this.pickString(task, ['executionComment', 'comment']),
+      instanceId: this.pickString(task, ['instanceId']) ?? undefined,
       project: this.pickString(task, ['project', 'projectTitle', 'projectName']),
       projectPath: this.pickString(task, ['project_path', 'projectPath']),
       isCompleted: this.isTaskCompleted(task),

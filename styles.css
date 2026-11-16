@@ -2662,6 +2662,61 @@ body.is-phone .taskchute-modal .modal-button-container {
   word-break: break-word;
 }
 
+/* Comments from while a task ran, under the one written when it ended, and
+   the day's own comments under the table (LEV-412). */
+.heatmap-detail-comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.heatmap-detail-execution-comment + .heatmap-detail-comment-list {
+  margin-top: 6px;
+}
+
+.heatmap-detail-comment-list > li {
+  display: flex;
+  gap: 8px;
+}
+
+.heatmap-detail-comment-list > li > time {
+  flex: none;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.heatmap-detail-comment-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.heatmap-detail-day-comments {
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  font-size: 13px;
+}
+
+.heatmap-detail-day-comments__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: var(--font-ui-medium);
+}
+
+.heatmap-detail-day-comments__count {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: normal;
+}
+
 .heatmap-detail-placeholder,
 .heatmap-detail-loading,
 .heatmap-detail-empty {
@@ -9498,26 +9553,32 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   overflow-wrap: anywhere;
 }
 
-/* Comments are not rewritten, only deleted (LEV-346, LEV-347): the × at the
-   end of a row shows on hover or focus, and always where there is no hover. */
+/* The pencil (rewrite in place, LEV-413) and the × (delete) at the end of a
+   row show on hover or focus, and always where there is no hover. */
 .taskchute-comment-list > li:hover,
 .taskchute-comment-list > li:focus-within {
   background: var(--background-modifier-hover);
 }
 
-.taskchute-view-root .taskchute-comment-delete,
-.modal .taskchute-comment-delete {
+.taskchute-comment-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin: -1px -2px -1px 0;
+}
+
+.taskchute-view-root .taskchute-comment-actions .clickable-icon,
+.modal .taskchute-comment-actions .clickable-icon {
   flex: none;
   width: 22px;
   height: 22px;
-  margin: -1px -2px -1px 0;
   padding: 0;
   opacity: 0;
   --icon-size: 14px;
 }
 
-.taskchute-comment-list > li:hover .taskchute-comment-delete,
-.taskchute-comment-delete:focus-visible {
+.taskchute-comment-list > li:hover .taskchute-comment-actions .clickable-icon,
+.taskchute-comment-actions .clickable-icon:focus-visible {
   opacity: 1;
 }
 
@@ -9526,15 +9587,76 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 }
 
 @media (hover: none) {
-  .taskchute-view-root .taskchute-comment-delete,
-  .modal .taskchute-comment-delete {
+  .taskchute-view-root .taskchute-comment-actions .clickable-icon,
+  .modal .taskchute-comment-actions .clickable-icon {
     opacity: 0.7;
   }
 }
 
-.is-mobile .taskchute-view-root .taskchute-comment-delete,
-.is-mobile .modal .taskchute-comment-delete {
+.is-mobile .taskchute-view-root .taskchute-comment-actions .clickable-icon,
+.is-mobile .modal .taskchute-comment-actions .clickable-icon {
   opacity: 0.7;
+}
+
+/* A comment being rewritten (LEV-413): its text in an input, Save under it. */
+.taskchute-comment-list > li.is-editing {
+  background: var(--background-modifier-hover);
+}
+
+.taskchute-comment-editor {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.taskchute-comment-editor__input {
+  /* In a column, the shared input's flex: 1 would size its height, not the text. */
+  flex: none;
+  width: 100%;
+}
+
+.taskchute-comment-editor__buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.taskchute-comment-editor__buttons button {
+  height: 24px;
+  padding: 0 10px;
+  font-size: var(--font-ui-smaller);
+}
+
+/* A task's comments from while it ran, under its row (LEV-412): read-only,
+   lined up with the task name. */
+.taskchute-row-comments {
+  padding: 0 12px 8px 56px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* The row and its comments read as one: the line goes under the comments. */
+.task-item:has(+ .taskchute-row-comments) {
+  border-bottom-color: transparent;
+}
+
+.taskchute-row-comments__list > li {
+  color: var(--text-muted);
+}
+
+.taskchute-row-comments__list > li:hover {
+  background: none;
+}
+
+.taskchute-row-comments__list .taskchute-comment-text {
+  color: var(--text-normal);
+}
+
+@container taskchute-list (max-width: 520px) {
+  .taskchute-row-comments {
+    padding-left: 12px;
+  }
 }
 
 .taskchute-comment-toggle {

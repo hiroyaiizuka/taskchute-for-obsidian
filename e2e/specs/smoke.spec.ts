@@ -8,6 +8,7 @@ const COMMAND_IDS = [
   "show-today-tasks",
   "reorganize-idle-tasks",
   "leave-comment",
+  "leave-running-comment",
   "open-session-history",
   "duplicate-selected-task",
   "delete-selected-task",
