@@ -165,6 +165,8 @@ test("restoring a backup brings the day's comments back to that moment", async (
     .locator(".taskchute-comment-list > li", { hasText: "Plan the week" })
     .locator(".taskchute-comment-delete")
     .click()
+  // Deleting asks first.
+  await page.locator(".modal-container .taskchute-confirm-modal .mod-warning").click()
   await expect(dayCommentTexts(page)).toHaveText(["Call the bank"])
   await addDayComment(page, "Book the flight")
   await expect.poll(() => readDayComments(vaultDir, today).sort()).toEqual(["Book the flight", "Call the bank"])

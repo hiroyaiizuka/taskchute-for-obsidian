@@ -67,6 +67,9 @@ export interface TaskChuteSettings {
   // The box of the day's comments above the task list (#181); default false
   dayCommentsEnabled?: boolean
 
+  // A task's comments from while it ran, listed under its row (LEV-412); default false
+  rowCommentsEnabled?: boolean
+
   // AI Task (manual CLI runs; desktop only)
   aiTaskEnabled?: boolean // default false; enables the AI Task feature
   /**
@@ -425,6 +428,8 @@ export interface HeatmapExecutionDetail {
   focusLevel?: number
   energyLevel?: number
   executionComment?: string
+  /** The run's instance, which its comments from while it ran are kept under (LEV-412). */
+  instanceId?: string
   project?: string
   projectPath?: string
   isCompleted: boolean

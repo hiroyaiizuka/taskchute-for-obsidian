@@ -1,11 +1,12 @@
 import { Notice, type App } from 'obsidian'
 import type { ScopedTranslator } from '@/i18n'
 import type { DayComment, TaskInstance } from '@/types'
+import { showConfirmModal } from '@/ui/modals/ConfirmModal'
 import { formatDate } from '@/utils/date'
 import { CommentModal } from './ui/CommentModal'
 import { DayCommentsButton, createCommentsWindow, pointAtCommentButton } from './ui/DayCommentsWindow'
-import { createCommentItem, createCommentTextarea, findFocusTarget } from './ui/commentDom'
-import { showUndoNotice } from './ui/undoNotice'
+import { RunningTaskSuggestModal } from './ui/RunningTaskSuggestModal'
+import { createCommentEditor, createCommentItem, createCommentTextarea, findFocusTarget } from './ui/commentDom'
 
 /** The day's input (its drafts are kept per date); any other key is an instance id. */
 const DAY = 'day'
@@ -15,6 +16,8 @@ const TASK_PREVIEW = 3
 export interface CommentStore {
   getComments(options: { instanceId?: string; dateKey?: string }): DayComment[]
   addCommentTo(dateKey: string, input: { text: string; instanceId?: string }): Promise<DayComment | null>
+  /** Rewrites a comment's text; blank text deletes it. */
+  updateComment(id: string, text: string, dateKey?: string): DayComment | null
   deleteComment(id: string, dateKey?: string): DayComment | null
   restoreComment(id: string, dateKey?: string): DayComment | null
 }
@@ -35,6 +38,8 @@ export interface CommentsControllerHost {
   getInstanceTitle: (instanceId: string) => string
   /** Running human task for the "leave a comment" command, if any. */
   getCommandTargetInstanceId: () => string | null
+  /** Every running human task, the one started last first (LEV-415). */
+  getRunningInstanceIds: () => string[]
   /**
    * Whether the view is narrow (a phone, or a narrow pane): a running task's
    * comments then open in a panel under its row, and are added in a modal.
@@ -44,6 +49,8 @@ export interface CommentsControllerHost {
   isPhone: () => boolean
   /** The setting for the day's button; off by default. Running tasks take comments either way. */
   isDayCommentsEnabled: () => boolean
+  /** The setting that lists a task's comments from while it ran under its row (LEV-412); off by default. */
+  isRowCommentsEnabled: () => boolean
   registerCleanup: (cleanup: () => void) => void
 }
 
@@ -81,6 +88,8 @@ export class CommentsController {
   private dayOpen = false
   /** The next draw of the day's window scrolls to its newest comment. */
   private dayToEnd = false
+  /** The comment being rewritten in place, wherever its list is drawn (LEV-413). */
+  private editingId: string | null = null
 
   constructor(private readonly host: CommentsControllerHost) {}
 
@@ -315,18 +324,39 @@ export class CommentsController {
     row?.querySelector<HTMLElement>('.comment-button')?.focus()
   }
 
-  /** What goes right after a running row while its comments are open: the popover, or a narrow view's panel. */
+  /**
+   * What goes right after a row: while a running task's comments are open,
+   * the popover or a narrow view's panel; otherwise, with the setting on, the
+   * task's comments from while it ran (LEV-412).
+   */
   renderPanel(inst: TaskInstance): HTMLElement | null {
-    if (this.openInstanceId === null || this.openInstanceId !== inst.instanceId) return null
-    if (!canCommentWhileRunning(inst)) {
+    if (this.openInstanceId !== null && this.openInstanceId === inst.instanceId) {
+      if (canCommentWhileRunning(inst)) {
+        const key = inst.instanceId
+        const comments = this.host.store.getComments({ instanceId: key, dateKey: this.host.getDateKey() })
+        return this.host.isNarrow() ? this.narrowPanel(key, comments) : this.popover(key, comments)
+      }
       // Stopped while open: it stays closed, rather than coming back by
       // itself if the task is reset and run again.
       this.openInstanceId = null
-      return null
     }
-    const key = inst.instanceId
-    const comments = this.host.store.getComments({ instanceId: key, dateKey: this.host.getDateKey() })
-    return this.host.isNarrow() ? this.narrowPanel(key, comments) : this.popover(key, comments)
+    return this.rowComments(inst)
+  }
+
+  /**
+   * A task's comments from while it ran, under its name, oldest first with
+   * their times, for reading the day back (LEV-412). Only with the setting
+   * on, and only for a task that has some. Like every other list of them,
+   * each is rewritten or deleted from the buttons that show on hover.
+   */
+  private rowComments(inst: TaskInstance): HTMLElement | null {
+    if (!this.host.isRowCommentsEnabled() || !inst.instanceId) return null
+    const comments = this.host.store.getComments({ instanceId: inst.instanceId, dateKey: this.host.getDateKey() })
+    if (comments.length === 0) return null
+    const box = createDiv({ cls: 'taskchute-row-comments' })
+    box.setAttribute('data-instance-id', inst.instanceId)
+    box.appendChild(this.list([...comments].reverse(), { cls: 'taskchute-row-comments__list' }))
+    return box
   }
 
   /**
@@ -416,6 +446,30 @@ export class CommentsController {
     this.openDay()
   }
 
+  /**
+   * The "leave a comment on the running task" command (LEV-415): with one
+   * running task its comment opens at once, with several they are listed to
+   * pick from, with none a notice says so. Always in a modal, so it works
+   * over a note as well as over the task list.
+   */
+  leaveRunningComment(): void {
+    const running = this.host.getRunningInstanceIds()
+    if (running.length === 0) {
+      new Notice(this.host.tv('comments.noRunningTask', 'No task is running.'))
+      return
+    }
+    if (running.length === 1) {
+      this.openAddModal(running[0])
+      return
+    }
+    new RunningTaskSuggestModal(
+      this.host.app,
+      running.map((instanceId) => ({ instanceId, title: this.host.getInstanceTitle(instanceId) })),
+      this.host.tv('comments.pickRunningTask', 'Which running task is this comment for?'),
+      (choice) => this.openAddModal(choice.instanceId),
+    ).open()
+  }
+
   // --- a task's input ---------------------------------------------------------
 
   private composeKey(key: string): string {
@@ -466,6 +520,7 @@ export class CommentsController {
       submitText: this.host.tv('comments.add', 'Add'),
       cancelText: this.host.tv('comments.cancel', 'Cancel'),
       onDraft: (text) => this.drafts.set(key, text),
+      submitOnEnter: !this.host.isPhone(),
       onSubmit: (text) => {
         if (!text.trim()) return false
         void this.submit(key, text).then(() => this.host.rerender())
@@ -477,19 +532,25 @@ export class CommentsController {
   // --- the list and deleting -----------------------------------------------------
 
   /**
-   * Time and text, in the order given, each with a button that deletes it:
-   * comments are not rewritten (typos and loose wording are fine, LEV-346).
-   * `limit` shows that many, then a toggle for the rest.
+   * Time and text, in the order given, each with a button that rewrites it
+   * in place (LEV-413) and one that deletes it. `limit` shows that many,
+   * then a toggle for the rest; `cls` is added to the list.
    */
-  private list(comments: DayComment[], options: { key?: string; limit?: number } = {}): HTMLElement {
+  private list(comments: DayComment[], options: { key?: string; limit?: number; cls?: string } = {}): HTMLElement {
     const wrapper = createDiv({ cls: 'taskchute-comment-entries' })
     const all = !options.limit || (options.key !== undefined && this.showAll.has(options.key))
     const shown = all ? comments : comments.slice(0, options.limit)
-    const ul = wrapper.createEl('ul', { cls: 'taskchute-comment-list' })
+    const ul = wrapper.createEl('ul', { cls: options.cls ? `taskchute-comment-list ${options.cls}` : 'taskchute-comment-list' })
     for (const comment of shown) {
+      if (comment.id === this.editingId) {
+        this.editor(ul, comment)
+        continue
+      }
       createCommentItem(ul, comment, {
+        editLabel: this.host.tv('comments.editLabel', 'Edit this comment'),
+        onEdit: () => this.startEdit(comment),
         deleteLabel: this.host.tv('comments.deleteLabel', 'Delete this comment'),
-        onDelete: () => this.deleteWithUndo(comment.id),
+        onDelete: () => void this.confirmDelete(comment),
       })
     }
     const hidden = comments.length - shown.length
@@ -510,31 +571,97 @@ export class CommentsController {
     return wrapper
   }
 
-  /**
-   * The completion modal's list of a task's comments while it ran (LEV-347):
-   * deleting there works like anywhere else, and `redraw` redraws that list
-   * (on delete and on undo).
-   */
-  deleteRunningComment(id: string, redraw: () => void): void {
-    this.deleteWithUndo(id, redraw)
+  // --- rewriting (LEV-413) -------------------------------------------------------
+
+  private editKey(id: string): string {
+    return `edit:${id}`
   }
 
-  /** Deletes at once and offers undo in a notice instead of asking first. */
-  private deleteWithUndo(id: string, redraw?: () => void): void {
+  /** The comment's text in an input in its place, with its time kept. */
+  private editor(list: HTMLElement, comment: DayComment): void {
+    const key = this.editKey(comment.id)
+    createCommentEditor(list, comment, {
+      focusKey: this.composeKey(key),
+      value: this.drafts.get(key) ?? comment.text,
+      // A phone has no Shift: Enter is a new line there, and Save saves.
+      submitOnEnter: !this.host.isPhone(),
+      saveText: this.host.tv('comments.save', 'Save'),
+      cancelText: this.host.tv('comments.cancel', 'Cancel'),
+      onInput: (value) => this.drafts.set(key, value),
+      onSave: (text) => this.saveEdit(comment, text),
+      onCancel: () => this.cancelEdit(),
+    })
+  }
+
+  private startEdit(comment: DayComment): void {
+    // One at a time: another one being rewritten is dropped unsaved.
+    if (this.editingId) this.drafts.delete(this.editKey(this.editingId))
+    this.editingId = comment.id
+    this.drafts.set(this.editKey(comment.id), comment.text)
+    this.focusAfterRender(this.composeKey(this.editKey(comment.id)))
+  }
+
+  private saveEdit(comment: DayComment, text: string): void {
+    this.editingId = null
+    this.drafts.delete(this.editKey(comment.id))
+    // Emptied: that is a delete, asked first like the × button. Kept, the
+    // comment stays as it was.
+    if (!text.trim()) {
+      this.host.rerender()
+      void this.confirmDelete(comment)
+      return
+    }
+    this.host.store.updateComment(comment.id, text, this.host.getDateKey())
+    this.host.rerender()
+  }
+
+  private cancelEdit(): void {
+    if (this.editingId) this.drafts.delete(this.editKey(this.editingId))
+    this.editingId = null
+    this.focusToken += 1
+    this.host.rerender()
+  }
+
+  /**
+   * The completion modal's list of a task's comments while it ran (LEV-347):
+   * deleting there works like anywhere else, and `redraw` redraws that list.
+   */
+  deleteRunningComment(comment: DayComment, redraw: () => void): Promise<boolean> {
+    return this.confirmDelete(comment, redraw)
+  }
+
+  /**
+   * The completion modal's rewrite of one of them: blank text asks to delete
+   * it, as anywhere else.
+   */
+  updateRunningComment(comment: DayComment, text: string, redraw: () => void): void {
+    if (!text.trim()) {
+      void this.confirmDelete(comment, redraw)
+      return
+    }
+    this.host.store.updateComment(comment.id, text, this.host.getDateKey())
+    this.host.rerender()
+    redraw()
+  }
+
+  /**
+   * Asks before deleting, showing the comment, and deletes only on yes
+   * (Iizuka's review, 2026-11-17). Resolves to whether it was deleted.
+   */
+  private async confirmDelete(comment: DayComment, redraw?: () => void): Promise<boolean> {
     const dateKey = this.host.getDateKey()
-    const removed = this.host.store.deleteComment(id, dateKey)
+    const confirmed = await showConfirmModal(this.host.app, {
+      title: this.host.tv('comments.deleteConfirmTitle', 'Delete this comment?'),
+      message: comment.text,
+      confirmText: this.host.tv('comments.delete', 'Delete'),
+      cancelText: this.host.tv('comments.cancel', 'Cancel'),
+      destructive: true,
+    })
+    if (!confirmed) return false
+    const removed = this.host.store.deleteComment(comment.id, dateKey)
     this.host.rerender()
     redraw?.()
-    if (!removed) return
-    showUndoNotice(
-      this.host.tv('comments.deleted', 'Comment deleted'),
-      this.host.tv('comments.undo', 'Undo'),
-      () => {
-        this.host.store.restoreComment(id, dateKey)
-        this.host.rerender()
-        redraw?.()
-      },
-    )
+    return removed !== null
   }
 
   // --- focus ---------------------------------------------------------------------

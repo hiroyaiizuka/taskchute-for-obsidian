@@ -85,12 +85,13 @@ test("day-comments", async ({ obsidian, recorder }) => {
   await recorder.click(dayTexts(page).first())
   await expect(dayWindow(page).locator(".taskchute-comment-editor")).toHaveCount(0)
 
-  await recorder.chapter("⑤ × で削除する", { sub: "通知の「元に戻す」で戻せる" })
+  await recorder.chapter("⑤ × で削除する", { sub: "削除する前に確認が出る。キャンセルすれば残る" })
   const second = dayWindow(page).locator(".taskchute-comment-list > li").nth(1)
   await recorder.hover(second)
   await recorder.click(second.locator(".taskchute-comment-delete"))
-  await expect(dayTexts(page)).toHaveText(["判断軸(ADR)の形成に役立てる"])
-  await recorder.click(page.locator(".taskchute-undo-notice__button"))
+  const confirm = page.locator(".modal-container .taskchute-confirm-modal")
+  await expect(confirm).toBeVisible()
+  await recorder.click(confirm.locator(".modal-button-container button").filter({ hasNotText: "削除" }))
   await expect(dayTexts(page)).toHaveText(["判断軸(ADR)の形成に役立てる", "タスクが圧迫されないのがいい"])
 
   await recorder.chapter("⑥ Esc で閉じる", { sub: "ウィンドウが閉じる" })
@@ -159,11 +160,10 @@ test("day-comments-phone", async ({ obsidian, recorder }) => {
   await recorder.click(dayWindow(page).locator(".taskchute-comment-composer__add"))
   await expect(dayTexts(page)).toHaveText(["移動中に思いついたこと"])
 
-  await recorder.chapter("③ × で削除できる", { sub: "通知から元に戻せる" })
+  await recorder.chapter("③ × で削除できる", { sub: "削除する前に確認が出る" })
   await recorder.click(dayWindow(page).locator(".taskchute-comment-delete"))
+  await recorder.click(page.locator(".modal-container .taskchute-confirm-modal .mod-warning"))
   await expect(dayTexts(page)).toHaveCount(0)
-  await recorder.click(page.locator(".taskchute-undo-notice__button"))
-  await expect(dayTexts(page)).toHaveText(["移動中に思いついたこと"])
 
   await recorder.chapter("④ 上のバーを下へ引いて閉じる", { sub: "ドロワーが閉じる" })
   const handle = dayWindow(page).locator(".taskchute-day-comments-window__handle")

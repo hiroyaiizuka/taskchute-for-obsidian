@@ -1,9 +1,9 @@
-import { App, Modal, Notice, Setting, TFile } from 'obsidian'
+import { App, Modal, Notice, Scope, Setting, TFile } from 'obsidian'
 import { t, type ScopedKey, type ScopedTranslator } from '@/i18n'
 import { createModalFooter } from '../components/modalFooter'
 import { ProjectNoteSyncService } from '@/features/project/services/ProjectNoteSyncService'
 import type { DayComment, TaskInstance, PathManagerLike } from '@/types'
-import { createCommentItem } from '@/features/comments/ui/commentDom'
+import { createCommentEditor, createCommentItem } from '@/features/comments/ui/commentDom'
 import type { TaskLogEntry } from '@/types/ExecutionLog'
 import { parseTaskLogSnapshot } from '@/utils/executionLogUtils'
 
@@ -20,11 +20,10 @@ export interface TaskCompletionControllerHost {
   appendCommentDelta?: (dateKey: string, entry: TaskLogEntry) => Promise<void>
   /** Comments written while the task ran (#181), listed under the ratings. */
   getRunningComments?: (inst: TaskInstance) => DayComment[]
-  /**
-   * Deletes one of them (they cannot be rewritten, LEV-347); `redraw` redraws
-   * the list, on delete and on undo.
-   */
-  deleteRunningComment?: (inst: TaskInstance, id: string, redraw: () => void) => void
+  /** Deletes one of them, asking first; `redraw` redraws the list once it is gone. */
+  deleteRunningComment?: (inst: TaskInstance, comment: DayComment, redraw: () => void) => void
+  /** Rewrites one of them (blank text asks to delete it); `redraw` redraws the list. */
+  updateRunningComment?: (inst: TaskInstance, comment: DayComment, text: string, redraw: () => void) => void
 }
 
 /**
@@ -33,7 +32,11 @@ export interface TaskCompletionControllerHost {
  * the user clicked rather than whichever one has focus when the read settles.
  */
 class TaskCompletionModal extends Modal {
+  /** Run once when the dialog closes, however it closes. */
+  readonly onCloseOnce: Array<() => void> = []
+
   onClose(): void {
+    for (const cleanup of this.onCloseOnce.splice(0)) cleanup()
     this.contentEl.empty()
   }
 }
@@ -93,7 +96,7 @@ export default class TaskCompletionController {
       initial: this.convertToFiveScale(existingComment?.energyLevel ?? 0),
     })
 
-    this.renderRunningComments(contentEl, inst)
+    this.renderRunningComments(contentEl, inst, (cancel) => this.holdEscape(modal, cancel))
 
     let commentInput!: HTMLTextAreaElement
     new Setting(contentEl)
@@ -332,14 +335,22 @@ export default class TaskCompletionController {
 
   /**
    * The comments written while the task ran, between the ratings and the
-   * notes (LEV-347); nothing when there are none. They are not rewritten
-   * here either, only deleted.
+   * notes (LEV-347); nothing when there are none. Like every other list of
+   * them, each is rewritten in place or deleted from its buttons.
    */
-  private renderRunningComments(contentEl: HTMLElement, inst: TaskInstance): void {
+  private renderRunningComments(
+    contentEl: HTMLElement,
+    inst: TaskInstance,
+    holdEscape: (cancel: () => void) => () => void,
+  ): void {
     if ((this.host.getRunningComments?.(inst) ?? []).length === 0) return
     const recap = contentEl.createDiv({ cls: 'taskchute-comment-recap' })
+    let editingId: string | null = null
+    let releaseEscape: (() => void) | null = null
     const draw = () => {
       recap.empty()
+      releaseEscape?.()
+      releaseEscape = null
       const comments = this.host.getRunningComments?.(inst) ?? []
       recap.toggleAttribute('hidden', comments.length === 0)
       recap.createDiv({
@@ -348,13 +359,70 @@ export default class TaskCompletionController {
       })
       const list = recap.createEl('ul', { cls: 'taskchute-comment-list' })
       for (const comment of comments) {
+        if (comment.id === editingId) {
+          const done = () => {
+            editingId = null
+            draw()
+          }
+          createCommentEditor(list, comment, {
+            focusKey: `completion-edit:${comment.id}`,
+            value: comment.text,
+            submitOnEnter: true,
+            saveText: this.host.tv('comments.save', 'Save'),
+            cancelText: this.host.tv('comments.cancel', 'Cancel'),
+            onInput: () => {},
+            onSave: (text) => {
+              editingId = null
+              draw()
+              this.host.updateRunningComment?.(inst, comment, text, draw)
+            },
+            onCancel: done,
+          })
+          // Esc drops the edit; the dialog stays open.
+          releaseEscape = holdEscape(done)
+          continue
+        }
         createCommentItem(list, comment, {
+          editLabel: this.host.tv('comments.editLabel', 'Edit this comment'),
+          onEdit: this.host.updateRunningComment
+            ? () => {
+                editingId = comment.id
+                draw()
+                const input = recap.querySelector<HTMLTextAreaElement>('li.is-editing textarea')
+                input?.focus()
+                input?.setSelectionRange(input.value.length, input.value.length)
+              }
+            : undefined,
           deleteLabel: this.host.tv('comments.deleteLabel', 'Delete this comment'),
-          onDelete: () => this.host.deleteRunningComment?.(inst, comment.id, draw),
+          onDelete: () => this.host.deleteRunningComment?.(inst, comment, draw),
         })
       }
     }
     draw()
+  }
+
+  /**
+   * While a comment is being rewritten, Esc cancels that rather than closing
+   * the dialog: Obsidian takes Esc for the modal before the input sees it, so
+   * a scope over the modal's own takes it first. Returns the release.
+   */
+  private holdEscape(modal: TaskCompletionModal, cancel: () => void): () => void {
+    const keymap = (modal.app as App | undefined)?.keymap
+    if (typeof Scope !== 'function' || !keymap) return () => {}
+    const scope = new Scope(modal.scope)
+    scope.register([], 'Escape', () => {
+      cancel()
+      return false
+    })
+    keymap.pushScope(scope)
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      keymap.popScope(scope)
+    }
+    modal.onCloseOnce.push(release)
+    return release
   }
 
   private toTimeString(date?: Date): string {

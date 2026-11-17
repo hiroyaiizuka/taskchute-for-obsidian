@@ -563,7 +563,9 @@ export class TaskChuteView
         this.executionLogService.appendCommentDelta(dateKey, entry),
       getRunningComments: (inst) =>
         inst.instanceId ? this.commentsController?.commentsFor(inst.instanceId) ?? [] : [],
-      deleteRunningComment: (_inst, id, redraw) => this.commentsController?.deleteRunningComment(id, redraw),
+      deleteRunningComment: (_inst, comment, redraw) => void this.commentsController?.deleteRunningComment(comment, redraw),
+      updateRunningComment: (_inst, comment, text, redraw) =>
+        this.commentsController?.updateRunningComment(comment, text, redraw),
     })
     this.taskSettingsTooltipController = new TaskSettingsTooltipController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),
@@ -2947,7 +2949,9 @@ export class TaskChuteView
         return inst ? this.getInstanceDisplayTitle(inst) : ""
       },
       getCommandTargetInstanceId: () => this.getCommentTargetInstanceId(),
+      getRunningInstanceIds: () => this.getRunningCommentInstanceIds(),
       isDayCommentsEnabled: () => this.plugin.settings.dayCommentsEnabled === true,
+      isRowCommentsEnabled: () => this.plugin.settings.rowCommentsEnabled === true,
       // The same width the prototype switched at: a phone, or a pane that narrow.
       isNarrow: () => root.getBoundingClientRect().width <= COMMENTS_NARROW_WIDTH_PX,
       isPhone: () => Platform.isPhone,
@@ -2965,6 +2969,14 @@ export class TaskChuteView
     return running[0]?.instanceId ?? null
   }
 
+  /** Running human tasks, the one started last first (LEV-415). */
+  private getRunningCommentInstanceIds(): string[] {
+    return this.taskInstances
+      .filter(canCommentWhileRunning)
+      .sort((a, b) => (b.startTime?.getTime() ?? 0) - (a.startTime?.getTime() ?? 0))
+      .map((inst) => inst.instanceId)
+  }
+
   /** The "open AI session history" command; false when the AI pane is not available. */
   public openSessionHistory(): boolean {
     if (!this.aiRunPaneController) return false
@@ -2975,6 +2987,11 @@ export class TaskChuteView
   /** The "leave a comment" command. */
   public leaveComment(): void {
     this.commentsController?.leaveComment()
+  }
+
+  /** The "leave a comment on the running task" command (LEV-415). */
+  public leaveRunningComment(): void {
+    this.commentsController?.leaveRunningComment()
   }
 
   private isRecipeFeatureEnabled(): boolean {

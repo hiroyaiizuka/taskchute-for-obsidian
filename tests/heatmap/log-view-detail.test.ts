@@ -1,6 +1,6 @@
 import { setObsidianLanguage } from '@tests/utils/locale'
 import { LogView } from '@/features/log/views/LogView'
-import type { HeatmapDayDetail, HeatmapDayStats, HeatmapYearData } from '@/types'
+import type { DayComment, HeatmapDayDetail, HeatmapDayStats, HeatmapYearData, TaskChuteSettings } from '@/types'
 
 type TestVault = {
   getAbstractFileByPath: jest.Mock
@@ -173,6 +173,87 @@ beforeAll(() => {
     const rows = container.querySelectorAll('.heatmap-detail-table tbody tr')
     expect(rows.length).toBe(1)
     expect(rows[0]?.textContent).toContain('朝のルーティン')
+  })
+
+  describe('comments (LEV-412)', () => {
+    const at = (hhmm: string) => new Date(`2025-09-26T${hhmm}:00`).getTime()
+    const comment = (id: string, hhmm: string, text: string, extra: Partial<DayComment> = {}): DayComment => ({
+      id,
+      at: at(hhmm),
+      text,
+      updatedAt: at(hhmm),
+      ...extra,
+    })
+
+    const renderWith = async (comments: DayComment[], settings: Partial<TaskChuteSettings>) => {
+      const { plugin, container } = createPlugin()
+      const withComments = {
+        ...plugin,
+        settings,
+        dayStateService: {
+          loadDay: jest.fn(async () => ({ hiddenRoutines: [], deletedInstances: [], duplicatedInstances: [], slotOverrides: {}, orders: {}, comments })),
+          getDateFromKey: (key: string) => new Date(`${key}T00:00:00`),
+        },
+      }
+      const view = new LogView(withComments as unknown as ConstructorParameters<typeof LogView>[0], container)
+      const heatmapService = (view as unknown as {
+        heatmapService: {
+          loadYearlyData: jest.Mock<Promise<HeatmapYearData>, [number]>
+          loadDayDetail: jest.Mock<Promise<HeatmapDayDetail | null>, [string]>
+        }
+      }).heatmapService
+      jest.spyOn(heatmapService, 'loadYearlyData').mockResolvedValue({
+        year: 2025,
+        days: { '2025-09-26': { totalTasks: 1, completedTasks: 1, procrastinatedTasks: 0, completionRate: 1 } },
+      })
+      const detail = createDetail('2025-09-26')
+      detail.executions[0].instanceId = 'inst-a'
+      jest.spyOn(heatmapService, 'loadDayDetail').mockResolvedValue(detail)
+      await view.render()
+      await flushMicrotasks()
+      await flushMicrotasks()
+      return container
+    }
+
+    const texts = (scope: Element | null, selector: string) =>
+      Array.from(scope?.querySelectorAll(selector) ?? []).map((n) => n.textContent)
+
+    const comments = [
+      comment('c2', '07:50', '半分まで'),
+      comment('c1', '07:35', 'はじめた'),
+      comment('c3', '07:40', '消したもの', { deletedAt: at('07:41') }),
+      comment('c4', '07:45', '別のタスク', { instanceId: 'inst-b' }),
+      comment('d1', '21:00', '今日はよく進んだ'),
+    ]
+    comments[0].instanceId = 'inst-a'
+    comments[1].instanceId = 'inst-a'
+    comments[2].instanceId = 'inst-a'
+
+    test("lists a task's comments from while it ran under its comment, oldest first, without times", async () => {
+      const container = await renderWith(comments, {})
+      const cell = container.querySelector('.heatmap-detail-table tbody tr .heatmap-detail-comment')
+      expect(cell?.querySelector('.heatmap-detail-execution-comment')?.textContent).toBe('スッキリ')
+      expect(texts(cell, '.is-running .heatmap-detail-comment-text')).toEqual(['はじめた', '半分まで'])
+      // The execution-time column already says when; the times are not repeated.
+      expect(cell?.querySelectorAll('.is-running time')).toHaveLength(0)
+      // Comments for the day are off: no section for them.
+      expect(container.querySelector('.heatmap-detail-day-comments')).toBeNull()
+    })
+
+    test("shows the day's own comments under the table when they are turned on", async () => {
+      const container = await renderWith(comments, { dayCommentsEnabled: true })
+      const section = container.querySelector('.heatmap-detail-day-comments')
+      expect(section?.querySelector('.heatmap-detail-day-comments__title')?.textContent).toContain('今日のコメント')
+      expect(texts(section, '.heatmap-detail-comment-text')).toEqual(['今日はよく進んだ'])
+      expect(texts(section, 'li time')).toEqual(['21:00'])
+    })
+
+    test('shows only the comment written at the end when none were left while it ran', async () => {
+      const container = await renderWith([], { dayCommentsEnabled: true })
+      const cell = container.querySelector('.heatmap-detail-table tbody tr .heatmap-detail-comment')
+      expect(cell?.textContent).toBe('スッキリ')
+      expect(container.querySelector('.heatmap-detail-day-comments')).toBeNull()
+    })
   })
 
   test('selecting another day updates detail panel', async () => {

@@ -65,6 +65,14 @@ class CommandRegistrarImpl implements CommandRegistrar {
         callback: () => this.view.triggerLeaveComment(),
       },
       {
+        // LEV-415: straight to a running task's comment, from anywhere, so a
+        // hotkey makes it one keystroke. No default hotkey either.
+        id: "leave-running-comment",
+        nameKey: "commands.leaveRunningComment",
+        fallback: "Leave a comment on the running task",
+        callback: () => this.view.triggerLeaveRunningComment(),
+      },
+      {
         // Past agent sessions (LEV-320): the AI pane is hidden while nothing
         // runs, so this is the way in when the pane is not on screen.
         id: "open-session-history",

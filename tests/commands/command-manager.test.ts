@@ -16,6 +16,7 @@ describe('CommandRegistrar', () => {
     triggerResetSelectedTask: jest.fn(async () => {}),
     reorganizeIdleTasks: jest.fn(() => {}),
     triggerLeaveComment: jest.fn(async () => {}),
+    triggerLeaveRunningComment: jest.fn(async () => {}),
     triggerOpenSessionHistory: jest.fn(async () => {}),
   } as unknown as jest.Mocked<TaskChuteViewController>;
 
@@ -36,7 +37,7 @@ describe('CommandRegistrar', () => {
     const registrar: CommandRegistrar = createCommandRegistrar(hostMock, viewControllerMock);
     registrar.initialize();
 
-    expect(addCommand).toHaveBeenCalledTimes(9);
+    expect(addCommand).toHaveBeenCalledTimes(10);
     const ids = addCommand.mock.calls.map(([definition]) => definition.id);
     expect(ids).toEqual([
       'open-taskchute-view',
@@ -44,6 +45,7 @@ describe('CommandRegistrar', () => {
       'show-today-tasks',
       'reorganize-idle-tasks',
       'leave-comment',
+      'leave-running-comment',
       'open-session-history',
       'duplicate-selected-task',
       'delete-selected-task',
@@ -70,19 +72,23 @@ describe('CommandRegistrar', () => {
     await leaveComment.callback?.();
     expect(viewControllerMock.triggerLeaveComment).toHaveBeenCalled();
 
-    const openSessionHistory = addCommand.mock.calls[5][0];
+    const leaveRunningComment = addCommand.mock.calls[5][0];
+    await leaveRunningComment.callback?.();
+    expect(viewControllerMock.triggerLeaveRunningComment).toHaveBeenCalled();
+
+    const openSessionHistory = addCommand.mock.calls[6][0];
     await openSessionHistory.callback?.();
     expect(viewControllerMock.triggerOpenSessionHistory).toHaveBeenCalled();
 
-    const duplicate = addCommand.mock.calls[6][0];
+    const duplicate = addCommand.mock.calls[7][0];
     duplicate.checkCallback?.(false);
     expect(viewControllerMock.triggerDuplicateSelectedTask).toHaveBeenCalled();
 
-    const remove = addCommand.mock.calls[7][0];
+    const remove = addCommand.mock.calls[8][0];
     remove.checkCallback?.(false);
     expect(viewControllerMock.triggerDeleteSelectedTask).toHaveBeenCalled();
 
-    const reset = addCommand.mock.calls[8][0];
+    const reset = addCommand.mock.calls[9][0];
     reset.checkCallback?.(false);
     expect(viewControllerMock.triggerResetSelectedTask).toHaveBeenCalled();
   });
