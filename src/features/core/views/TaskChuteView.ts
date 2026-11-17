@@ -563,7 +563,9 @@ export class TaskChuteView
         this.executionLogService.appendCommentDelta(dateKey, entry),
       getRunningComments: (inst) =>
         inst.instanceId ? this.commentsController?.commentsFor(inst.instanceId) ?? [] : [],
-      deleteRunningComment: (_inst, id, redraw) => this.commentsController?.deleteRunningComment(id, redraw),
+      deleteRunningComment: (_inst, comment, redraw) => void this.commentsController?.deleteRunningComment(comment, redraw),
+      updateRunningComment: (_inst, comment, text, redraw) =>
+        this.commentsController?.updateRunningComment(comment, text, redraw),
     })
     this.taskSettingsTooltipController = new TaskSettingsTooltipController({
       tv: (key, fallback, vars) => this.tv(key, fallback, vars),

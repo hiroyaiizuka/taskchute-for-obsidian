@@ -293,3 +293,136 @@ test.describe("LEV-412: reading the comments back", () => {
     expect(layout.overflow).toEqual([false, false])
   })
 })
+
+// Iizuka's review on device (2026-11-17): a running task's comments are
+// rewritten and deleted from the row like the day's, and deleting anywhere
+// asks first.
+test.describe("Review 2026-11-17: editing a running task's comments, and asking before deleting", () => {
+  const confirmDialog = (page: Page) => page.locator(".modal-container .taskchute-confirm-modal")
+
+  async function taskWithComments(page: Page, texts: string[]): Promise<{ taskPath: string; instanceId: string }> {
+    const [taskPath] = await createTasks(page, ["Write report"])
+    await openTaskChute(page)
+    await start(page, taskPath)
+    for (const text of texts) {
+      await runCommand(page, "leave-running-comment")
+      await entryModal(page).locator("textarea").fill(text)
+      await entryModal(page).locator("textarea").press("Enter")
+      await expect(entryModal(page)).toHaveCount(0)
+    }
+    const instanceId = (await taskRow(page, taskPath).getAttribute("data-instance-id")) ?? ""
+    return { taskPath, instanceId }
+  }
+
+  test("the comments under a row show the pencil and × on hover, and are rewritten and deleted there", async ({ obsidian }) => {
+    const { page, vaultDir } = obsidian
+    await setSetting(page, "rowCommentsEnabled", true)
+    const today = await todayKey(page)
+    const { taskPath, instanceId } = await taskWithComments(page, ["Opened the minutse", "Not needed"])
+    await stop(page, taskPath)
+    const under = page.locator(`.taskchute-row-comments[data-instance-id="${instanceId}"]`)
+    await expect(under.locator(".taskchute-comment-text")).toHaveText(["Opened the minutse", "Not needed"])
+
+    const first = under.locator(".taskchute-comment-list > li").first()
+    await expect(first.locator(".taskchute-comment-edit")).toHaveCSS("opacity", "0")
+    await first.hover()
+    await expect(first.locator(".taskchute-comment-edit")).toHaveCSS("opacity", "1")
+    await expect(first.locator(".taskchute-comment-delete")).toHaveCSS("opacity", "1")
+
+    await first.locator(".taskchute-comment-edit").click()
+    const input = under.locator("li.is-editing textarea")
+    await expect(input).toBeFocused()
+    await input.fill("Opened the minutes")
+    await input.press("Enter")
+    await expect(under.locator(".taskchute-comment-text")).toHaveText(["Opened the minutes", "Not needed"])
+    await expect.poll(() => readComments(vaultDir, today).map((c) => c.text).sort()).toEqual(["Not needed", "Opened the minutes"])
+
+    const second = under.locator(".taskchute-comment-list > li").nth(1)
+    await second.hover()
+    await second.locator(".taskchute-comment-delete").click()
+    await expect(confirmDialog(page)).toContainText("Delete this comment?")
+    await expect(confirmDialog(page)).toContainText("Not needed")
+    await confirmDialog(page).locator(".mod-warning").click()
+    await expect(under.locator(".taskchute-comment-text")).toHaveText(["Opened the minutes"])
+    await expect.poll(() => readComments(vaultDir, today).map((c) => c.text)).toEqual(["Opened the minutes"])
+  })
+
+  test("deleting from the day's window and a task's popover asks first; cancel or Esc keeps the comment", async ({ obsidian }) => {
+    const { page, vaultDir } = obsidian
+    await setSetting(page, "dayCommentsEnabled", true)
+    const today = await todayKey(page)
+    const { taskPath } = await taskWithComments(page, ["On the task"])
+
+    const win = page.locator(".taskchute-day-comments-window")
+    await page.locator(".taskchute-day-comments-button").click()
+    await win.locator(".taskchute-day-comments-window__input textarea").fill("On the day")
+    await win.locator(".taskchute-day-comments-window__input textarea").press("Enter")
+    await expect(win.locator(".taskchute-comment-text")).toHaveText(["On the day"])
+
+    await win.locator(".taskchute-comment-list > li").hover()
+    await win.locator(".taskchute-comment-delete").click()
+    await expect(confirmDialog(page)).toBeVisible()
+    // The cancel button has focus, so Enter by reflex does not delete.
+    await expect(confirmDialog(page).locator("button:not(.mod-warning)")).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(confirmDialog(page)).toHaveCount(0)
+    await expect(win).toBeVisible()
+    await expect(win.locator(".taskchute-comment-text")).toHaveText(["On the day"])
+
+    await win.locator(".taskchute-comment-list > li").hover()
+    await win.locator(".taskchute-comment-delete").click()
+    await confirmDialog(page).locator(".mod-warning").click()
+    await expect(win.locator(".taskchute-comment-text")).toHaveCount(0)
+    await expect.poll(() => readComments(vaultDir, today).map((c) => c.text)).toEqual(["On the task"])
+    await win.locator(".taskchute-day-comments-window__close").click()
+
+    const row = taskRow(page, taskPath)
+    await row.locator(".comment-button").click()
+    const popover = page.locator(".taskchute-task-comments-popover")
+    await popover.locator(".taskchute-comment-list > li").hover()
+    await popover.locator(".taskchute-comment-delete").click()
+    await confirmDialog(page).locator("button:not(.mod-warning)").click()
+    await expect(popover).toBeVisible()
+    await expect(popover.locator(".taskchute-comment-text")).toHaveText(["On the task"])
+    await popover.locator(".taskchute-comment-list > li").hover()
+    await popover.locator(".taskchute-comment-delete").click()
+    await confirmDialog(page).locator(".mod-warning").click()
+    await expect(popover.locator(".taskchute-comment-text")).toHaveCount(0)
+    await expect.poll(() => readComments(vaultDir, today)).toEqual([])
+  })
+
+  test("the completion dialog rewrites its comments in place, Esc there leaving the dialog open, and asks before deleting", async ({ obsidian }) => {
+    const { page, vaultDir } = obsidian
+    const today = await todayKey(page)
+    const { taskPath } = await taskWithComments(page, ["Outline dnoe", "Asked for review"])
+    await stop(page, taskPath)
+    await taskRow(page, taskPath).locator(".comment-button").click()
+    const recap = page.locator(".taskchute-comment-recap")
+    await expect(recap.locator(".taskchute-comment-text")).toHaveCount(2)
+    const typo = recap.locator(".taskchute-comment-list > li", { hasText: "Outline dnoe" })
+    await typo.hover()
+    await typo.locator(".taskchute-comment-edit").click()
+    const input = recap.locator("li.is-editing textarea")
+    await expect(input).toBeFocused()
+    await input.fill("thrown away")
+    await input.press("Escape")
+    await expect(recap).toBeVisible()
+    await expect(recap.locator("li.is-editing")).toHaveCount(0)
+    await expect(recap.locator(".taskchute-comment-text", { hasText: "Outline dnoe" })).toHaveCount(1)
+
+    await typo.hover()
+    await typo.locator(".taskchute-comment-edit").click()
+    await input.fill("Outline done")
+    await input.press("Enter")
+    await expect(recap.locator(".taskchute-comment-text", { hasText: "Outline done" })).toHaveCount(1)
+    await expect.poll(() => readComments(vaultDir, today).map((c) => c.text).sort()).toEqual(["Asked for review", "Outline done"])
+
+    const other = recap.locator(".taskchute-comment-list > li", { hasText: "Asked for review" })
+    await other.hover()
+    await other.locator(".taskchute-comment-delete").click()
+    await expect(confirmDialog(page)).toContainText("Asked for review")
+    await confirmDialog(page).locator(".mod-warning").click()
+    await expect(recap.locator(".taskchute-comment-text")).toHaveText(["Outline done"])
+    await expect.poll(() => readComments(vaultDir, today).map((c) => c.text)).toEqual(["Outline done"])
+  })
+})

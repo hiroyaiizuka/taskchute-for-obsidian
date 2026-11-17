@@ -301,17 +301,27 @@ describe('CommentsController', () => {
       expect(win()!.querySelectorAll('textarea')).toHaveLength(1)
     })
 
-    it('deletes from the × at once and brings it back from the undo notice', async () => {
+    it('asks before deleting from the ×, showing the comment, and keeps it on cancel', async () => {
       const { store, open, win, dayTexts } = await setup()
       await store.addCommentTo(DATE, { text: 'oops' })
       open()
+      ;(showConfirmModal as jest.Mock).mockResolvedValueOnce(false)
       win()!.querySelector<HTMLButtonElement>('.taskchute-comment-delete')!.click()
+      await flush()
+      expect(showConfirmModal).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ title: 'Delete this comment?', message: 'oops', destructive: true }),
+      )
+      expect(dayTexts()).toEqual(['oops'])
+
+      ;(showConfirmModal as jest.Mock).mockResolvedValueOnce(true)
+      const notices = (Notice as unknown as jest.Mock).mock.calls.length
+      win()!.querySelector<HTMLButtonElement>('.taskchute-comment-delete')!.click()
+      await flush()
       expect(store.getComments({ dateKey: DATE })).toEqual([])
       expect(dayTexts()).toEqual([])
-      const fragment = (Notice as unknown as jest.Mock).mock.calls.at(-1)[0] as DocumentFragment
-      fragment.querySelector<HTMLButtonElement>('.taskchute-undo-notice__button')!.click()
-      expect(store.getComments({ dateKey: DATE }).map((c) => c.text)).toEqual(['oops'])
-      expect(dayTexts()).toEqual(['oops'])
+      // Asked first, so no undo notice after.
+      expect((Notice as unknown as jest.Mock).mock.calls.length).toBe(notices)
     })
 
     it("deletes a past day's comment too", async () => {
@@ -321,7 +331,9 @@ describe('CommentsController', () => {
       day.key = OTHER_DATE
       day.today = false
       open()
+      ;(showConfirmModal as jest.Mock).mockResolvedValueOnce(true)
       win()!.querySelector<HTMLButtonElement>('.taskchute-comment-delete')!.click()
+      await flush()
       expect(store.getComments({ dateKey: OTHER_DATE })).toEqual([])
     })
   })
@@ -355,7 +367,9 @@ describe('CommentsController', () => {
       phone.value = true
       await store.addCommentTo(DATE, { text: 'from the phone' })
       open()
+      ;(showConfirmModal as jest.Mock).mockResolvedValueOnce(true)
       win()!.querySelector<HTMLButtonElement>('.taskchute-comment-delete')!.click()
+      await flush()
       expect(store.getComments({ dateKey: DATE })).toEqual([])
     })
   })
@@ -596,7 +610,9 @@ describe('CommentsController', () => {
       controller.togglePanel(running)
       list.querySelector<HTMLElement>('.taskchute-comment-text')!.click()
       expect(document.querySelector('.taskchute-comment-entry-modal')).toBeNull()
+      ;(showConfirmModal as jest.Mock).mockResolvedValueOnce(true)
       list.querySelector<HTMLButtonElement>('.taskchute-comment-delete')!.click()
+      await flush()
       expect(store.getComments({ instanceId: 'i-1', dateKey: DATE })).toEqual([])
     })
   })
@@ -720,13 +736,23 @@ describe('CommentsController', () => {
       expect(dayTexts()).toEqual(['fixed'])
     })
 
-    it('deletes a comment emptied out, with the usual undo', async () => {
-      const { store, open, win } = await setup()
+    it('asks to delete a comment emptied out, and keeps it as it was on cancel', async () => {
+      const { store, open, win, dayTexts } = await setup()
       await store.addCommentTo(DATE, { text: 'gone' })
       open()
+      ;(showConfirmModal as jest.Mock).mockResolvedValueOnce(false)
       editButton(win()!).click()
       type(editor(win()!)!, '   ')
       editor(win()!)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }))
+      await flush()
+      expect(showConfirmModal).toHaveBeenCalledTimes(1)
+      expect(dayTexts()).toEqual(['gone'])
+
+      ;(showConfirmModal as jest.Mock).mockResolvedValueOnce(true)
+      editButton(win()!).click()
+      type(editor(win()!)!, '')
+      editor(win()!)!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }))
+      await flush()
       expect(store.getComments({ dateKey: DATE })).toEqual([])
     })
 
@@ -776,8 +802,32 @@ describe('CommentsController', () => {
       // No comments, no box; and the day's own comments stay out of the rows.
       expect(list.querySelector('.taskchute-row-comments[data-instance-id="i-2"]')).toBeNull()
       expect(list.textContent).not.toContain('on the day')
-      // Read-only: changing them is done where they are written.
-      expect(list.querySelector('.taskchute-row-comments button')).toBeNull()
+    })
+
+    it('rewrites and deletes them from the pencil and the × on each, like the other lists (review 2026-11-17)', async () => {
+      const { store, instances, list, rowEnabled, rerender } = await setup()
+      rowEnabled.value = true
+      instances.push(instance({ instanceId: 'i-1', state: 'done' }))
+      await store.addCommentTo(DATE, { text: 'typo', instanceId: 'i-1' })
+      jest.advanceTimersByTime(60_000)
+      await store.addCommentTo(DATE, { text: 'second', instanceId: 'i-1' })
+      rerender()
+      const row = () => list.querySelector<HTMLElement>('.taskchute-row-comments[data-instance-id="i-1"]')!
+      expect(row().querySelectorAll('.taskchute-comment-edit')).toHaveLength(2)
+      expect(row().querySelectorAll('.taskchute-comment-delete')).toHaveLength(2)
+
+      row().querySelector<HTMLButtonElement>('.taskchute-comment-edit')!.click()
+      const input = row().querySelector<HTMLTextAreaElement>('li.is-editing textarea')!
+      expect(input.value).toBe('typo')
+      type(input, 'fixed')
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }))
+      expect(rowTexts(list, 'i-1')).toEqual(['fixed', 'second'])
+
+      ;(showConfirmModal as jest.Mock).mockResolvedValueOnce(true)
+      row().querySelectorAll<HTMLButtonElement>('.taskchute-comment-delete')[1].click()
+      await flush()
+      expect(showConfirmModal).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ message: 'second' }))
+      expect(rowTexts(list, 'i-1')).toEqual(['fixed'])
     })
 
     it("shows a running task's too, and gives way to its popover while that is open", async () => {

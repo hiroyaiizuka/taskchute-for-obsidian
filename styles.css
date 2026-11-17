@@ -9642,8 +9642,8 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   font-size: var(--font-ui-smaller);
 }
 
-/* A task's comments from while it ran, under its row (LEV-412): read-only,
-   lined up with the task name. */
+/* A task's comments from while it ran, under its row (LEV-412), lined up
+   with the task name; the pencil and × show on hover as in the other lists. */
 .taskchute-row-comments {
   padding: 0 12px 8px 56px;
   border-bottom: 1px solid var(--background-modifier-border);
@@ -9656,10 +9656,6 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
 
 .taskchute-row-comments__list > li {
   color: var(--text-muted);
-}
-
-.taskchute-row-comments__list > li:hover {
-  background: none;
 }
 
 .taskchute-row-comments__list .taskchute-comment-text {
@@ -9751,14 +9747,3 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   resize: vertical;
 }
 
-/* --- the undo notice --- */
-.taskchute-undo-notice {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.taskchute-undo-notice__button {
-  padding: 2px 8px;
-  font-size: var(--font-ui-small);
-}

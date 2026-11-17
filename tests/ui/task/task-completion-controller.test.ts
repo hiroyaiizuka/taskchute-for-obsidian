@@ -273,8 +273,12 @@ describe('TaskCompletionController', () => {
       { id: 'c2', at: at('08:20'), text: 'Asked for review', instanceId: 'inst-3', updatedAt: at('08:20') },
     ]
     host.getRunningComments = () => comments
-    host.deleteRunningComment = jest.fn((_inst, id: string, redraw: () => void) => {
-      comments.splice(comments.findIndex((c) => c.id === id), 1)
+    host.deleteRunningComment = jest.fn((_inst, comment: DayComment, redraw: () => void) => {
+      comments.splice(comments.findIndex((c) => c.id === comment.id), 1)
+      redraw()
+    })
+    host.updateRunningComment = jest.fn((_inst, comment: DayComment, text: string, redraw: () => void) => {
+      comments.find((c) => c.id === comment.id)!.text = text
       redraw()
     })
     const controller = new TaskCompletionController(host)
@@ -294,12 +298,22 @@ describe('TaskCompletionController', () => {
       'Outline done',
       'Asked for review',
     ])
-    // Not rewritten here: no editor opens, only a delete button per comment.
+    // Clicking the text opens nothing; the pencil rewrites it in place.
     recap.querySelector<HTMLElement>('.taskchute-comment-text')!.click()
     expect(document.querySelector('.taskchute-comment-editor')).toBeNull()
+    recap.querySelector<HTMLButtonElement>('.taskchute-comment-edit')!.click()
+    const input = recap.querySelector<HTMLTextAreaElement>('li.is-editing textarea')!
+    expect(input.value).toBe('Outline done')
+    input.value = 'Outline finished'
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', cancelable: true }))
+    expect(host.updateRunningComment).toHaveBeenCalledWith(inst, comments[0], 'Outline finished', expect.any(Function))
+    expect(Array.from(recap.querySelectorAll('.taskchute-comment-text')).map((n) => n.textContent)).toEqual([
+      'Outline finished',
+      'Asked for review',
+    ])
 
     recap.querySelector<HTMLButtonElement>('.taskchute-comment-delete')!.click()
-    expect(host.deleteRunningComment).toHaveBeenCalledWith(inst, 'c1', expect.any(Function))
+    expect(host.deleteRunningComment).toHaveBeenCalledWith(inst, expect.objectContaining({ id: 'c1' }), expect.any(Function))
     expect(Array.from(recap.querySelectorAll('.taskchute-comment-text')).map((n) => n.textContent)).toEqual([
       'Asked for review',
     ])
