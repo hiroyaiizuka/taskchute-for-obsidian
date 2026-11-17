@@ -555,12 +555,15 @@ export class LogView {
     }
   }
 
-  /** Time and text, oldest first, read-only. */
-  private renderCommentList(parent: HTMLElement, comments: DayComment[], cls: string): void {
+  /**
+   * Oldest first, read-only. In a task's row the execution-time column already
+   * says when, so the time is left out there; the day's comments keep it.
+   */
+  private renderCommentList(parent: HTMLElement, comments: DayComment[], cls: string, withTime: boolean): void {
     const list = parent.createEl('ul', { cls: `heatmap-detail-comment-list ${cls}` });
     for (const comment of [...comments].reverse()) {
       const item = list.createEl('li');
-      item.createEl('time', { text: formatCommentTime(comment.at) });
+      if (withTime) item.createEl('time', { text: formatCommentTime(comment.at) });
       item.createSpan({ cls: 'heatmap-detail-comment-text', text: comment.text });
     }
   }
@@ -580,7 +583,7 @@ export class LogView {
       cls: 'heatmap-detail-day-comments__count',
       text: this.tv('labels.commentCount', '{count} comments', { count: comments.length }),
     });
-    this.renderCommentList(section, comments, 'is-day');
+    this.renderCommentList(section, comments, 'is-day', true);
   }
 
   private renderDayDetail(state: DayDetailRenderState): void {
@@ -738,7 +741,7 @@ export class LogView {
         commentCell.createDiv({ cls: 'heatmap-detail-execution-comment', text: entry.executionComment });
       }
       if (running.length > 0) {
-        this.renderCommentList(commentCell, running, 'is-running');
+        this.renderCommentList(commentCell, running, 'is-running', false);
       }
       if (!entry.executionComment && running.length === 0) {
         commentCell.textContent = '-';

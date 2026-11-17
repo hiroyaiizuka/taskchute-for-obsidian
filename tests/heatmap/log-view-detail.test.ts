@@ -229,12 +229,13 @@ beforeAll(() => {
     comments[1].instanceId = 'inst-a'
     comments[2].instanceId = 'inst-a'
 
-    test("lists a task's comments from while it ran under its comment, oldest first", async () => {
+    test("lists a task's comments from while it ran under its comment, oldest first, without times", async () => {
       const container = await renderWith(comments, {})
       const cell = container.querySelector('.heatmap-detail-table tbody tr .heatmap-detail-comment')
       expect(cell?.querySelector('.heatmap-detail-execution-comment')?.textContent).toBe('スッキリ')
-      expect(texts(cell, '.is-running li time')).toEqual(['07:35', '07:50'])
       expect(texts(cell, '.is-running .heatmap-detail-comment-text')).toEqual(['はじめた', '半分まで'])
+      // The execution-time column already says when; the times are not repeated.
+      expect(cell?.querySelectorAll('.is-running time')).toHaveLength(0)
       // Comments for the day are off: no section for them.
       expect(container.querySelector('.heatmap-detail-day-comments')).toBeNull()
     })
@@ -244,6 +245,7 @@ beforeAll(() => {
       const section = container.querySelector('.heatmap-detail-day-comments')
       expect(section?.querySelector('.heatmap-detail-day-comments__title')?.textContent).toContain('今日のコメント')
       expect(texts(section, '.heatmap-detail-comment-text')).toEqual(['今日はよく進んだ'])
+      expect(texts(section, 'li time')).toEqual(['21:00'])
     })
 
     test('shows only the comment written at the end when none were left while it ran', async () => {

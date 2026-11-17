@@ -244,8 +244,52 @@ test.describe("LEV-412: reading the comments back", () => {
     const log = page.locator(".taskchute-log-modal")
     const row = log.locator(".heatmap-detail-table tbody tr", { hasText: "Write report" })
     await expect(row.locator(".heatmap-detail-comment-list.is-running .heatmap-detail-comment-text")).toHaveText(["Halfway"])
+    // The execution-time column says when; the row does not repeat the time.
+    await expect(row.locator(".heatmap-detail-comment-list time")).toHaveCount(0)
     const day = log.locator(".heatmap-detail-day-comments")
     await expect(day.locator(".heatmap-detail-day-comments__title")).toContainText("Today's comments")
     await expect(day.locator(".heatmap-detail-comment-text")).toHaveText(["A good day"])
+    await expect(day.locator("time")).toHaveCount(1)
+  })
+
+  test("the log table keeps headings on one line and five ratings in a fixed width", async ({ obsidian }) => {
+    const { page } = obsidian
+    const [taskPath] = await createTasks(page, ["A task whose name is long enough to need a second line in the log"])
+    await openTaskChute(page)
+    await start(page, taskPath)
+    await stop(page, taskPath)
+    await page.locator(".taskchute-view-root .drawer-toggle").click()
+    await page.locator('.navigation-nav-item[data-section="log"]').click()
+    const table = page.locator(".taskchute-log-modal .heatmap-detail-table")
+    await expect(table.locator("tbody tr")).toHaveCount(1)
+    // A narrow table, and the most a rating can hold. The ratings are written in
+    // directly: this checks the layout, not how a rating is recorded.
+    const layout = await table.evaluate((t) => {
+      ;(t.closest(".heatmap-detail-section") as HTMLElement).style.width = "560px"
+      const focus = t.querySelector("td.heatmap-col-focus")!
+      const energy = t.querySelector("td.heatmap-col-energy")!
+      const before = [focus.clientWidth, energy.clientWidth]
+      focus.textContent = "⭐️".repeat(5)
+      energy.textContent = "⚡️".repeat(5)
+      // A cell is as tall as its row; measure the text itself.
+      const lines = (el: Element) => {
+        const range = document.createRange()
+        range.selectNodeContents(el)
+        const height = range.getBoundingClientRect().height
+        return Math.round(height / parseFloat(getComputedStyle(el).lineHeight))
+      }
+      return {
+        headings: Array.from(t.querySelectorAll("th"), lines),
+        time: lines(t.querySelector("td.heatmap-detail-time")!),
+        name: lines(t.querySelector("td.heatmap-detail-name")!),
+        widths: { before, after: [focus.clientWidth, energy.clientWidth] },
+        overflow: [focus, energy].map((el) => el.scrollWidth > el.clientWidth),
+      }
+    })
+    expect(layout.headings).toEqual([1, 1, 1, 1, 1])
+    expect(layout.time).toBe(1)
+    expect(layout.name).toBeGreaterThan(1)
+    expect(layout.widths.after).toEqual(layout.widths.before)
+    expect(layout.overflow).toEqual([false, false])
   })
 })

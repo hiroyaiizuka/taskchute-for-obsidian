@@ -2614,6 +2614,19 @@ body.is-phone .taskchute-modal .modal-button-container {
   font-size: 12px;
   color: var(--text-muted);
   font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Ratings keep one width whatever they hold, wide enough for five icons;
+   the execution time stays on one line. Name and comment take the rest and wrap. */
+.heatmap-detail-table :is(th, td):is(.heatmap-col-focus, .heatmap-col-energy) {
+  width: 8.5em;
+  min-width: 8.5em;
+  white-space: nowrap;
+}
+
+.heatmap-detail-table td.heatmap-detail-time {
+  white-space: nowrap;
 }
 
 .heatmap-detail-name {
