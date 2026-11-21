@@ -145,24 +145,40 @@ export class TaskReloadCoordinator {
       const currentIndex = slots.indexOf(currentSlot)
       if (currentIndex < 0) return
 
-      let moved = false
-      view.taskInstances.forEach((inst) => {
-        if (inst.state !== 'idle') return
-        const slot = inst.slotKey || 'none'
-        if (slot === 'none') return
-        const idx = slots.indexOf(slot)
-        if (idx >= 0 && idx < currentIndex) {
-          inst.slotKey = currentSlot
-          view.persistSlotAssignment(inst)
-          moved = true
-        }
+      const pastSlotIndex = (inst: TaskInstance): number => {
+        if (inst.state !== 'idle') return -1
+        const idx = slots.indexOf(inst.slotKey || 'none')
+        return idx < currentIndex ? idx : -1
+      }
+      const carried = view.taskInstances.filter((inst) => pastSlotIndex(inst) >= 0)
+      if (carried.length === 0) return
+
+      // Orders are numbered per slot (100, 200, …), so carried tasks keep
+      // numbers that collide with the current slot's own. Renumber them as one
+      // block, in their earlier slot and order, above the current slot's idle
+      // tasks: the day's order stays as it was planned (LEV-417).
+      const orderOf = (inst: TaskInstance): number =>
+        typeof inst.order === 'number' && Number.isFinite(inst.order) ? inst.order : Number.MAX_SAFE_INTEGER
+      const block = carried
+        .map((inst, position) => ({ inst, slot: pastSlotIndex(inst), position }))
+        .sort((a, b) => a.slot - b.slot || orderOf(a.inst) - orderOf(b.inst) || a.position - b.position)
+        .map(({ inst }) => inst)
+      const peerOrders = view.taskInstances
+        .filter((inst) => inst.state === 'idle' && (inst.slotKey || 'none') === currentSlot)
+        .map(orderOf)
+        .filter((order) => order !== Number.MAX_SAFE_INTEGER)
+      const top = peerOrders.length > 0 ? Math.min(...peerOrders) : (block.length + 1) * 100
+      block.forEach((inst, i) => {
+        inst.slotKey = currentSlot
+        inst.order = top - (block.length - i) * 100
+        view.persistSlotAssignment(inst)
       })
 
-      if (moved) {
-        view.sortTaskInstancesByTimeOrder()
-        await view.saveTaskOrders()
-        view.renderTaskList()
-      }
+      // Saved before sorting: the sort re-applies saved orders by task and
+      // slot, and must find these rather than any older ones for this slot.
+      await view.saveTaskOrders()
+      view.sortTaskInstancesByTimeOrder()
+      view.renderTaskList()
     } catch (error) {
       console.error('[TaskReloadCoordinator] boundary move failed', error)
     }
