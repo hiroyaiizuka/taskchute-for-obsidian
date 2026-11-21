@@ -1,7 +1,7 @@
 // The CSS half of the Obsidian plugin review — an *approximation*.
 //
 // Obsidian's dashboard reports CSS findings that no published package
-// implements: `eslint-plugin-obsidianmd` (0.4.2) carries no CSS rules at all
+// implements: `eslint-plugin-obsidianmd` (0.4.2 to 0.6.0) carries no CSS rules at all
 // and does not depend on `@eslint/css`. The bot's own CSS analyser is not open
 // source, so everything below is reconstructed from the findings it returned
 // for this plugin, quoting its wording verbatim so a local report reads like
@@ -97,11 +97,57 @@ const partiallySupportedFeature = {
   },
 };
 
+// Features the dashboard names by their caniuse id. Each entry is one the
+// dashboard has reported for this plugin (3.0.6), matched the narrowest way
+// that reproduces its count: `display: contents` twice, `clip-path` once.
+const PARTIAL_FEATURES = [
+  { feature: "css-display-contents", matches: (node) => node.property === "display" && sourceValue(node) === "contents" },
+  { feature: "css-clip-path", matches: (node) => node.property === "clip-path" },
+];
+
+function sourceValue(node) {
+  return valueChildren(node.value)
+    .map((child) => child.name ?? child.value ?? "")
+    .join(" ")
+    .trim()
+    .toLowerCase();
+}
+
+const partiallySupportedCssFeature = {
+  meta: {
+    type: "problem",
+    docs: {
+      description:
+        "Avoid CSS features the dashboard reports as only partially supported by Obsidian's Chromium.",
+    },
+    schema: [],
+    messages: {
+      partiallySupported:
+        'Unexpected browser feature "{{feature}}" is only partially supported by Obsidian {{version}}',
+    },
+  },
+  create(context) {
+    const { sourceCode } = context;
+    return {
+      Declaration(node) {
+        const hit = PARTIAL_FEATURES.find((entry) => entry.matches(node));
+        if (!hit) return;
+        context.report({
+          loc: sourceCode.getLoc(node),
+          messageId: "partiallySupported",
+          data: { feature: hit.feature, version: OBSIDIAN_BASELINE },
+        });
+      },
+    };
+  },
+};
+
 export default {
   meta: { name: "obsidian-review-approx" },
   rules: {
     "no-has": noHas,
     "partially-supported-feature": partiallySupportedFeature,
+    "partially-supported-css-feature": partiallySupportedCssFeature,
   },
 };
 

@@ -7,7 +7,7 @@ description: Run TaskChute Plus inside a real Obsidian desktop app and check it 
 
 `npm run test:e2e` builds the plugin, starts a real Obsidian desktop app on a
 throwaway vault with the build installed, and drives it with Playwright. The
-suite lives in `e2e/`; design notes are in issue #193.
+suite lives in `tests/e2e/`; design notes are in issue #193.
 
 ## When
 
@@ -22,7 +22,7 @@ suite lives in `e2e/`; design notes are in issue #193.
 ```bash
 npm run test:e2e                                        # build + whole suite
 TASKCHUTE_E2E_SKIP_BUILD=1 npm run test:e2e             # reuse the current main.js
-npx playwright test -c e2e -g "settings"                # one test by name
+npx playwright test -c tests/e2e -g "settings"                # one test by name
 ```
 
 Report the pass/fail counts from the `list` reporter output. Never report PASS
@@ -63,25 +63,25 @@ for a run that failed or was skipped; say which tests failed and why.
 
 ## Writing tests
 
-- Import `test` / `expect` from `e2e/fixtures.ts`. The `obsidian` fixture
+- Import `test` / `expect` from `tests/e2e/fixtures.ts`. The `obsidian` fixture
   gives `{ page, vaultDir, errors, consoleLines }` for a fresh Obsidian.
 - Pick the UI language with `test.use({ language: "ja" })` (default `en`).
 - Drive the plugin with locators and
   `window.app.commands.executeCommandById("taskchute-plus:…")`; check state in
   the DOM or in files under `vaultDir`.
 - Internal `window.app` members the tests use are typed in
-  `e2e/obsidian/globals.d.ts`; extend it when you need more.
+  `tests/e2e/obsidian/globals.d.ts`; extend it when you need more.
 
 ## How it works (for maintenance)
 
-- `e2e/obsidian/install.ts` downloads and extracts the pinned AppImage on
+- `tests/e2e/obsidian/install.ts` downloads and extracts the pinned AppImage on
   Linux, and downloads the pinned app asar on macOS / Windows.
-  `OBSIDIAN_VERSION` in `e2e/obsidian/paths.ts` is the pin; only tags that ship
+  `OBSIDIAN_VERSION` in `tests/e2e/obsidian/paths.ts` is the pin; only tags that ship
   an AppImage qualify (v1.13.8 is Android-only).
 - To tell which Obsidian a test runs, ask the app
   (`require("electron").ipcRenderer.sendSync("version")` in the page). The user
   agent names the installer's version, not the app's.
-- `e2e/obsidian/launch.ts` spawns Obsidian with `--user-data-dir` and
+- `tests/e2e/obsidian/launch.ts` spawns Obsidian with `--user-data-dir` and
   `--remote-debugging-port`, then attaches with `chromium.connectOverCDP`.
   Playwright's `_electron.launch()` does not work: Obsidian's Electron disables
   Node's `--inspect`.

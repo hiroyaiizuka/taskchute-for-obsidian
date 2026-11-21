@@ -134,8 +134,8 @@ npm run dev    # esbuild --watch
 npm run build  # production bundle
 npm run test:unit        # Jest (ts-jest, jsdom)
 npm run test:integration # Jest, *.integration.test.ts only (real processes, PTYs, sockets)
-npm run test:e2e         # Playwright against a real Obsidian desktop app (e2e/; Linux x64, macOS, Windows)
-npm run record:video     # Captioned, narrated walkthrough videos (e2e/recording/; macOS, Windows, Linux)
+npm run test:e2e         # Playwright against a real Obsidian desktop app (tests/e2e/; Linux x64, macOS, Windows)
+npm run record:video     # Captioned, narrated walkthrough videos (tests/e2e/recording/; macOS, Windows, Linux)
 ```
 
 - The Husky pre-commit hook runs only `eslint` on staged files via `lint-staged`.

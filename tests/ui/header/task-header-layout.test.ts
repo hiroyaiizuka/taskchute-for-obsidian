@@ -66,9 +66,22 @@ describe('TaskChute header layout', () => {
       /\.top-bar-container\s*>\s*\.drawer-toggle\s*\{[\s\S]*grid-column:\s*1;[\s\S]*grid-row:\s*1;/,
     )
     // The section holds the filter and the add action in one flex box, so it
-    // has to dissolve before the grid can put them on different rows.
+    // has to take on the header's own tracks (subgrid) before the grid can put
+    // them on different rows. Not `display: contents`: Obsidian's plugin review
+    // flags it as only partly supported.
+    const section = query.match(
+      /\.top-bar-container > \.header-action-section\.has-board-view-switch\s*\{([^}]*)\}/,
+    )?.[1] ?? ''
+    expect(section).toMatch(/display:\s*grid;/)
+    expect(section).toMatch(/grid-column:\s*1 \/ -1;/)
+    expect(section).toMatch(/grid-row:\s*1 \/ -1;/)
+    expect(section).toMatch(/grid-template-columns:\s*subgrid;/)
+    expect(section).toMatch(/grid-template-rows:\s*subgrid;/)
+    // Covering the whole header, it must not swallow clicks meant for the
+    // drawer toggle and the date navigator underneath.
+    expect(section).toMatch(/pointer-events:\s*none;/)
     expect(query).toMatch(
-      /\.header-action-section\.has-board-view-switch\s*\{[\s\S]*display:\s*contents;/,
+      /\.header-action-section\.has-board-view-switch > \*\s*\{\s*pointer-events:\s*auto;/,
     )
     expect(query).toMatch(
       /\.add-task-button\.repositioned\s*\{[\s\S]*grid-column:\s*3;[\s\S]*grid-row:\s*1;[\s\S]*justify-self:\s*end;/,

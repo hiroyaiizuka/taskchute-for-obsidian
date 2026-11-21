@@ -239,7 +239,7 @@ export default class TaskCreationController {
 
   private showTaskModal(editTarget?: AiTaskEditValue, typeChange?: TypeChangeOptions): void {
     const context = this.host.getDocumentContext?.()
-    const doc = context?.doc ?? document
+    const doc = context?.doc ?? activeDocument
     const win = context?.win ?? window
 
     const modal = createNameModal({

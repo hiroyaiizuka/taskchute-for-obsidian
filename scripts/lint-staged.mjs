@@ -11,7 +11,7 @@
 // lint-staged configuration this replaces did.
 import { spawnSync } from "node:child_process";
 
-const PATTERNS = [/^src\/.*\.(ts|tsx|js)$/, /^tests\/.*\.(ts|tsx|js)$/, /^e2e\/.*\.ts$/];
+const PATTERNS = [/^src\/.*\.(ts|tsx|js)$/, /^tests\/.*\.(ts|tsx|js)$/];
 
 function git(...args) {
   const result = spawnSync("git", args, { encoding: "utf8" });

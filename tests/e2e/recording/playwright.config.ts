@@ -4,7 +4,7 @@ import { defineConfig } from "@playwright/test"
 // still fails like a test when the app does not end up in the state it shows.
 export default defineConfig({
   testDir: "./scenarios",
-  outputDir: "../../e2e-results/recording-output",
+  outputDir: "../../../e2e-results/recording-output",
   globalSetup: "./global-setup.ts",
   workers: 1,
   fullyParallel: false,

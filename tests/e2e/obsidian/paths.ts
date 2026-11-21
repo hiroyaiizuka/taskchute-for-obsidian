@@ -11,7 +11,7 @@ export const OBSIDIAN_VERSION = process.env.TASKCHUTE_E2E_OBSIDIAN_VERSION ?? "1
 
 export const PLUGIN_ID = "taskchute-plus"
 
-export const REPO_ROOT = path.resolve(__dirname, "../..")
+export const REPO_ROOT = path.resolve(__dirname, "../../..")
 
 /** Downloads and extracted libraries live here, shared across runs. */
 export function cacheRoot(): string {

@@ -41,11 +41,19 @@ const copyStaticAssets = {
 };
 
 // The build number shown after the version in settings, "2.2.16 (614)": the
-// number of commits in the history being built. It only ever goes up, and any
-// checkout of the same commit -- a laptop, CI, a release -- gets the same number
-// (the release workflow checks out with fetch-depth: 0 for that reason). It is
-// a virtual module rather than a `define` so `npm run dev` recomputes it on
-// every rebuild. Without git, or in a shallow clone, the number is 0.
+// number of commits in the history being built. It only ever goes up.
+//
+// A release build has to come out byte for byte the same from the tagged
+// commit alone, because Obsidian's plugin review rebuilds the release from a
+// clone of the tag and compares the result with the main.js attached to it
+// (3.0.6 was flagged "Build output does not match the released main.js": the
+// review's clone is shallow, so it counted 0 commits where the release had
+// counted 714). So a production build reads the number from build-number.json,
+// which the release workflow writes into the release commit. A dev build counts
+// the commits itself, and TASKCHUTE_BUILD_NUMBER overrides both (the beta
+// workflow sets it, since a beta is never committed). Without git, or in a
+// shallow clone, a dev build's number is 0. It is a virtual module rather than
+// a `define` so `npm run dev` recomputes it on every rebuild.
 function git(args) {
 	try {
 		return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
@@ -54,13 +62,23 @@ function git(args) {
 	}
 }
 
+function buildNumber() {
+	const fromEnv = Number(process.env.TASKCHUTE_BUILD_NUMBER);
+	if (Number.isInteger(fromEnv) && fromEnv > 0) return fromEnv;
+	if (prod) {
+		const recorded = JSON.parse(fs.readFileSync("build-number.json", "utf8")).number;
+		return Number.isInteger(recorded) && recorded > 0 ? recorded : 0;
+	}
+	const shallow = git(["rev-parse", "--is-shallow-repository"]) === "true";
+	return shallow ? 0 : Number(git(["rev-list", "--count", "HEAD"])) || 0;
+}
+
 const buildInfoModule = {
 	name: "build-info",
 	setup(build) {
 		build.onResolve({ filter: /^taskchute:build-info$/ }, (args) => ({ path: args.path, namespace: "build-info" }));
 		build.onLoad({ filter: /.*/, namespace: "build-info" }, () => {
-			const shallow = git(["rev-parse", "--is-shallow-repository"]) === "true";
-			const info = { number: shallow ? 0 : Number(git(["rev-list", "--count", "HEAD"])) || 0 };
+			const info = { number: buildNumber() };
 			return { contents: `export default ${JSON.stringify(info)};`, loader: "js" };
 		});
 	},

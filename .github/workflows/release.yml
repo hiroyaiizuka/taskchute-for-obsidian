@@ -128,7 +128,16 @@ jobs:
             fs.writeFileSync("versions.json", JSON.stringify(versions, null, 2) + "\n")
           '
 
-          git add package.json package-lock.json manifest.json versions.json
+          # The build number the release commit will have (its parents plus
+          # itself). Committed rather than counted at build time, so a rebuild
+          # from a shallow clone of the tag -- which is how Obsidian's review
+          # checks the release -- comes out identical (see esbuild.config.mjs).
+          node -e '
+            const fs = require("fs")
+            fs.writeFileSync("build-number.json", JSON.stringify({ number: Number(process.argv[1]) + 1 }, null, 2) + "\n")
+          ' "$(git rev-list --count HEAD)"
+
+          git add package.json package-lock.json manifest.json versions.json build-number.json
           if git diff --cached --quiet; then
             echo "::error::version bump produced no staged changes"
             exit 1

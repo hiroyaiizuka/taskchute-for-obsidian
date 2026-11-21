@@ -24,20 +24,73 @@
 // guarantee that publishing is refused.
 // eslint.config.mjs is the day-to-day lint; this one is the release gate.
 import obsidianmd from "eslint-plugin-obsidianmd";
-import tseslint from "typescript-eslint";
-import { PlainTextParser } from "eslint-plugin-obsidianmd/dist/lib/plainTextParser.js";
+
+// What the community scanner leaves out, so the gate can lint the whole
+// repository the way the scanner does instead of only src/. 3.0.6 passed this
+// gate with nothing to report and still came back with 69 warnings, because
+// the scanner read the E2E suite (then at e2e/) and only src/ was linted here.
+//
+// The list is the one eslint-plugin-obsidianmd publishes in
+// docs/configuration.md ("Community plugin scanner configuration"), except for
+// the e2e entries: that list says `**/e2e/**` is skipped, but the scan of 3.0.6
+// read e2e/ all the same. They are left out on purpose, so anything put in an
+// e2e/ folder is reviewed here as the scanner reviewed it. Tests, the E2E suite
+// included, live under tests/, which the scanner has always skipped.
+const SCANNER_IGNORES = [
+  "main.js",
+  "**/*.min.js",
+  "**/{dist,build,out,release}/**/*.{js,cjs,mjs,jsx}",
+  "node_modules/**",
+  "dist/**",
+  "build/**",
+  "pkg/**",
+  "test-vault/**",
+  ".obsidian/**",
+  "**/.obsidian/**",
+  "esbuild.config.mjs",
+  "version-bump.mjs",
+  "**/*.test.*",
+  "**/*.tests.*",
+  "**/*.spec.*",
+  "**/*.specs.*",
+  "**/test/**",
+  "**/tests/**",
+  "**/__tests__/**",
+  "**/mocks/**",
+  "**/__mocks__/**",
+  "**/*.cjs",
+  "**/*.mjs",
+  "**/*.cts",
+  "**/*.mts",
+  "**/vite*",
+  "**/scripts/**",
+  "**/docs/**",
+  "**/i18n/**",
+  "**/i18next/**",
+  "**/locale/**",
+  "**/locales/**",
+  "**/translations/**",
+  "**/l10n/**",
+  ".pnpm-store/**",
+  "**/testUtils**",
+  "automation/**",
+  "**/wdio.conf.*",
+  "**/wdio.*.conf.*",
+  "**/playwright.config.*",
+  "**/{astro,babel,commitlint,docusaurus,esbuild,eslint,jest,oxlint,postcss,prettier,rolldown,rollup,stylelint,svelte,tailwind,tsdown,tsup,uno,webpack}.config.*",
+  "**/{eslint,jest}.*.config.*",
+  "**/jest.setup.*",
+  "**/.{babelrc,eslintrc,mocharc,prettierrc}.*",
+];
 
 export default [
   {
     ignores: [
-      "node_modules/**",
-      "dist/**",
-      "build/**",
+      ...SCANNER_IGNORES,
+      // Local only, never in the repository the scanner clones.
       "coverage/**",
-      "main.js",
-      ".obsidian/**",
-      "tests/**",
       "tmp/**",
+      "e2e-results/**",
       ".husky/**",
     ],
   },
@@ -68,29 +121,30 @@ export default [
     },
   },
 
-  // validate-manifest only runs when manifest.json itself is linted, so the
-  // recommended config's TS/JS blocks can never reach it. Type-aware parsing
-  // has to be off or the project service rejects the .json extension.
+  // The recommended config treats anything under e2e/ as a test and exempts
+  // it from the rules about code that runs in Obsidian, but the scanner did
+  // not: these are the rules behind 66 of 3.0.6's 69 warnings, all from e2e/.
+  // Turned back on there so a suite put in e2e/ again shows up here first.
   {
-    files: ["manifest.json"],
-    languageOptions: {
-      parser: tseslint.parser,
-      parserOptions: { project: false, projectService: false, program: null },
-    },
+    files: ["**/e2e/**/*.{ts,js}"],
     rules: {
-      ...tseslint.configs.disableTypeChecked.rules,
-      "obsidianmd/validate-manifest": "error",
+      "obsidianmd/no-nodejs-modules": ["warn", { isDesktopOnly: false }],
+      "obsidianmd/prefer-window-timers": "warn",
+      "obsidianmd/hardcoded-config-path": "warn",
+      "obsidianmd/prefer-create-el": "warn",
     },
   },
 
-  // Same story for validate-license, via the line-oriented parser the plugin
-  // ships for exactly this purpose.
+  // The recommended config reads manifest.json and LICENSE itself (0.5.0+),
+  // but only warns on what it finds there. A broken manifest or licence is
+  // refused outright, so the gate treats them as errors.
+  {
+    files: ["manifest.json"],
+    rules: { "obsidianmd/validate-manifest": "error" },
+  },
   {
     files: ["LICENSE"],
-    languageOptions: { parser: PlainTextParser },
-    rules: {
-      "obsidianmd/validate-license": "error",
-    },
+    rules: { "obsidianmd/validate-license": "error" },
   },
 
   // depend/ban-dependencies does not distinguish dev from prod, and moment does

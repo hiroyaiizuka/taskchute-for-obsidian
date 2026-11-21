@@ -509,7 +509,7 @@ export class TaskChuteView
           this.plugin.pathManager.getTaskFolderPath(),
         ),
       getDocumentContext: () => {
-        const doc = this.containerEl?.ownerDocument ?? document
+        const doc = this.containerEl?.ownerDocument ?? activeDocument
         const defaultView = (doc.defaultView) ?? null
         return {
           doc,
@@ -862,7 +862,7 @@ export class TaskChuteView
 
   private getContentContainer(): HTMLElement {
     const content = this.containerEl.children.item(1)
-    if (!(content instanceof HTMLElement)) {
+    if (!content?.instanceOf(HTMLElement)) {
       throw new Error("[TaskChuteView] content container not initialised")
     }
     return content
@@ -4264,7 +4264,7 @@ export class TaskChuteView
     const selector = `[data-instance-id="${inst.instanceId}"] .task-timer-display`
     const container = this.getTaskListElement()
     const timerEl = container.querySelector(selector)
-    if (timerEl instanceof HTMLElement) {
+    if (timerEl?.instanceOf(HTMLElement)) {
       this.taskListRenderer.updateTimerDisplay(timerEl, inst)
     }
   }
