@@ -123,7 +123,7 @@ test("ai-link-sync", async ({ obsidian, recorder }, testInfo) => {
   // Not recorded: "the AI process finishes on its own". In the terminal a CLI
   // that exits hands the session back to the login shell, so the run does not
   // end by itself; that row of the issue's table holds for conversation mode
-  // only (covered by e2e/specs/ai-link.spec.ts).
+  // only (covered by tests/e2e/specs/ai-link.spec.ts).
 
   await recorder.chapter("⑥ 片方を別の日付へ移動する", {
     sub: "まず未実行に戻してから、人間タスクを明日へ移す",

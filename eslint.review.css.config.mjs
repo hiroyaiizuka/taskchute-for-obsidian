@@ -28,6 +28,7 @@ export default [
       "css/no-important": "error",
       "obsidian-review-approx/no-has": "error",
       "obsidian-review-approx/partially-supported-feature": "error",
+      "obsidian-review-approx/partially-supported-css-feature": "warn",
     },
   },
 ];

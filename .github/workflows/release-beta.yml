@@ -132,10 +132,12 @@ jobs:
             fs.writeFileSync("manifest.json", JSON.stringify(manifest, null, 2) + "\n")
           ' "$TAG"
 
+      # A beta is never committed, so its build number is counted here instead
+      # of read from build-number.json (see esbuild.config.mjs).
       - name: Build plugin
         env:
           NODE_ENV: production
-        run: npm run build
+        run: TASKCHUTE_BUILD_NUMBER="$(git rev-list --count HEAD)" npm run build
 
       - name: Prepare release assets
         id: prep

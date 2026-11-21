@@ -168,7 +168,7 @@ export class TaskNameAutocomplete {
     this.inputElement = inputElement;
     this.containerElement = containerElement;
     this.view = options?.view;
-    this.doc = options?.doc ?? document;
+    this.doc = options?.doc ?? activeDocument;
     this.win = options?.win ?? window;
   }
 

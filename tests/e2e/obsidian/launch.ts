@@ -42,7 +42,7 @@ export interface ObsidianSession {
 
 // Fixed so the trust flag below can be keyed by it.
 const VAULT_ID = "e2e0000000000001"
-const VAULT_TEMPLATE = path.join(REPO_ROOT, "e2e", "fixtures", "vault")
+const VAULT_TEMPLATE = path.join(REPO_ROOT, "tests", "e2e", "fixtures", "vault")
 const PLUGIN_FILES = ["main.js", "manifest.json", "styles.css"]
 const CONNECT_TIMEOUT_MS = 30_000
 const READY_TIMEOUT_MS = 30_000

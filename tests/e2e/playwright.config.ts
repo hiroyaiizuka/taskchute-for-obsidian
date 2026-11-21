@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test"
 
 export default defineConfig({
   testDir: "./specs",
-  outputDir: "../e2e-results/output",
+  outputDir: "../../e2e-results/output",
   globalSetup: "./global-setup.ts",
   // Each test starts its own Obsidian; running them side by side just
   // competes for the display and the GPU process.
@@ -15,6 +15,6 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   reporter: [
     ["list"],
-    ["html", { outputFolder: "../e2e-results/report", open: "never" }],
+    ["html", { outputFolder: "../../e2e-results/report", open: "never" }],
   ],
 })

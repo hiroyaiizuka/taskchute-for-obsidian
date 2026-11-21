@@ -208,10 +208,10 @@ export default class RecipeReorderPointerDrag {
   private resolveTarget(session: DragSession, point: DragPoint): HTMLElement | null {
     // The ghost is `pointer-events: none`, so it never hides what is under it.
     const element = session.row.ownerDocument.elementFromPoint(point.clientX, point.clientY)
-    if (!(element instanceof Element)) return null
+    if (!element?.instanceOf(Element)) return null
 
     const row = element.closest(this.options.rowSelector)
-    if (!(row instanceof HTMLElement)) return null
+    if (!row?.instanceOf(HTMLElement)) return null
 
     const identity = this.rows.get(row)
     if (!identity) return null
