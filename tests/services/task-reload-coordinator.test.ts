@@ -316,4 +316,79 @@ describe('TaskReloadCoordinator', () => {
     expect(view.saveTaskOrders).toHaveBeenCalledTimes(1);
     expect(view.renderTaskList).toHaveBeenCalledTimes(1);
   });
+
+  describe('carried tasks keep their order (LEV-417)', () => {
+    const idle = (name: string, slotKey: string, order: number): TaskInstance =>
+      ({
+        task: { path: `TASKS/${name}.md`, isRoutine: false },
+        instanceId: name,
+        state: 'idle',
+        slotKey,
+        order,
+        date: '2025-10-09',
+      }) as TaskInstance;
+
+    const listed = (view: ViewStub, slot: string): string[] =>
+      view.taskInstances
+        .filter((inst) => inst.slotKey === slot)
+        .sort((a, b) => (a.order as number) - (b.order as number))
+        .map((inst) => inst.instanceId);
+
+    test('moves them as one block above the current slot instead of mixing them in', async () => {
+      const view = createViewStub();
+      view.taskInstances = [
+        idle('B-1', '8:00-12:00', 100),
+        idle('A-2', '0:00-8:00', 200),
+        idle('B-2', '8:00-12:00', 200),
+        idle('A-1', '0:00-8:00', 100),
+        idle('A-3', '0:00-8:00', 300),
+        idle('B-3', '8:00-12:00', 300),
+      ];
+
+      await new TaskReloadCoordinator(view).checkBoundaryTasks();
+
+      expect(listed(view, '8:00-12:00')).toEqual(['A-1', 'A-2', 'A-3', 'B-1', 'B-2', 'B-3']);
+      expect(view.persistSlotAssignment).toHaveBeenCalledTimes(3);
+      expect(view.saveTaskOrders).toHaveBeenCalledTimes(1);
+    });
+
+    test('keeps tasks from several past slots in slot order', async () => {
+      jest.setSystemTime(new Date(2025, 9, 9, 13, 0, 0, 0));
+      const view = createViewStub();
+      view.taskInstances = [
+        idle('B-1', '8:00-12:00', 100),
+        idle('A-1', '0:00-8:00', 100),
+        idle('C-1', '12:00-16:00', 100),
+        idle('B-2', '8:00-12:00', 200),
+        idle('A-2', '0:00-8:00', 200),
+      ];
+
+      await new TaskReloadCoordinator(view).checkBoundaryTasks();
+
+      expect(listed(view, '12:00-16:00')).toEqual(['A-1', 'A-2', 'B-1', 'B-2', 'C-1']);
+    });
+
+    test('numbers them from 100 when the current slot has no idle tasks', async () => {
+      const view = createViewStub();
+      view.taskInstances = [idle('A-1', '0:00-8:00', 300), idle('A-2', '0:00-8:00', 500)];
+
+      await new TaskReloadCoordinator(view).checkBoundaryTasks();
+
+      expect(view.taskInstances.map((inst) => [inst.instanceId, inst.order])).toEqual([
+        ['A-1', 100],
+        ['A-2', 200],
+      ]);
+    });
+
+    test('leaves the list alone when nothing is carried over', async () => {
+      const view = createViewStub();
+      view.taskInstances = [idle('B-1', '8:00-12:00', 100), idle('C-1', '12:00-16:00', 100)];
+
+      await new TaskReloadCoordinator(view).checkBoundaryTasks();
+
+      expect(view.saveTaskOrders).not.toHaveBeenCalled();
+      expect(view.renderTaskList).not.toHaveBeenCalled();
+      expect(view.taskInstances.map((inst) => inst.order)).toEqual([100, 100]);
+    });
+  });
 });
