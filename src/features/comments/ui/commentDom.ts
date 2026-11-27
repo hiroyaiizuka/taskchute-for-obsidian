@@ -149,7 +149,7 @@ export function createCommentTextarea(parent: HTMLElement, options: CommentTexta
  */
 export function preserveCommentFocus(root: HTMLElement | null | undefined, render: () => void): void {
   const active = root?.ownerDocument.activeElement
-  const focusKey = active instanceof HTMLTextAreaElement && root?.contains(active)
+  const focusKey = active?.instanceOf(HTMLTextAreaElement) && root?.contains(active)
     ? active.getAttribute(FOCUS_ATTR)
     : null
   const caret = focusKey ? (active as HTMLTextAreaElement).selectionEnd : 0

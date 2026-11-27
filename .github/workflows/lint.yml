@@ -32,3 +32,14 @@ jobs:
 
       - name: Lint
         run: npm run lint
+
+      # Obsidian's plugin review, run on every pull request rather than only at
+      # release time, so a finding shows up on the change that introduced it
+      # instead of on the plugin's public page after the release. Warnings are
+      # annotated on the diff but do not fail the check (see
+      # scripts/obsidian-review.mjs); errors do.
+      - name: Build plugin for review
+        run: npm run build
+
+      - name: Obsidian plugin review
+        run: npm run review:obsidian

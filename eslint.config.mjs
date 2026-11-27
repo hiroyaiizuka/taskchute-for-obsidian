@@ -360,6 +360,8 @@ export default [
   // Test files config
   {
     files: ["tests/**/*.{ts,tsx,js,jsx}", "**/*.test.{ts,tsx,js,jsx}"],
+    // The E2E suite has its own tsconfig and block below.
+    ignores: ["tests/e2e/**"],
     plugins: {
       obsidianmd,
       import: importPlugin,
@@ -402,11 +404,11 @@ export default [
   // On-device E2E suite: plain Node driving Obsidian through Playwright. It
   // never ships in main.js, so none of the plugin-review rules apply.
   {
-    files: ["e2e/**/*.ts"],
+    files: ["tests/e2e/**/*.ts"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
-        project: ["./e2e/tsconfig.json"],
+        project: ["./tests/e2e/tsconfig.json"],
         tsconfigRootDir,
       },
     },

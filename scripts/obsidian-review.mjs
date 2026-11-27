@@ -25,7 +25,9 @@ import { ESLint } from "eslint";
 import { scanCapabilities } from "./obsidian-review-capabilities.mjs";
 
 const REVIEW_CONFIG = "eslint.review.config.mjs";
-const REVIEW_TARGETS = ["src", "manifest.json", "LICENSE", "package.json"];
+// The whole repository, as the scanner reads it; eslint.review.config.mjs
+// carries the scanner's ignore list.
+const REVIEW_TARGETS = ["."];
 const CSS_CONFIG = "eslint.review.css.config.mjs";
 const CSS_TARGETS = ["styles.css"];
 // The capability scan reads what actually ships, so it needs a build. The

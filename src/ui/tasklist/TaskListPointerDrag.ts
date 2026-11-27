@@ -202,16 +202,16 @@ export default class TaskListPointerDrag {
   }
 
   private resolveTarget(session: DragSession, element: Element | null): HoverTarget | null {
-    if (!(element instanceof Element)) return null
+    if (!element?.instanceOf(Element)) return null
 
     const row = element.closest('.task-item')
-    if (row instanceof HTMLElement && row !== session.taskItem) {
+    if (row?.instanceOf(HTMLElement) && row !== session.taskItem) {
       const inst = this.rows.get(row)
       if (inst) return { kind: 'row', el: row, inst }
     }
 
     const header = element.closest('.time-slot-header')
-    if (header instanceof HTMLElement) {
+    if (header?.instanceOf(HTMLElement)) {
       const slot = this.slotHeaders.get(header)
       if (slot !== undefined) return { kind: 'slot', el: header, slot }
     }

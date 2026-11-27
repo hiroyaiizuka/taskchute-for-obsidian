@@ -284,7 +284,7 @@ async function updateToThisBuild(
   claude: string,
   reload: "real" | "stub" = "real",
 ): Promise<void> {
-  const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../.."), "main.js")
+  const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../../.."), "main.js")
   if (reload === "stub") {
     await page.evaluate(() => {
       const commands = window.app.commands as unknown as { executeCommandById(id: string): unknown }
@@ -580,7 +580,7 @@ test(`a ${OLD_RELEASE} runtime whose shutdown failed is not retried after the up
     // The update. This build drops the queued old runtime instead of
     // retrying it (that would send the token here, unproved) and reloads the
     // window once, even with AI tasks off, to end the client the handle kept.
-    const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../.."), "main.js")
+    const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../../.."), "main.js")
     await page.evaluate(() => {
       window.__lev391BeforeReload = true
     })
@@ -620,7 +620,7 @@ test(`updating from ${OLD_RELEASE} into a vault where AI tasks do not start stil
     // The update lands in a plugin without a license, so no AI runtime is
     // built and nothing takes the old one over. It must still be let go, and
     // the window reloaded, before its handoff timer or its client acts.
-    const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../.."), "main.js")
+    const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../../.."), "main.js")
     await page.evaluate(() => {
       window.__lev391BeforeReload = true
     })
@@ -676,7 +676,7 @@ test(`a ${OLD_RELEASE} runtime whose handoff expired while the plugin was off st
 
     // This build is enabled. It cannot find the old runtime, but sees that
     // the old release ran in this window, and reloads it once.
-    const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../.."), "main.js")
+    const thisBuild = path.join(process.env.TASKCHUTE_E2E_PLUGIN_DIR ?? path.resolve(__dirname, "../../.."), "main.js")
     fs.copyFileSync(thisBuild, path.join(vaultDir, ".obsidian", "plugins", PLUGIN_ID, "main.js"))
     await page.evaluate(() => {
       window.__lev391BeforeReload = true

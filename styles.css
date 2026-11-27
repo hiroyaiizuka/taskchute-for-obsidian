@@ -3062,10 +3062,28 @@ body.is-phone .taskchute-modal .modal-button-container {
 
   /* The filter and the add action share one flex section so they read as a
      pair at comfortable widths. Here they belong on different rows, which a
-     single grid item cannot do, so the section stops being a box of its own
-     and hands its children straight to the grid. */
+     single flex box cannot do, so the section covers the whole header and
+     borrows its tracks (subgrid), and its children are placed on the header's
+     own lines. `display: contents` did the same, but Obsidian's plugin review
+     flags it as only partly supported. The section is transparent to the
+     pointer so it does not cover the drawer toggle and the date navigator
+     underneath it; its own controls take the pointer back. */
   .top-bar-container > .header-action-section.has-board-view-switch {
-    display: contents;
+    display: grid;
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+    grid-template-columns: subgrid;
+    grid-template-rows: subgrid;
+    /* normal = the header's own gaps; the section's flex gap would offset
+       its children by a pixel. */
+    gap: normal;
+    align-items: center;
+    justify-self: stretch;
+    pointer-events: none;
+  }
+
+  .top-bar-container > .header-action-section.has-board-view-switch > * {
+    pointer-events: auto;
   }
 
   .top-bar-container.has-board-view-switch .add-task-button.repositioned {
@@ -4988,8 +5006,8 @@ body.is-phone .taskchute-modal .modal-button-container {
   background: var(--background-primary);
 }
 
-/* One grid for the whole table, not one per row: the rows are display: contents
-   so every row shares the same column tracks. Per-row grids drift apart as soon
+/* One grid for the whole table, not one per row: the body and the rows are
+   subgrids spanning every column, so every row shares the same column tracks. Per-row grids drift apart as soon
    as a cell's content changes width.
 
    Every track except the title is floored at max-content, so a bigger font or a
@@ -5019,9 +5037,13 @@ body.is-phone .taskchute-modal .modal-button-container {
   align-content: start;
 }
 
+/* Subgrid rather than `display: contents`, which Obsidian's plugin review
+   flags as only partly supported. */
 .routine-table__body,
 .routine-table__row {
-  display: contents;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
 }
 
 /* The separator lives on the cells, so the spacing between the columns has to
@@ -5049,12 +5071,15 @@ body.is-phone .taskchute-modal .modal-button-container {
   border-bottom: none;
 }
 
-/* The row itself cannot be sticky while it is display: contents, so each header
-   cell sticks on its own. */
-.routine-table__row--head > .routine-table__cell {
+/* The header row sticks as a whole. Its cells cannot stick on their own: a
+   sticky box stays inside its containing block, which is now the row. */
+.routine-table__row--head {
   position: sticky;
   top: 0;
   z-index: var(--tc-z-sticky);
+}
+
+.routine-table__row--head > .routine-table__cell {
   background: var(--background-primary);
   font-weight: 600;
   font-size: 0.88em;
@@ -7324,13 +7349,16 @@ body.is-phone .taskchute-modal .backup-confirm-buttons {
   pointer-events: auto;
 }
 
-/* The pane's name, for screen readers only. */
+/* The pane's name, for screen readers only. Hidden with opacity rather than
+   `clip-path`, which Obsidian's plugin review flags as only partly supported;
+   screen readers still read a transparent element. */
 .ai-run-pane__title {
   position: absolute;
   width: 1px;
   height: 1px;
   overflow: hidden;
-  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
   white-space: nowrap;
 }
 

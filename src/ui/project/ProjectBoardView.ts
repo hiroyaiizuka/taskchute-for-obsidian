@@ -220,7 +220,7 @@ export class ProjectBoardView extends ItemView {
       })
       card.textContent = item.displayTitle
       card.draggable = true
-      card.addEventListener('dragstart', (event) => this.handleDragStart(event, item.path))
+      card.addEventListener('dragstart', (event) => this.handleDragStart(event, card, item.path))
       card.addEventListener('dragend', (event) => this.handleDragEnd(event))
       card.addEventListener('dragover', (event) => this.handleCardDragOver(event, status, card, item))
       card.addEventListener('dragleave', (event) => this.handleCardDragLeave(event, card, item))
@@ -394,14 +394,13 @@ export class ProjectBoardView extends ItemView {
     }
   }
 
-  private handleDragStart(event: DragEvent, path: string): void {
+  private handleDragStart(event: DragEvent, card: HTMLElement, path: string): void {
     this.dragPath = path
-    if (event.currentTarget instanceof HTMLElement) {
-      this.dragElement = event.currentTarget
-      event.currentTarget.classList.add('project-board-card--dragging')
-    } else {
-      this.dragElement = null
-    }
+    // The card the listener is on, rather than event.currentTarget: that is
+    // only an EventTarget, and checking it with `instanceof HTMLElement` is
+    // false for a card in a popout window.
+    this.dragElement = card
+    card.classList.add('project-board-card--dragging')
     if (event.dataTransfer) {
       event.dataTransfer.setData('text/plain', path)
       event.dataTransfer.effectAllowed = 'move'

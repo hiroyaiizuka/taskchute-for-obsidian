@@ -8,7 +8,7 @@ description: Record a captioned, narrated walkthrough of TaskChute Plus running 
 `npm run record:video` builds the plugin, starts a real Obsidian on a throwaway
 vault, plays a scripted scenario at reading speed, and writes an mp4 with a
 caption bar, a dot at the mouse position and a read-aloud narration. The tools
-live in `e2e/recording/`; they reuse the E2E suite's launcher and helpers.
+live in `tests/e2e/recording/`; they reuse the E2E suite's launcher and helpers.
 
 ## What a recording is for
 
@@ -72,7 +72,7 @@ other windows; the picture is taken from the window itself, not the screen.
   warning and records captions only.
 - **Fake AI CLI** (`writeSwitchableFakeClaude`) is a POSIX shell script: macOS,
   Linux and WSL. On native Windows record AI scenes with the real CLI.
-- **Real Claude Code**: `e2e/recording/aiTerminal.ts` finds it on PATH
+- **Real Claude Code**: `tests/e2e/recording/aiTerminal.ts` finds it on PATH
   (`realClaudePath`), waits for its screen and accepts the trust prompt of
   the fresh vault (`waitForClaude`), and reads what a terminal printed
   (`printed`) — Windows has no transcript file. `windows-ai-pane.spec.ts` is
@@ -83,7 +83,7 @@ other windows; the picture is taken from the window itself, not the screen.
 
 ## Writing a scenario
 
-A scenario is a Playwright test in `e2e/recording/scenarios/*.spec.ts`. Its
+A scenario is a Playwright test in `tests/e2e/recording/scenarios/*.spec.ts`. Its
 title is the output name. `ai-link-sync.spec.ts` is the worked example.
 
 ```ts
@@ -130,7 +130,7 @@ test("my-feature", async ({ obsidian, recorder }) => {
 - Notes go in with `createNotes(page, { "TaskChute/Task/名前.md": "…" })`. It
   first re-indexes the vault: on macOS a fresh vault leaves the `TaskChute`
   folder out of Obsidian's file tree, and notes created under it never show up.
-- Reuse `e2e/helpers/aiTask.ts` (`enableAiTasks`, `taskRow`, `rowState`,
+- Reuse `tests/e2e/helpers/aiTask.ts` (`enableAiTasks`, `taskRow`, `rowState`,
   `openTaskChute`) rather than new selectors.
 - **AI runs are recorded in the terminal**, because that is the plugin's
   default and what users see: `enableAiTasks(page, cliPath, "terminal")`. The

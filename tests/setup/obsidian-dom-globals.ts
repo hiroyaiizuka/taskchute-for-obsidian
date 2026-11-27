@@ -107,6 +107,15 @@ Object.assign(window, {
 })
 
 Object.defineProperties(Node.prototype, {
+  // Obsidian's cross-window instanceof. There is only one window under jsdom,
+  // so the plain operator is the same check.
+  instanceOf: {
+    configurable: true,
+    writable: true,
+    value(this: Node, type: new () => unknown) {
+      return this instanceof type
+    },
+  },
   win: {
     configurable: true,
     get(this: Node) {
